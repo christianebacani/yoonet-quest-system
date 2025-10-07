@@ -1,0 +1,326 @@
+/* ========================================
+   STANDARDIZED BUTTON FRAMEWORK
+   UI/UX Intuitive Design System
+======================================== */
+
+:root {
+    /* Button Colors */
+    --btn-primary-bg: #4338ca;
+    --btn-primary-hover: #3730a3;
+    --btn-secondary-bg: #6b7280;
+    --btn-secondary-hover: #4b5563;
+    --btn-success-bg: #059669;
+    --btn-success-hover: #047857;
+    --btn-danger-bg: #dc2626;
+    --btn-danger-hover: #b91c1c;
+    --btn-navigation-bg: #f3f4f6;
+    --btn-navigation-hover: #e5e7eb;
+    --btn-navigation-text: #374151;
+    
+    /* Button Sizing */
+    --btn-padding-sm: 8px 12px;
+    --btn-padding-md: 12px 20px;
+    --btn-padding-lg: 16px 24px;
+    --btn-font-size-sm: 0.875rem;
+    --btn-font-size-md: 1rem;
+    --btn-font-size-lg: 1.125rem;
+    
+    /* Effects */
+    --btn-transition: all 0.2s ease-in-out;
+    --btn-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    --btn-shadow-hover: 0 4px 8px rgba(0, 0, 0, 0.15);
+    --btn-radius: 8px;
+}
+
+/* ========================================
+   BASE BUTTON STYLES
+======================================== */
+
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: var(--btn-padding-md);
+    font-size: var(--btn-font-size-md);
+    font-weight: 500;
+    text-decoration: none;
+    border: none;
+    border-radius: var(--btn-radius);
+    cursor: pointer;
+    transition: var(--btn-transition);
+    box-shadow: var(--btn-shadow);
+    white-space: nowrap;
+    min-height: 44px; /* Touch-friendly minimum */
+}
+
+.btn:focus {
+    outline: 2px solid transparent;
+    outline-offset: 2px;
+    box-shadow: 0 0 0 3px rgba(67, 56, 202, 0.3);
+}
+
+.btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none !important;
+}
+
+/* ========================================
+   BUTTON VARIANTS
+======================================== */
+
+/* Primary Button - Main actions */
+.btn-primary {
+    background-color: var(--btn-primary-bg);
+    color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+    background-color: var(--btn-primary-hover);
+    transform: translateY(-1px);
+    box-shadow: var(--btn-shadow-hover);
+}
+
+/* Secondary Button - Secondary actions */
+.btn-secondary {
+    background-color: var(--btn-secondary-bg);
+    color: white;
+}
+
+.btn-secondary:hover:not(:disabled) {
+    background-color: var(--btn-secondary-hover);
+    transform: translateY(-1px);
+    box-shadow: var(--btn-shadow-hover);
+}
+
+/* Success Button - Positive actions */
+.btn-success {
+    background-color: var(--btn-success-bg);
+    color: white;
+}
+
+.btn-success:hover:not(:disabled) {
+    background-color: var(--btn-success-hover);
+    transform: translateY(-1px);
+    box-shadow: var(--btn-shadow-hover);
+}
+
+/* Danger Button - Destructive actions */
+.btn-danger {
+    background-color: var(--btn-danger-bg);
+    color: white;
+}
+
+.btn-danger:hover:not(:disabled) {
+    background-color: var(--btn-danger-hover);
+    transform: translateY(-1px);
+    box-shadow: var(--btn-shadow-hover);
+}
+
+/* Navigation Button - Back/navigation actions */
+.btn-navigation {
+    background-color: var(--btn-navigation-bg);
+    color: var(--btn-navigation-text);
+    border: 1px solid #d1d5db;
+}
+
+.btn-navigation:hover:not(:disabled) {
+    background-color: var(--btn-navigation-hover);
+    transform: translateY(-1px);
+    box-shadow: var(--btn-shadow-hover);
+}
+
+/* Outline variants */
+.btn-outline-primary {
+    background-color: transparent;
+    color: var(--btn-primary-bg);
+    border: 2px solid var(--btn-primary-bg);
+}
+
+.btn-outline-primary:hover:not(:disabled) {
+    background-color: var(--btn-primary-bg);
+    color: white;
+}
+
+/* ========================================
+   BUTTON SIZES
+======================================== */
+
+.btn-sm {
+    padding: var(--btn-padding-sm);
+    font-size: var(--btn-font-size-sm);
+    min-height: 36px;
+}
+
+.btn-lg {
+    padding: var(--btn-padding-lg);
+    font-size: var(--btn-font-size-lg);
+    min-height: 52px;
+}
+
+/* ========================================
+   BUTTON LAYOUTS
+======================================== */
+
+/* Full width for mobile/forms */
+.btn-full {
+    width: 100%;
+}
+
+/* Button groups */
+.btn-group {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.btn-group-center {
+    justify-content: center;
+}
+
+.btn-group-right {
+    justify-content: flex-end;
+}
+
+.btn-group-between {
+    justify-content: space-between;
+}
+
+/* ========================================
+   NAVIGATION HEADER STYLES
+======================================== */
+
+.nav-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    background: white;
+    border-bottom: 1px solid #e5e7eb;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.nav-left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.nav-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.nav-title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: #374151;
+    margin: 0;
+}
+
+/* ========================================
+   BACK BUTTON SPECIFIC STYLES
+======================================== */
+
+.btn-back {
+    position: relative;
+    font-weight: 500;
+}
+
+.btn-back .btn-icon {
+    transition: transform 0.2s ease;
+}
+
+.btn-back:hover .btn-icon {
+    transform: translateX(-2px);
+}
+
+/* ========================================
+   RESPONSIVE DESIGN
+======================================== */
+
+@media (max-width: 768px) {
+    .btn-group {
+        flex-direction: column;
+        width: 100%;
+    }
+    
+    .btn-group .btn {
+        width: 100%;
+    }
+    
+    .btn-group-between {
+        flex-direction: column-reverse;
+    }
+    
+    .nav-header {
+        padding: 12px 16px;
+    }
+    
+    .nav-right .btn-text {
+        display: none; /* Hide text on mobile, keep icons */
+    }
+    
+    .btn {
+        padding: 12px 16px;
+        min-height: 48px; /* Larger touch targets on mobile */
+    }
+}
+
+@media (max-width: 480px) {
+    .btn {
+        font-size: 0.95rem;
+    }
+    
+    .nav-header {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+}
+
+/* ========================================
+   FORM SPECIFIC BUTTON LAYOUTS
+======================================== */
+
+.form-actions {
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid #e5e7eb;
+}
+
+.form-actions-center {
+    text-align: center;
+}
+
+.form-actions-right {
+    text-align: right;
+}
+
+/* ========================================
+   ACCESSIBILITY ENHANCEMENTS
+======================================== */
+
+.btn:focus-visible {
+    outline: 2px solid var(--btn-primary-bg);
+    outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .btn {
+        transition: none;
+    }
+    
+    .btn:hover {
+        transform: none;
+    }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+    .btn {
+        border: 2px solid;
+    }
+}

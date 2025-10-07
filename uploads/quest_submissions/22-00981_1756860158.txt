@@ -1,0 +1,27 @@
+This is the table of 'yoonet_quest' database
+
+employee_groups: id	group_name	description	created_by	created_at	
+
+group_members: group_id	employee_id	added_at	
+
+leaderboard: id	employee_id	total_xp	last_updated
+
+quests: id title description xp status due_date created_by created_at updated_at category_id quest_type visibility recurrence_pattern recurrence_end_date publish_at
+
+quest_attachments: id quest_id file_name file_path file_size file_type uploaded_at
+
+quest_categories: id name description icon
+
+quest_prerequisites: quest_id required_quest_idd
+
+quest_submissions: id employee_id quest_id submission_type file_path drive_link submitted_at status reviewed_by reviewed_at feedback additional_xp
+
+quest_subtasks: id quest_id description is_completed
+
+users: id employee_id password full_name email role created_at
+
+user_preferences: id	employee_id	preferred_categories	difficulty_preference
+
+user_quests: id employee_id quest_id status assigned_at completed_at
+
+xp_history: id	employee_id	xp_change	source_type	source_id	description	created_at
