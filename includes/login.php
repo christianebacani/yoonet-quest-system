@@ -32,8 +32,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['login'])) {
         $profile_completed = $user['profile_completed'] ?? false;
         
         if (!$profile_completed) {
-            // New user - send to dashboard with welcome flag so they can view or complete profile
-            header('Location: ../dashboard.php?welcome=1');
+            // New user - send to profile setup to complete their profile
+            header('Location: ../profile_setup.php');
         } else {
             // Existing user - redirect to landing page
             header('Location: ../landing.php');
