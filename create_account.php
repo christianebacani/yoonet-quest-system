@@ -10,16 +10,18 @@ $role = $_SESSION['role'] ?? '';
 
 // Simple role renaming
 if ($role === 'hybrid') {
-    $role = 'contributor';
+    $role = 'quest_lead';
 } elseif ($role === 'quest_taker') {
-    $role = 'participant';
+    $role = 'skill_associate';
 } elseif ($role === 'quest_giver') {
-    $role = 'contributor';
+    $role = 'quest_lead';
+} elseif ($role === 'contributor') {
+    $role = 'quest_lead';
 }
 
-if (!in_array($role, ['contributor'])) { // was 'hybrid'
+if (!in_array($role, ['quest_lead'])) { // was 'contributor'
     echo '<div style="background:#ffecec;color:#d8000c;padding:10px;border:1px solid #d8000c;">';
-    echo 'Access denied. Your role is: ' . htmlspecialchars($role) . '. Only contributors can access this page.';
+    echo 'Access denied. Your role is: ' . htmlspecialchars($role) . '. Only Quest Leads can access this page.';
     echo '</div>';
     exit;
 }
@@ -40,7 +42,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $new_employee_id = sanitize_user_input($_POST['employee_id'] ?? '');
         $new_name = sanitize_user_input($_POST['name'] ?? '');
         $new_email = sanitize_user_input($_POST['email'] ?? '');
-        $new_role = sanitize_user_input($_POST['role'] ?? 'participant');
+        $new_role = sanitize_user_input($_POST['role'] ?? 'skill_associate');
         $new_gender = sanitize_user_input($_POST['gender'] ?? '');
         $new_password = $_POST['password'] ?? ''; // Don't sanitize password as it might remove special chars
         $confirm_password = $_POST['confirm_password'] ?? '';
@@ -78,7 +80,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Passwords do not match.';
         }
         // Role validation
-        elseif (!in_array($new_role, ['participant', 'contributor'])) {
+        elseif (!in_array($new_role, ['skill_associate', 'quest_lead'])) {
             $error = 'Invalid role selected.';
         }
         // Gender validation
@@ -821,8 +823,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <div class="form-group">
                 <label for="role" class="form-label">Role</label>
                 <select name="role" id="role" class="form-select">
-                    <option value="participant">Participant</option>
-                    <option value="contributor">Contributor</option>
+                    <option value="skill_associate">Skill Associate</option>
+                    <option value="quest_lead">Quest Lead</option>
                 </select>
             </div>
             <div class="form-group">
@@ -1211,7 +1213,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 
                 // Role validation
-                if (role && !['participant', 'contributor'].includes(role)) {
+                if (role && !['skill_associate', 'quest_lead'].includes(role)) {
                     validationErrors.push('Invalid role selected');
                 }
                 
