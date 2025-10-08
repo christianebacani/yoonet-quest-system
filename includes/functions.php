@@ -272,4 +272,34 @@ function check_rate_limit($ip_address, $time_window = 300, $max_attempts = 5) {
     
     return true;
 }
+
+/**
+ * Format availability for display with appropriate styling
+ * @param string $availability The availability value from database
+ * @param bool $with_icon Whether to include clock icon
+ * @return string Formatted HTML for availability display
+ */
+function format_availability($availability, $with_icon = true) {
+    $availability_options = [
+        'full_time' => ['label' => 'Full-time', 'subtitle' => '40+ hrs/week'],
+        'part_time' => ['label' => 'Part-time', 'subtitle' => '20-40 hrs/week'],
+        'casual' => ['label' => 'Casual', 'subtitle' => '<20 hrs/week'],
+        'project_based' => ['label' => 'Project-based', 'subtitle' => 'Flexible timing']
+    ];
+    
+    if (empty($availability) || !isset($availability_options[$availability])) {
+        return '<span style="color: #9ca3af;">—</span>';
+    }
+    
+    $option = $availability_options[$availability];
+    $icon = $with_icon ? '<i class="fas fa-clock"></i>' : '';
+    
+    return sprintf(
+        '<span class="availability-badge availability-%s">%s%s<span class="availability-subtitle">(%s)</span></span>',
+        htmlspecialchars($availability),
+        $icon,
+        htmlspecialchars($option['label']),
+        htmlspecialchars($option['subtitle'])
+    );
+}
 ?>
