@@ -11,12 +11,14 @@ $role = $_SESSION['role'] ?? '';
 
 // Simple role renaming
 if ($role === 'hybrid') {
-    $role = 'contributor';
+    $role = 'learning_architect';
 } elseif ($role === 'quest_giver') {
-    $role = 'contributor';
+    $role = 'learning_architect';
+} elseif ($role === 'contributor') {
+    $role = 'learning_architect';
 }
 
-if (!in_array($role, ['contributor'])) { // was ['quest_giver', 'hybrid']
+if (!in_array($role, ['learning_architect'])) { // was ['quest_giver', 'hybrid']
     header('Location: dashboard.php');
     exit();
 }
@@ -46,7 +48,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == 'get_group_members' && isset($_GET[
                               FROM group_members gm
                               JOIN users u ON gm.employee_id = u.employee_id
                               WHERE gm.group_id = ? 
-                              AND u.role IN ('participant', 'contributor')
+                              AND u.role IN ('skill_associate', 'quest_lead')
                               AND u.employee_id != ?
                               ORDER BY u.full_name");
         $stmt->execute([$group_id, $current_user_id]);
@@ -104,7 +106,7 @@ try {
 $title = $quest['title'] ?? '';
 $description = $quest['description'] ?? '';
 $xp = $quest['xp'] ?? 10;
-$category_id = $quest['category_id'] ?? null;
+$quest_assignment_type = $quest['quest_assignment_type'] ?? 'optional';
 $due_date = $quest['due_date'] ?? null;
 $status = $quest['status'] ?? 'active';
 $assign_to = !empty($quest['assigned_employees']) ? explode(',', $quest['assigned_employees']) : [];
@@ -115,23 +117,18 @@ $recurrence_pattern = $quest['recurrence_pattern'] ?? '';
 $recurrence_end_date = $quest['recurrence_end_date'] ?? '';
 $publish_at = $quest['publish_at'] ?? '';
 
-// Fetch employees, categories, and groups for assignment
+// Fetch employees and groups for assignment
 $employees = [];
-$categories = [];
 $groups = [];
 try {
-    // Get all participants and contributors EXCEPT the current user
+    // Get all skill_associates and quest_leads EXCEPT the current user
     $current_user_id = $_SESSION['employee_id'];
     $stmt = $pdo->prepare("SELECT employee_id, full_name FROM users 
-                          WHERE role IN ('participant', 'contributor') 
+                          WHERE role IN ('skill_associate', 'quest_lead') 
                           AND employee_id != ?
                           ORDER BY full_name");
     $stmt->execute([$current_user_id]);
     $employees = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    
-    // Get all quest categories with icons
-    $stmt = $pdo->query("SELECT id, name, icon FROM quest_categories ORDER BY name");
-    $categories = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
     // Get all employee groups
     $stmt = $pdo->query("SELECT id, group_name FROM employee_groups ORDER BY group_name");
@@ -144,7 +141,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $title = trim($_POST['title'] ?? '');
     $description = trim($_POST['description'] ?? '');
     $xp = intval($_POST['xp'] ?? 0);
-    $category_id = isset($_POST['category_id']) ? intval($_POST['category_id']) : null;
+    $quest_assignment_type = isset($_POST['quest_assignment_type']) ? $_POST['quest_assignment_type'] : 'optional';
     $due_date = !empty($_POST['due_date']) ? $_POST['due_date'] : null;
     $assign_to = isset($_POST['assign_to']) ? $_POST['assign_to'] : [];
     $assign_group = isset($_POST['assign_group']) ? $_POST['assign_group'] : null;
@@ -169,8 +166,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Description must be less than 2000 characters';
     } elseif ($xp < 1 || $xp > 100) {
         $error = 'XP must be between 1 and 100';
-    } elseif (empty($category_id)) {
-        $error = 'Category is required';
+    } elseif (!in_array($quest_assignment_type, ['mandatory', 'optional'])) {
+        $error = 'Please select a valid assignment type (mandatory or optional)';
     } elseif (!empty($due_date) && !strtotime($due_date)) {
         $error = 'Invalid due date format';
     } elseif ($quest_type == 'recurring' && empty($recurrence_pattern)) {
@@ -180,24 +177,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif (!empty($publish_at) && !strtotime($publish_at)) {
         $error = 'Invalid publish date/time format';
     } else {
-        // Validate category exists
-        try {
-            $stmt = $pdo->prepare("SELECT id FROM quest_categories WHERE id = ?");
-            $stmt->execute([$category_id]);
-            if (!$stmt->fetch()) {
-                $error = 'Selected category does not exist';
-            }
-        } catch (PDOException $e) {
-            $error = 'Error validating category: ' . $e->getMessage();
-        }
-        
-        // Validate assigned employees exist and are quest takers
+        // Validate assigned employees exist and are quest participants
         if (empty($error) && !empty($assign_to)) {
             try {
                 $placeholders = implode(',', array_fill(0, count($assign_to), '?'));
                 $stmt = $pdo->prepare("SELECT COUNT(*) FROM users 
                                       WHERE employee_id IN ($placeholders) 
-                                      AND role IN ('participant', 'contributor')
+                                      AND role IN ('skill_seeker', 'learning_architect')
                                       AND employee_id != ?");
                 $params = $assign_to;
                 $params[] = $_SESSION['employee_id'];
@@ -205,7 +191,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $count = $stmt->fetchColumn();
                 
                 if ($count != count($assign_to)) {
-                    $error = 'One or more assigned employees are invalid or not quest takers';
+                    $error = 'One or more assigned employees are invalid or not quest participants';
                 }
             } catch (PDOException $e) {
             $error = 'Error validating assigned employees: ' . $e->getMessage();
@@ -280,7 +266,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     xp = ?, 
                     status = ?, 
                     due_date = ?, 
-                    category_id = ?,
+                    quest_assignment_type = ?,
                     quest_type = ?, 
                     visibility = ?, 
                     recurrence_pattern = ?, 
@@ -294,7 +280,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $xp, 
                     $status, 
                     $due_date,
-                    $category_id,
+                    $quest_assignment_type,
                     $quest_type,
                     $visibility,
                     $recurrence_pattern,
@@ -392,13 +378,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             continue; // Skip this assignment
                         }
 
+                        // Determine quest status based on assignment type
+                        $quest_status = ($quest_assignment_type === 'mandatory') ? 'in_progress' : 'assigned';
+                        
                         // Assign quest to user
                         $stmt = $pdo->prepare("INSERT INTO user_quests 
                             (employee_id, quest_id, status, assigned_at) 
-                            VALUES (?, ?, 'assigned', NOW())");
-                        $stmt->execute([$employee_id, $quest_id]);
+                            VALUES (?, ?, ?, NOW())");
+                        $stmt->execute([$employee_id, $quest_id, $quest_status]);
                         
                         // Record in XP history using the user's id (not employee_id) for the foreign key constraint
+                        $assignment_description = ($quest_assignment_type === 'mandatory') ? 
+                            "Mandatory quest auto-assigned: $title" : 
+                            "Optional quest assigned: $title";
                         $stmt = $pdo->prepare("INSERT INTO xp_history 
                             (employee_id, xp_change, source_type, source_id, description, created_at)
                             VALUES (?, ?, 'quest_assigned', ?, ?, NOW())");
@@ -406,7 +398,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $user['id'], // Use the user's id (primary key) instead of employee_id
                             0, // No XP change on assignment
                             $quest_id,
-                            "Quest assigned: $title"
+                            $assignment_description
                         ]);
                     }
                 }
@@ -698,16 +690,6 @@ function getFontSize() {
         
         .tab-content.active {
             display: block;
-        }
-        
-        .category-icon {
-            width: 24px;
-            height: 24px;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            margin-right: 8px;
-            color: #6366f1;
         }
         
         .xp-input-container {
@@ -1014,18 +996,15 @@ function getFontSize() {
 
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
-                                <label for="category_id" class="block text-sm font-medium text-gray-700 mb-1">Category*</label>
-                                <select name="category_id" id="category_id" 
+                                <label for="quest_assignment_type" class="block text-sm font-medium text-gray-700 mb-1">Assignment Type*</label>
+                                <select name="quest_assignment_type" id="quest_assignment_type" 
                                         class="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300" required>
-                                    <option value="">-- Select Category --</option>
-                                    <?php foreach ($categories as $category): ?>
-                                        <option value="<?php echo $category['id']; ?>" <?php echo $category_id == $category['id'] ? 'selected' : ''; ?>>
-                                            <?php if ($category['icon']): ?>
-                                                <i class="<?php echo htmlspecialchars($category['icon']); ?> category-icon"></i>
-                                            <?php endif; ?>
-                                            <?php echo htmlspecialchars($category['name']); ?>
-                                        </option>
-                                    <?php endforeach; ?>
+                                    <option value="optional" <?php echo $quest_assignment_type === 'optional' ? 'selected' : ''; ?>>
+                                        Optional - Users can accept or decline this quest
+                                    </option>
+                                    <option value="mandatory" <?php echo $quest_assignment_type === 'mandatory' ? 'selected' : ''; ?>>
+                                        Mandatory - Automatically assigned to users
+                                    </option>
                                 </select>
                             </div>
                             <div>
@@ -1722,23 +1701,6 @@ function getFontSize() {
                 
                 return $container;
             }
-
-            // Initialize Select2 for category selection with icons
-            function formatCategory(category) {
-                if (!category.id) return category.text;
-                var $icon = $(category.element).find('.category-icon').clone();
-                var $category = $('<span></span>');
-                $category.append($icon);
-                $category.append(' ' + category.text);
-                return $category;
-            }
-            
-            $('#category_id').select2({
-                templateResult: formatCategory,
-                templateSelection: formatCategory,
-                escapeMarkup: function(m) { return m; },
-                width: '100%'
-            });
 
             // Initialize date pickers with time selection for due date
             // --- COPIED FROM create_quest.php for calendar consistency ---
