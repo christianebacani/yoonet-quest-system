@@ -96,34 +96,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             break;
             
-        case '2': // Skills
-            $skills = $_POST['skills'] ?? [];
-            
-            try {
-                // Delete existing skills
-                $stmt = $pdo->prepare("DELETE FROM user_skills WHERE user_id = ?");
-                $stmt->execute([$user_id]);
-                
-                // Insert selected skills
-                if (!empty($skills)) {
-                    $stmt = $pdo->prepare("INSERT INTO user_skills (user_id, skill_name, skill_level) VALUES (?, ?, ?)");
-                    foreach ($skills as $skill => $level) {
-                        if ($level > 0) {
-                            $stmt->execute([$user_id, $skill, $level]);
-                        }
-                    }
-                }
-                
-                $success = "Skills updated successfully!";
-                header("Location: profile_setup.php?step=3");
-                exit;
-            } catch (PDOException $e) {
-                error_log("Error updating skills: " . $e->getMessage());
-                $error = "Failed to update skills.";
-            }
-            break;
-            
-        case '3': // Quest Interests & Availability
+        case '2': // Quest Interests & Availability
             $quest_interests = $_POST['quest_interests'] ?? [];
             $availability = sanitize_user_input($_POST['availability'] ?? '');
             $job_position = sanitize_user_input($_POST['job_position'] ?? '');
@@ -161,56 +134,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// Get user's current skills
-$user_skills = [];
-try {
-    if ($user_id) {
-        $stmt = $pdo->prepare("SELECT skill_name, skill_level FROM user_skills WHERE user_id = ?");
-        $stmt->execute([$user_id]);
-        $user_skills = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
-    }
-} catch (PDOException $e) {
-    error_log("Error loading user skills: " . $e->getMessage());
-    $user_skills = [];
-}
-
 // If the step wasn't specified in the URL, infer the most relevant step from saved data
 if ($step === null) {
     // Default to step 1
     $inferred = 1;
-    // If there are skills saved, user likely is on step 2
-    if (!empty($user_skills)) {
-        $inferred = 2;
-    }
-    // If quest preferences / availability or job_position were already set, move to step 3
+    // If quest preferences / availability or job_position were already set, move to step 2
     if (!empty($user['quest_interests']) || !empty($user['availability']) || !empty($user['job_position']) || (!empty($user) && ($user['profile_completed'] ?? 0))) {
-        $inferred = 3;
+        $inferred = 2;
     }
     $step = $inferred;
 }
 
 // If view mode is requested, also load quest interests and availability
 // view handled in separate profile_view.php
-
-// Predefined skills with categories
-$skill_categories = [
-    'Technical Skills' => [
-        'PHP', 'JavaScript', 'Python', 'Java', 'C++', 'HTML/CSS', 'SQL', 'React', 'Vue.js', 'Node.js',
-        'Laravel', 'WordPress', 'Git', 'Docker', 'AWS', 'Linux', 'MongoDB', 'MySQL'
-    ],
-    'Design Skills' => [
-        'UI/UX Design', 'Graphic Design', 'Adobe Photoshop', 'Adobe Illustrator', 'Figma', 'Sketch',
-        'InDesign', 'After Effects', 'Blender', '3D Modeling', 'Typography', 'Branding'
-    ],
-    'Business Skills' => [
-        'Project Management', 'Team Leadership', 'Strategic Planning', 'Data Analysis', 'Marketing',
-        'Sales', 'Customer Service', 'Public Speaking', 'Negotiation', 'Financial Analysis'
-    ],
-    'Soft Skills' => [
-        'Communication', 'Problem Solving', 'Critical Thinking', 'Creativity', 'Adaptability',
-        'Time Management', 'Teamwork', 'Leadership', 'Emotional Intelligence', 'Mentoring'
-    ]
-];
 
 // Job positions mapping (value => label)
 $job_positions = [
@@ -464,159 +400,6 @@ $job_positions = [
             font-size: 1rem;
         }
         
-        /* Skills Grid */
-        .skills-grid {
-            display: grid;
-            gap: 25px;
-            margin-bottom: 30px;
-        }
-        
-        .skill-category {
-            background: #f8fafc;
-            border-radius: 15px;
-            padding: 25px;
-            border: 1px solid #e2e8f0;
-        }
-        
-        .category-title {
-            font-weight: 600;
-            color: #1f2937;
-            margin-bottom: 15px;
-            font-size: 1.1rem;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        /* Group icon + name on the left and push actions to the right */
-        .category-title .category-left {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .category-title .category-name {
-            display: inline-block;
-        }
-
-        .category-title .category-actions {
-            margin-left: auto;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-    /* ...existing styles... */
-        .skill-category.clickable { cursor: pointer; }
-        
-        .add-other-skill-btn {
-            background: linear-gradient(135deg, #10b981, #059669);
-            color: white;
-            border: none;
-            padding: 6px 12px;
-            border-radius: 6px;
-            font-size: 0.85rem;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            display: flex;
-            align-items: center;
-            gap: 4px;
-        }
-        
-        .add-other-skill-btn:hover {
-            background: linear-gradient(135deg, #059669, #047857);
-            transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
-        }
-        
-        .skills-list {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-        }
-        
-        .skill-item {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            background: white;
-            padding: 12px 16px;
-            border-radius: 8px;
-            border: 1px solid #e5e7eb;
-            transition: all 0.2s ease;
-        }
-        
-        .skill-item:hover {
-            border-color: #4338ca;
-            box-shadow: 0 2px 8px rgba(67, 56, 202, 0.1);
-            transform: translateY(-1px);
-        }
-        
-        .skill-item:hover .skill-name {
-            color: #4338ca;
-        }
-        
-        .skill-item:hover .level-dot {
-            transform: scale(1.05);
-        }
-        
-        /* Add cursor pointer to skill items to indicate they're interactive */
-        .skill-level {
-            cursor: pointer;
-        }
-        
-        /* Show different cursor when skill is selected (can be unselected) */
-        .skill-item.skill-selected {
-            cursor: pointer;
-            border-color: #10b981;
-        }
-        
-        .skill-item.skill-selected:hover {
-            border-color: #ef4444;
-            background-color: #fef2f2;
-        }
-        
-        .skill-item.skill-selected:hover .skill-name {
-            color: #ef4444;
-        }
-        
-        .skill-item.skill-selected:hover .skill-name::after {
-            content: " (click to unselect)";
-            font-size: 0.8em;
-            color: #ef4444;
-            font-weight: normal;
-        }
-
-    /* ...existing styles... */
-        
-        .skill-name {
-            font-weight: 500;
-            color: #374151;
-        }
-        
-        .skill-level {
-            display: flex;
-            gap: 4px;
-        }
-        
-        .level-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: #d1d5db;
-            cursor: pointer;
-            transition: background 0.2s ease;
-        }
-        
-        .level-dot.active {
-            background: #4338ca;
-        }
-        
-        .level-dot:hover {
-            background: #6366f1;
-        }
-        
         /* Quest Interests Grid */
         .quest-interests-grid {
             display: grid;
@@ -661,32 +444,6 @@ $job_positions = [
         .quest-interest-item:has(input:checked) {
             border-color: #4338ca;
             background: linear-gradient(135deg, #f0f4ff, #e0e7ff);
-        }
-        
-        /* Custom Skills for Other button */
-        .custom-skill-item {
-            position: relative;
-        }
-        
-        .remove-skill-btn {
-            background: #ef4444;
-            color: white;
-            border: none;
-            width: 20px;
-            height: 20px;
-            border-radius: 50%;
-            cursor: pointer;
-            font-size: 12px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: all 0.2s ease;
-            margin-left: 8px;
-        }
-        
-        .remove-skill-btn:hover {
-            background: #dc2626;
-            transform: scale(1.1);
         }
         
         /* Navigation Buttons */
@@ -741,21 +498,6 @@ $job_positions = [
         
         .btn-success:hover {
             background: #059669 !important;
-        }
-        
-        /* Skill item hover effect for better UX */
-        .skill-item:hover .level-dot {
-            transform: scale(1.1);
-        }
-        
-        .level-dot {
-            cursor: pointer;
-            transition: all 0.2s ease;
-        }
-        
-        .level-dot:hover {
-            transform: scale(1.2);
-            background: #6366f1 !important;
         }
         
         .alert {
@@ -959,17 +701,14 @@ $job_positions = [
             <p class="setup-subtitle">Let's set up your profile to get you started</p>
             
             <div class="progress-bar">
-                <div class="progress-fill" style="width: <?= ($step / 3) * 100 ?>%"></div>
+                <div class="progress-fill" style="width: <?= ($step / 2) * 100 ?>%"></div>
             </div>
             
             <div class="step-indicators">
                 <div class="step-indicator <?= $step >= 1 ? ($step > 1 ? 'completed' : 'active') : '' ?>">
                     <?= $step > 1 ? '<i class="fas fa-check"></i>' : '1' ?>
                 </div>
-                <div class="step-indicator <?= $step >= 2 ? ($step > 2 ? 'completed' : 'active') : '' ?>">
-                    <?= $step > 2 ? '<i class="fas fa-check"></i>' : '2' ?>
-                </div>
-                <div class="step-indicator <?= $step >= 3 ? 'active' : '' ?>">3</div>
+                <div class="step-indicator <?= $step >= 2 ? 'active' : '' ?>">2</div>
             </div>
         </div>
         
@@ -1039,70 +778,13 @@ $job_positions = [
                 </form>
             </div>
             
-            <!-- Step 2: Skills -->
+            <!-- Step 2: Quest Interests & Availability -->
             <div class="step-content <?= $step == 2 ? 'active' : '' ?>">
-                <h2 class="step-title"><i class="fas fa-tools"></i> Your Skills</h2>
-                <p class="step-description">Select your skills and rate your proficiency level. This helps us match you with suitable quests.</p>
-                <!-- global skill actions removed -->
-                
-                <form method="post">
-                    <input type="hidden" name="step" value="2">
-                    
-                    <div class="skills-grid">
-                        <?php foreach ($skill_categories as $category => $skills): ?>
-                            <div class="skill-category">
-                                <div class="category-title">
-                                    <div class="category-left">
-                                        <i class="fas fa-<?= $category == 'Technical Skills' ? 'code' : ($category == 'Design Skills' ? 'palette' : ($category == 'Business Skills' ? 'chart-line' : 'heart')) ?>"></i>
-                                        <span class="category-name"><?= $category ?></span>
-                                    </div>
-                                    <?php if (in_array($category, ['Technical Skills', 'Design Skills', 'Business Skills', 'Soft Skills'])): ?>
-                                        <div class="category-actions">
-                                            <button type="button" class="btn btn-secondary" id="unselect-toggle-<?= str_replace(' ', '-', strtolower($category)) ?>" onclick="toggleCategoryUnselectMode('<?= $category ?>')" title="Unselect all skills in this category">
-                                                <i class="fas fa-minus-circle"></i> Unselect All
-                                            </button>
-                                            <button type="button" class="add-other-skill-btn" onclick="addOtherSkill('<?= $category ?>')">
-                                                <i class="fas fa-plus"></i> Other
-                                            </button>
-                                        </div>
-                                    <?php endif; ?>
-                                </div>
-                                <div class="skills-list" id="skills-<?= str_replace(' ', '-', strtolower($category)) ?>">
-                                    <?php foreach ($skills as $skill): ?>
-                                        <div class="skill-item" onclick="handleSkillBoxClick(event, '<?= $skill ?>')">
-                                            <span class="skill-name"><?= $skill ?></span>
-                                            <div class="skill-level" data-skill="<?= $skill ?>">
-                                                <?php for ($i = 1; $i <= 5; $i++): ?>
-                                                    <div class="level-dot <?= (isset($user_skills[$skill]) && $user_skills[$skill] >= $i) ? 'active' : '' ?>" 
-                                                         data-level="<?= $i ?>" onclick="event.stopPropagation(); setSkillLevel('<?= $skill ?>', <?= $i ?>)"></div>
-                                                <?php endfor; ?>
-                                            </div>
-                                            <input type="hidden" name="skills[<?= $skill ?>]" value="<?= $user_skills[$skill] ?? 0 ?>">
-                                        </div>
-                                    <?php endforeach; ?>
-                                </div>
-                            </div>
-                        <?php endforeach; ?>
-                    </div>
-                    
-                    <div class="nav-buttons">
-                        <a href="profile_setup.php?step=1" class="btn btn-secondary">
-                            <i class="fas fa-arrow-left"></i> Previous
-                        </a>
-                        <button type="submit" class="btn btn-primary">
-                            Next: Role Preferences <i class="fas fa-arrow-right"></i>
-                        </button>
-                    </div>
-                </form>
-            </div>
-            
-            <!-- Step 3: Quest Interests & Availability -->
-            <div class="step-content <?= $step == 3 ? 'active' : '' ?>">
                 <h2 class="step-title"><i class="fas fa-compass"></i> Quest Preferences</h2>
                 <p class="step-description">Let us know your interests and availability to customize your quest experience.</p>
                 
                 <form method="post">
-                    <input type="hidden" name="step" value="3">
+                    <input type="hidden" name="step" value="2">
                     
                     <div class="form-group">
                         <label class="form-label">Quest Interests (Select all that apply)</label>
@@ -1146,7 +828,7 @@ $job_positions = [
                     </div>
                     
                     <div class="nav-buttons">
-                        <a href="profile_setup.php?step=2" class="btn btn-secondary">
+                        <a href="profile_setup.php?step=1" class="btn btn-secondary">
                             <i class="fas fa-arrow-left"></i> Previous
                         </a>
                         <button type="submit" class="btn btn-primary">
@@ -1301,332 +983,6 @@ $job_positions = [
             }
         }
         
-        function setSkillLevel(skill, level) {
-            const skillContainer = document.querySelector(`[data-skill="${skill}"]`);
-            const dots = skillContainer.querySelectorAll('.level-dot');
-            const hiddenInput = document.querySelector(`input[name="skills[${skill}]"]`);
-            
-            // Get current level for toggle functionality
-            const currentLevel = parseInt(hiddenInput.value) || 0;
-            
-            // Toggle functionality: if clicking the same level, unselect it
-            if (currentLevel === level) {
-                // Unselect - set to 0
-                dots.forEach(dot => dot.classList.remove('active'));
-                hiddenInput.value = 0;
-                updateSkillItemState(skill);
-                return;
-            }
-            
-            // Reset all dots
-            dots.forEach(dot => dot.classList.remove('active'));
-            
-            // Activate dots up to selected level
-            for (let i = 0; i < level; i++) {
-                dots[i].classList.add('active');
-            }
-            
-            // Update hidden input
-            hiddenInput.value = level;
-            updateSkillItemState(skill);
-        }
-        
-        // Update visual state of skill item based on selection
-        function updateSkillItemState(skill) {
-            const skillItem = document.querySelector(`[data-skill="${skill}"]`).closest('.skill-item');
-            const hiddenInput = document.querySelector(`input[name="skills[${skill}]"]`);
-            const currentLevel = parseInt(hiddenInput.value) || 0;
-            
-            if (currentLevel > 0) {
-                skillItem.classList.add('skill-selected');
-                skillItem.title = 'Click to unselect this skill';
-            } else {
-                skillItem.classList.remove('skill-selected');
-                skillItem.title = 'Click rating dots to select skill level';
-            }
-        }
-        
-        // Function to unselect skill when clicking on the skill box
-        function unselectSkillBox(skill) {
-            const skillContainer = document.querySelector(`[data-skill="${skill}"]`);
-            const dots = skillContainer.querySelectorAll('.level-dot');
-            const hiddenInput = document.querySelector(`input[name="skills[${skill}]"]`);
-            
-            // Only unselect if the skill is currently selected
-            const currentLevel = parseInt(hiddenInput.value) || 0;
-            if (currentLevel > 0) {
-                // Clear all dots
-                dots.forEach(dot => dot.classList.remove('active'));
-                hiddenInput.value = 0;
-                
-                // Add visual feedback
-                const skillItem = skillContainer.closest('.skill-item');
-                skillItem.style.transform = 'scale(0.95)';
-                skillItem.style.background = '#fef2f2';
-                
-                // Reset visual feedback after brief moment
-                setTimeout(() => {
-                    skillItem.style.transform = '';
-                    skillItem.style.background = '';
-                }, 150);
-                
-                // Update skill item state
-                updateSkillItemState(skill);
-            }
-        }
-        
-        // Handle click on skill box (but not on rating dots)
-        function handleSkillBoxClick(event, skill) {
-            // Don't trigger if clicking on rating dots or buttons
-            if (event.target.closest('.level-dot') || event.target.closest('button')) {
-                return;
-            }
-            
-            // Only unselect if skill is currently selected
-            const hiddenInput = document.querySelector(`input[name="skills[${skill}]"]`);
-            const currentLevel = parseInt(hiddenInput.value) || 0;
-            
-            if (currentLevel > 0) {
-                unselectSkillBox(skill);
-            }
-        }
-        
-        function addOtherSkill(category) {
-            showAddSkillModal(category);
-        }
-        
-        function showAddSkillModal(category) {
-            // Create modal backdrop
-            const modalBackdrop = document.createElement('div');
-            modalBackdrop.className = 'modal-backdrop';
-            modalBackdrop.innerHTML = `
-                <div class="modal-container">
-                    <div class="modal-header">
-                        <h3>Add ${category} Skill</h3>
-                        <button type="button" class="modal-close" onclick="closeAddSkillModal()">
-                            <i class="fas fa-times"></i>
-                        </button>
-                    </div>
-                    <div class="modal-body">
-                        <div class="form-group">
-                            <label for="custom-skill-input" class="form-label">Skill Name</label>
-                            <input type="text" id="custom-skill-input" class="form-input" placeholder="Enter your ${category.toLowerCase()} skill" maxlength="50" required>
-                            <div class="form-error" id="skill-error" style="display: none;"></div>
-                        </div>
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" onclick="closeAddSkillModal()">Cancel</button>
-                        <button type="button" class="btn btn-primary" onclick="confirmAddSkill('${category}')">Add Skill</button>
-                    </div>
-                </div>
-            `;
-            
-            document.body.appendChild(modalBackdrop);
-            
-            // Focus on input
-            setTimeout(() => {
-                document.getElementById('custom-skill-input').focus();
-            }, 100);
-            
-            // Close modal on backdrop click
-            modalBackdrop.addEventListener('click', function(e) {
-                if (e.target === modalBackdrop) {
-                    closeAddSkillModal();
-                }
-            });
-            
-            // Handle Enter key
-            document.getElementById('custom-skill-input').addEventListener('keypress', function(e) {
-                if (e.key === 'Enter') {
-                    confirmAddSkill(category);
-                }
-            });
-        }
-        
-        function closeAddSkillModal() {
-            const modalBackdrop = document.querySelector('.modal-backdrop');
-            if (modalBackdrop) {
-                modalBackdrop.remove();
-            }
-        }
-        
-        function confirmAddSkill(category) {
-            const skillInput = document.getElementById('custom-skill-input');
-            const errorDiv = document.getElementById('skill-error');
-            const skillName = skillInput.value.trim();
-            
-            // Clear previous errors
-            errorDiv.style.display = 'none';
-            skillInput.classList.remove('error');
-            
-            // Validate input
-            if (!skillName) {
-                showSkillError('Please enter a skill name');
-                return;
-            }
-            
-            if (skillName.length < 2) {
-                showSkillError('Skill name must be at least 2 characters long');
-                return;
-            }
-            
-            // Check if skill already exists
-            const existingSkill = document.querySelector(`[data-skill="${skillName}"]`);
-            if (existingSkill) {
-                showSkillError('This skill already exists!');
-                return;
-            }
-            
-            // Get the container for this category
-            const categoryId = category.replace(' ', '-').toLowerCase();
-            const skillsList = document.getElementById(`skills-${categoryId}`);
-            
-            // Create new skill item
-            const skillItem = document.createElement('div');
-            skillItem.className = 'skill-item custom-skill-item';
-            skillItem.innerHTML = `
-                <span class="skill-name">${skillName}</span>
-                <div class="skill-level" data-skill="${skillName}">
-                    ${Array.from({length: 5}, (_, i) => 
-                        `<div class="level-dot" data-level="${i + 1}" onclick="setSkillLevel('${skillName}', ${i + 1})"></div>`
-                    ).join('')}
-                </div>
-                <button type="button" class="remove-skill-btn" onclick="removeCustomSkill('${skillName}')" title="Remove skill">
-                    <i class="fas fa-times"></i>
-                </button>
-                <input type="hidden" name="skills[${skillName}]" value="0">
-            `;
-            
-            // Add to the skills list
-            skillsList.appendChild(skillItem);
-            
-            // Close modal
-            closeAddSkillModal();
-        }
-        
-        function showSkillError(message) {
-            const errorDiv = document.getElementById('skill-error');
-            const skillInput = document.getElementById('custom-skill-input');
-            
-            errorDiv.textContent = message;
-            errorDiv.style.display = 'block';
-            skillInput.classList.add('error');
-            skillInput.focus();
-        }
-        
-        function removeCustomSkill(skillName) {
-            if (confirm(`Are you sure you want to remove "${skillName}"?`)) {
-                const skillItem = document.querySelector(`[data-skill="${skillName}"]`).closest('.skill-item');
-                skillItem.remove();
-            }
-        }
-
-        // Unselect a single skill (used for Soft Skills): clears level and offers a brief undo
-        (function() {
-            const _undoStore = {};
-            window.unselectSkill = function(skillName) {
-                const skillContainer = document.querySelector(`[data-skill="${skillName}"]`);
-                if (!skillContainer) return;
-                const item = skillContainer.closest('.skill-item');
-                if (!item) return;
-                const hidden = item.querySelector(`input[name="skills[${skillName}]"]`);
-                // store previous value for undo
-                const prev = hidden ? hidden.value : '0';
-                _undoStore[skillName] = prev;
-                // clear dots
-                skillContainer.querySelectorAll('.level-dot').forEach(d => d.classList.remove('active'));
-                if (hidden) hidden.value = 0;
-                // show small undo note inline
-                const undoNote = document.createElement('div');
-                undoNote.className = 'removed-note';
-                undoNote.style.display = 'inline-block';
-                undoNote.style.marginLeft = '8px';
-                undoNote.innerHTML = `Removed <strong>${skillName}</strong>. <button type="button" class="btn btn-link" onclick="restoreSkill('${skillName.replace(/'/g, "\\'")}')">Undo</button>`;
-                // append undo note temporarily
-                item.appendChild(undoNote);
-                setTimeout(() => {
-                    if (undoNote.parentNode) undoNote.remove();
-                    delete _undoStore[skillName];
-                }, 7000); // undo available for 7s
-            };
-
-            window.restoreSkill = function(skillName) {
-                const skillContainer = document.querySelector(`[data-skill="${skillName}"]`);
-                if (!skillContainer) return;
-                const item = skillContainer.closest('.skill-item');
-                if (!item) return;
-                const hidden = item.querySelector(`input[name="skills[${skillName}]"]`);
-                const prev = _undoStore[skillName] || 0;
-                // restore dots according to previous value
-                const val = parseInt(prev, 10) || 0;
-                skillContainer.querySelectorAll('.level-dot').forEach((d, i) => d.classList.toggle('active', i < val));
-                if (hidden) hidden.value = val;
-                // remove any undo notes and show the button
-                const undoNote = item.querySelector('.removed-note');
-                if (undoNote) undoNote.remove();
-                const btn = item.querySelector('.unselect-skill-btn');
-                if (btn) btn.style.display = '';
-                delete _undoStore[skillName];
-            };
-        })();
-
-        // Category unselect function: unselects all selected skills in the category
-        window.toggleCategoryUnselectMode = function(category) {
-            const catId = category.replace(/\s+/g, '-').toLowerCase();
-            const wrapper = document.getElementById(`skills-${catId}`);
-            const toggleBtn = document.getElementById(`unselect-toggle-${catId}`);
-            if (!wrapper || !toggleBtn) return;
-            
-            // Find all skills in this category that have a level > 0
-            const skillItems = wrapper.querySelectorAll('.skill-item');
-            let hasSelectedSkills = false;
-            let unselectedCount = 0;
-            
-            skillItems.forEach(item => {
-                const hiddenInput = item.querySelector('input[type="hidden"]');
-                const skillLevel = item.querySelector('.skill-level');
-                
-                if (hiddenInput && parseInt(hiddenInput.value) > 0) {
-                    hasSelectedSkills = true;
-                    // Unselect this skill
-                    const dots = skillLevel.querySelectorAll('.level-dot');
-                    dots.forEach(dot => dot.classList.remove('active'));
-                    hiddenInput.value = 0;
-                    unselectedCount++;
-                    
-                    // Update skill item state
-                    const skill = skillLevel.getAttribute('data-skill');
-                    if (skill) {
-                        updateSkillItemState(skill);
-                    }
-                }
-            });
-            
-            if (hasSelectedSkills) {
-                // Show feedback message
-                toggleBtn.innerHTML = `<i class="fas fa-check"></i> Unselected ${unselectedCount} skill${unselectedCount > 1 ? 's' : ''}`;
-                toggleBtn.classList.add('btn-success');
-                
-                // Reset button after 2 seconds
-                setTimeout(() => {
-                    toggleBtn.innerHTML = '<i class="fas fa-minus-circle"></i> Unselect All';
-                    toggleBtn.classList.remove('btn-success');
-                }, 2000);
-            } else {
-                // No skills selected in this category
-                toggleBtn.innerHTML = '<i class="fas fa-info-circle"></i> No skills selected';
-                toggleBtn.classList.add('btn-secondary');
-                
-                // Reset button after 2 seconds
-                setTimeout(() => {
-                    toggleBtn.innerHTML = '<i class="fas fa-minus-circle"></i> Unselect All';
-                    toggleBtn.classList.remove('btn-secondary');
-                }, 2000);
-            }
-        };
-
-        // Select/unselect helpers removed per request to simplify UI
-        
         // Drag and drop functionality for photo upload
         const photoUpload = document.querySelector('.photo-upload');
         
@@ -1649,17 +1005,6 @@ $job_positions = [
                 document.getElementById('photo-input').files = files;
                 previewPhoto(document.getElementById('photo-input'));
             }
-        });
-        
-        // Initialize skill item states when page loads
-        document.addEventListener('DOMContentLoaded', function() {
-            // Initialize all skill items with their current state
-            document.querySelectorAll('.skill-level').forEach(skillLevel => {
-                const skill = skillLevel.getAttribute('data-skill');
-                if (skill) {
-                    updateSkillItemState(skill);
-                }
-            });
         });
     </script>
 </body>
