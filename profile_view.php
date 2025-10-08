@@ -18,34 +18,105 @@ try {
     redirect('dashboard.php');
 }
 
-// Load user skills
+// Load user's earned skills from quest completions
 $user_skills = [];
 try {
-    $stmt = $pdo->prepare("SELECT skill_name, skill_level FROM user_skills WHERE user_id = ?");
+    // This will fetch skills that users have earned through quest completions
+    // The skills table should track: skill_name, total_points, last_used, level, stage
+    $stmt = $pdo->prepare("
+        SELECT 
+            ues.skill_name,
+            ues.total_points,
+            ues.current_level,
+            ues.current_stage,
+            ues.last_used,
+            ues.recent_points,
+            ues.status,
+            ues.updated_at
+        FROM user_earned_skills ues
+        WHERE ues.user_id = ? 
+        ORDER BY ues.total_points DESC
+    ");
     $stmt->execute([$user_id]);
-    $user_skills = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
+    $user_skills = $stmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (PDOException $e) {
-    error_log("Error loading user skills in profile_view: " . $e->getMessage());
+    error_log("Error loading user earned skills: " . $e->getMessage());
+    $user_skills = [];
 }
 
-$skill_categories = [
-    'Technical Skills' => [
-        'PHP', 'JavaScript', 'Python', 'Java', 'C++', 'HTML/CSS', 'SQL', 'React', 'Vue.js', 'Node.js',
-        'Laravel', 'WordPress', 'Git', 'Docker', 'AWS', 'Linux', 'MongoDB', 'MySQL'
-    ],
-    'Design Skills' => [
-        'UI/UX Design', 'Graphic Design', 'Adobe Photoshop', 'Adobe Illustrator', 'Figma', 'Sketch',
-        'InDesign', 'After Effects', 'Blender', '3D Modeling', 'Typography', 'Branding'
-    ],
-    'Business Skills' => [
-        'Project Management', 'Team Leadership', 'Strategic Planning', 'Data Analysis', 'Marketing',
-        'Sales', 'Customer Service', 'Public Speaking', 'Negotiation', 'Financial Analysis'
-    ],
-    'Soft Skills' => [
-        'Communication', 'Problem Solving', 'Critical Thinking', 'Creativity', 'Adaptability',
-        'Time Management', 'Teamwork', 'Leadership', 'Emotional Intelligence', 'Mentoring'
-    ]
-];
+// Calculate overall user level and stage
+$total_user_points = array_sum(array_column($user_skills, 'total_points'));
+$overall_level = calculateLevelFromPoints($total_user_points);
+$overall_stage = calculateStageFromLevel($overall_level);
+
+// Helper functions for level and stage calculations
+function calculateLevelFromPoints($points) {
+    if ($points < 100) return 1;
+    if ($points < 300) return 2;
+    if ($points < 700) return 3;
+    if ($points < 1500) return 4;
+    if ($points < 3000) return 5;
+    if ($points < 6000) return 6;
+    return 7; // Master level
+}
+
+function calculateStageFromLevel($level) {
+    if ($level <= 3) return 'Learning';
+    if ($level <= 5) return 'Applying';
+    if ($level <= 6) return 'Mastering';
+    return 'Innovating';
+}
+
+function getLevelName($level) {
+    $levels = [
+        1 => "Beginner",
+        2 => "Novice", 
+        3 => "Competent",
+        4 => "Proficient",
+        5 => "Advanced",
+        6 => "Expert",
+        7 => "Master"
+    ];
+    return $levels[$level] ?? "Unknown";
+}
+
+function getStatusIcon($status) {
+    switch($status) {
+        case 'ACTIVE': return '🟢';
+        case 'STALE': return '🟡';
+        case 'RUSTY': return '🔴';
+        default: return '⚪';
+    }
+}
+
+function getProgressToNextStage($level, $current_points) {
+    $stage_thresholds = [
+        'Learning' => 700,    // To reach Applying (Level 4)
+        'Applying' => 3000,   // To reach Mastering (Level 6) 
+        'Mastering' => 6000,  // To reach Innovating (Level 7)
+        'Innovating' => 6000  // Already at max
+    ];
+    
+    $current_stage = calculateStageFromLevel($level);
+    $next_threshold = $stage_thresholds[$current_stage] ?? 6000;
+    
+    if ($current_points >= $next_threshold) {
+        return 100; // Already at or beyond threshold
+    }
+    
+    // Calculate previous threshold
+    $prev_threshold = 0;
+    if ($current_stage === 'Applying') $prev_threshold = 700;
+    if ($current_stage === 'Mastering') $prev_threshold = 3000;
+    if ($current_stage === 'Innovating') $prev_threshold = 6000;
+    
+    $progress_in_stage = $current_points - $prev_threshold;
+    $stage_range = $next_threshold - $prev_threshold;
+    
+    return $stage_range > 0 ? min(100, ($progress_in_stage / $stage_range) * 100) : 0;
+}
+
+$skill_categories = [];
 
 $job_positions = [
     'software_developer' => 'Software Developer',
@@ -66,46 +137,6 @@ $profile_job_position = $profile['job_position'] ?? '';
 $profile_full_name = $profile['full_name'] ?? '';
 $profile_bio = $profile['bio'] ?? '';
 $profile_photo = $profile['profile_photo'] ?? '';
-
-// Build selected skills grouped by category. Include any custom skills under 'Other Skills'
-$selected_skills_by_category = [];
-foreach ($user_skills as $skill_name => $skill_level) {
-    $found = false;
-    foreach ($skill_categories as $cat => $skills) {
-        if (in_array($skill_name, $skills, true)) {
-            $selected_skills_by_category[$cat][$skill_name] = (int)$skill_level;
-            $found = true;
-            break;
-        }
-    }
-    if (!$found) {
-        $selected_skills_by_category['Other Skills'][$skill_name] = (int)$skill_level;
-    }
-}
-
-// Flatten selected skills for pagination
-$flat_selected_skills = [];
-foreach ($selected_skills_by_category as $cat => $skills) {
-    foreach ($skills as $s => $lvl) {
-        $flat_selected_skills[] = ['category' => $cat, 'skill' => $s, 'level' => $lvl];
-    }
-}
-
-// Pagination settings for skills
-// Show pagination controls when selected skills exceed 7 (page size = 7)
-$skills_per_page = 7;
-$skill_page = isset($_GET['skill_page']) ? max(1, (int)$_GET['skill_page']) : 1;
-$total_skills = count($flat_selected_skills);
-$total_skill_pages = $total_skills ? (int)ceil($total_skills / $skills_per_page) : 1;
-if ($skill_page > $total_skill_pages) $skill_page = $total_skill_pages;
-$skill_offset = ($skill_page - 1) * $skills_per_page;
-$page_slice = array_slice($flat_selected_skills, $skill_offset, $skills_per_page);
-
-// Group the paginated slice back by category for display
-$page_grouped_skills = [];
-foreach ($page_slice as $entry) {
-    $page_grouped_skills[$entry['category']][$entry['skill']] = $entry['level'];
-}
 
 ?>
 <!doctype html>
@@ -128,12 +159,34 @@ foreach ($page_slice as $entry) {
     .profile-bio { color: #6b7280; margin-top:8px; }
     .profile-actions { margin-top:12px; display:flex; gap:10px; flex-wrap:wrap; }
 
-    .profile-body { display:grid; grid-template-columns: 1fr 320px; gap:20px; margin-top:18px; }
+    .profile-body { display:grid; grid-template-columns: 1fr; gap:20px; margin-top:18px; }
 
-    .skills-box { background: var(--light-color); padding:16px; border-radius:10px; border:1px solid #e9edf7; }
-    .skills-box h4 { margin:0 0 8px 0; color:var(--dark-color); }
-    .skill-row { display:flex; align-items:center; justify-content:space-between; padding:8px 0; border-bottom:1px dashed #eef2f7; }
-    .skill-row:last-child { border-bottom: none; }
+    /* Skill Journey Styles */
+    .skills-journey { background: linear-gradient(135deg, #1e293b, #334155); color: white; padding: 20px; border-radius: 12px; margin-bottom: 20px; position: relative; overflow: hidden; }
+    .skills-journey::before { content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="20" cy="20" r="1" fill="rgba(255,255,255,0.1)"/><circle cx="80" cy="80" r="1" fill="rgba(255,255,255,0.1)"/></svg>') repeat; }
+    .journey-header { text-align: center; margin-bottom: 20px; position: relative; z-index: 1; }
+    .user-overall { font-size: 1.5rem; font-weight: bold; margin-bottom: 10px; }
+    .journey-title { font-size: 1.2rem; color: #94a3b8; margin-bottom: 15px; letter-spacing: 2px; }
+    .journey-divider { border: none; height: 2px; background: linear-gradient(90deg, transparent, #64748b, transparent); margin: 20px 0; }
+    
+    .skill-item { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 16px; margin-bottom: 16px; backdrop-filter: blur(10px); }
+    .skill-header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+    .skill-name { font-weight: bold; font-size: 1.1rem; }
+    .skill-level { color: #94a3b8; }
+    .skill-status { font-size: 0.9rem; }
+    
+    .skill-stage { margin-bottom: 8px; color: #cbd5e1; }
+    .progress-bar { background: rgba(255,255,255,0.1); height: 8px; border-radius: 4px; overflow: hidden; margin: 8px 0; }
+    .progress-fill { height: 100%; background: linear-gradient(90deg, #10b981, #34d399); transition: width 0.3s ease; }
+    
+    .skill-meta { display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; color: #94a3b8; margin-top: 8px; }
+    .skill-stats { display: flex; gap: 16px; }
+    .skill-hint { font-style: italic; }
+    
+    .journey-summary { background: rgba(255,255,255,0.05); border-radius: 8px; padding: 16px; margin-top: 20px; text-align: center; position: relative; z-index: 1; }
+    .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; text-align: center; }
+    .summary-value { font-size: 1.3rem; font-weight: bold; color: #10b981; }
+    .summary-label { font-size: 0.85rem; color: #94a3b8; }
 
     .prefs-box { background: linear-gradient(180deg,#ffffff,#fbfdff); padding:18px; border-radius:10px; border:1px solid #e6eefb; }
     .pref-item { display:flex; align-items:center; gap:12px; padding:12px 0; border-bottom:1px solid rgba(15,23,42,0.03); }
@@ -144,18 +197,6 @@ foreach ($page_slice as $entry) {
 
     .interest-list { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
     .interest-pill { background:#eef2ff; color:#1e3a8a; padding:6px 10px; border-radius:999px; font-weight:600; font-size:0.9rem; }
-
-    .level-dots { display:flex; gap:6px; }
-    .level-dots .dot { width:10px; height:10px; border-radius:50%; background:#e6e9ef; }
-    .level-dots .dot.filled { background: var(--primary-color); box-shadow:0 2px 6px rgba(67,56,202,0.18); }
-
-    /* Pagination controls for skills */
-    .skills-pager { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:12px; }
-    .pager-pages { display:flex; gap:6px; }
-    .pager-pages a, .pager-prev, .pager-next { display:inline-block; padding:6px 10px; background:#fff; border:1px solid #e6eefb; border-radius:8px; color:#374151; text-decoration:none; font-weight:600; }
-    .pager-pages a.active { background:var(--primary-color); color:#fff; border-color:transparent; }
-    .pager-disabled { opacity:0.45; pointer-events:none; }
-    .page-info { color:#6b7280; font-size:0.95rem; }
 
     @media (max-width: 880px) {
         .profile-body { grid-template-columns: 1fr; }
@@ -196,45 +237,99 @@ foreach ($page_slice as $entry) {
         </div>
 
         <div class="profile-body">
-            <div class="skills-box">
-                <h4>Skills</h4>
-                <?php if (empty($flat_selected_skills)): ?>
-                    <p style="color:#6b7280;">No skills selected yet.</p>
-                <?php else: ?>
-                    <div class="page-info">Showing <?= $skill_offset + 1 ?> to <?= min($skill_offset + count($page_slice), $total_skills) ?> of <?= $total_skills ?> skills</div>
-                    <?php foreach ($page_grouped_skills as $cat => $skills): ?>
-                        <strong style="display:block;margin-top:12px;color:#374151;"><?= htmlspecialchars($cat) ?></strong>
-                        <?php foreach ($skills as $s => $lvl): ?>
-                            <div class="skill-row">
-                                <div><?= htmlspecialchars($s) ?></div>
-                                <div class="level-dots">
-                                    <?php for ($i=1;$i<=5;$i++): ?>
-                                        <span class="dot <?= $i <= $lvl ? 'filled' : '' ?>" title="<?= $i <= $lvl ? 'Level '.$lvl : '' ?>"></span>
-                                    <?php endfor; ?>
+            <?php if (!empty($user_skills)): ?>
+                <div class="skills-journey">
+                    <div class="journey-header">
+                        <div class="user-overall">
+                            USER: <?= htmlspecialchars($profile_full_name) ?><br>
+                            OVERALL: Level <?= $overall_level ?> | Stage: <?= htmlspecialchars($overall_stage) ?>
+                        </div>
+                        <div class="journey-title">SKILL JOURNEY:</div>
+                        <hr class="journey-divider">
+                    </div>
+                    
+                    <?php foreach ($user_skills as $skill): ?>
+                        <?php 
+                        $level_name = getLevelName($skill['current_level']);
+                        $status_icon = getStatusIcon($skill['status']);
+                        $progress_percent = getProgressToNextStage($skill['current_level'], $skill['total_points']);
+                        $next_stage_points = 0;
+                        
+                        // Calculate next stage points needed
+                        if ($skill['current_stage'] === 'Learning') $next_stage_points = 700;
+                        elseif ($skill['current_stage'] === 'Applying') $next_stage_points = 3000;
+                        elseif ($skill['current_stage'] === 'Mastering') $next_stage_points = 6000;
+                        
+                        $days_since_used = $skill['last_used'] ? round((time() - strtotime($skill['last_used'])) / (60 * 60 * 24)) : 999;
+                        ?>
+                        
+                        <div class="skill-item">
+                            <div class="skill-header">
+                                <span class="skill-name"><?= strtoupper(htmlspecialchars($skill['skill_name'])) ?>:</span>
+                                <span class="skill-level">Level <?= $skill['current_level'] ?> - <?= htmlspecialchars($level_name) ?></span>
+                                <span class="skill-status"><?= $status_icon ?> <?= strtoupper($skill['status']) ?></span>
+                            </div>
+                            
+                            <div class="skill-stage">
+                                Stage: <?= htmlspecialchars($skill['current_stage']) ?> (<?= number_format($skill['total_points']) ?><?= $next_stage_points > 0 ? '/' . number_format($next_stage_points) : '' ?> pts)
+                            </div>
+                            
+                            <?php if ($progress_percent < 100 && $next_stage_points > 0): ?>
+                                <div class="progress-bar">
+                                    <div class="progress-fill" style="width: <?= $progress_percent ?>%"></div>
+                                </div>
+                                <div style="font-size: 0.85rem; color: #cbd5e1; margin-bottom: 8px;">
+                                    <?= str_repeat('█', round($progress_percent / 5)) ?><?= str_repeat('░', 20 - round($progress_percent / 5)) ?> 
+                                    <?= round($progress_percent) ?>% to <?= $skill['current_stage'] === 'Learning' ? 'Applying' : ($skill['current_stage'] === 'Applying' ? 'Mastering' : 'Innovating') ?> Stage
+                                </div>
+                            <?php endif; ?>
+                            
+                            <div class="skill-meta">
+                                <div class="skill-stats">
+                                    <?php if ($skill['recent_points'] > 0): ?>
+                                        <span>🏆 Recent: +<?= $skill['recent_points'] ?> pts</span>
+                                    <?php endif; ?>
+                                    
+                                    <?php if ($days_since_used < 7): ?>
+                                        <span>📈 Used <?= $days_since_used === 0 ? 'today' : $days_since_used . ' day' . ($days_since_used > 1 ? 's' : '') . ' ago' ?></span>
+                                    <?php elseif ($days_since_used < 999): ?>
+                                        <span>⏰ Last used: <?= $days_since_used ?> days ago</span>
+                                    <?php endif; ?>
+                                </div>
+                                
+                                <div class="skill-hint">
+                                    <?php if ($skill['status'] === 'ACTIVE'): ?>
+                                        ⚡ Maintaining <?= htmlspecialchars($level_name) ?> status
+                                    <?php elseif ($skill['status'] === 'STALE'): ?>
+                                        💡 Complete any <?= htmlspecialchars($skill['skill_name']) ?> quest to reactivate!
+                                    <?php elseif ($skill['status'] === 'RUSTY'): ?>
+                                        🎯 Try "<?= htmlspecialchars($skill['skill_name']) ?> Refresher" for 2x points!
+                                    <?php endif; ?>
                                 </div>
                             </div>
-                        <?php endforeach; ?>
+                        </div>
                     <?php endforeach; ?>
-
-                    <?php if ($total_skill_pages > 1): ?>
-                        <div class="skills-pager">
-                            <div>
-                                <a class="pager-prev <?= $skill_page <= 1 ? 'pager-disabled' : '' ?>" href="?skill_page=<?= max(1, $skill_page - 1) ?>">&larr; Prev</a>
+                    
+                    <div class="journey-summary">
+                        <div class="summary-grid">
+                            <div class="summary-item">
+                                <div class="summary-value">12</div>
+                                <div class="summary-label">QUESTS TO NEXT MILESTONE</div>
                             </div>
-                            <div class="pager-pages">
-                                <?php for ($p = 1; $p <= $total_skill_pages; $p++): ?>
-                                    <a href="?skill_page=<?= $p ?>" class="<?= $p === $skill_page ? 'active' : '' ?>"><?= $p ?></a>
-                                <?php endfor; ?>
+                            <div class="summary-item">
+                                <div class="summary-value">3 weeks</div>
+                                <div class="summary-label">ESTIMATED TIME</div>
                             </div>
-                            <div>
-                                <a class="pager-next <?= $skill_page >= $total_skill_pages ? 'pager-disabled' : '' ?>" href="?skill_page=<?= min($total_skill_pages, $skill_page + 1) ?>">Next &rarr;</a>
+                            <div class="summary-item">
+                                <div class="summary-value"><?= count(array_filter($user_skills, fn($s) => $s['status'] === 'ACTIVE')) ?>/<?= count($user_skills) ?> 🟢</div>
+                                <div class="summary-label">ACTIVE SKILLS</div>
                             </div>
                         </div>
-                    <?php endif; ?>
-                <?php endif; ?>
-            </div>
-
-            <aside class="prefs-box">
+                    </div>
+                </div>
+            <?php endif; ?>
+            
+            <div class="prefs-box">
                 <h4 style="margin:0 0 8px 0;color:var(--dark-color);">Preferences</h4>
                 <div class="pref-item">
                     <div class="pref-label">Job Position</div>
@@ -256,7 +351,7 @@ foreach ($page_slice as $entry) {
                         <?php endif; ?>
                     </div>
                 </div>
-            </aside>
+            </div>
         </div>
     </div>
 </div>
