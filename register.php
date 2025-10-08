@@ -19,9 +19,8 @@ unset($_SESSION['form_data']);
 
 // Define available roles
 $roles = [
-    'quest_taker' => 'Quest Taker',
-    'quest_giver' => 'Quest Giver',
-    'hybrid' => 'Hybrid (Both)'
+    'participant' => 'Participant',
+    'contributor' => 'Contributor'
 ];
 ?>
 <!DOCTYPE html>

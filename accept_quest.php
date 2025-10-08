@@ -10,7 +10,17 @@ if (!is_logged_in()) {
 
 // Check if user has quest taker permissions
 $role = $_SESSION['role'] ?? '';
-if (!in_array($role, ['quest_taker', 'hybrid'])) {
+
+// Simple role renaming
+if ($role === 'quest_taker') {
+    $role = 'participant';
+} elseif ($role === 'hybrid') {
+    $role = 'contributor';
+} elseif ($role === 'quest_giver') {
+    $role = 'contributor';
+}
+
+if (!in_array($role, ['participant', 'contributor'])) { // was ['quest_taker', 'hybrid']
     header('Content-Type: application/json');
     echo json_encode(['success' => false, 'error' => 'Unauthorized']);
     exit();

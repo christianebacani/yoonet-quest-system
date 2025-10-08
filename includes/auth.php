@@ -10,7 +10,7 @@ if (isset($_POST['register'])) {
         $confirm_password = sanitize_input($_POST['confirm_password']);
         $full_name = sanitize_input($_POST['full_name']);
         $email = sanitize_input($_POST['email']);
-        $role = sanitize_input($_POST['role'] ?? 'quest_taker'); // THIS WAS MISSING
+        $role = sanitize_input($_POST['role'] ?? 'participant'); // Default role updated
         
         // Validate inputs
         if (empty($employee_id) || empty($password) || empty($full_name) || empty($email)) {
@@ -37,7 +37,7 @@ if (isset($_POST['register'])) {
         $hashed_password = password_hash($password, PASSWORD_DEFAULT);
         $stmt = $pdo->prepare("INSERT INTO users (employee_id, password, full_name, email, role) VALUES (?, ?, ?, ?, ?)");
         
-        // Changed from hardcoded 'quest_taker' to $role variable
+        // Changed from hardcoded 'quest_taker' to $role variable (now participant)
         if ($stmt->execute([$employee_id, $hashed_password, $full_name, $email, $role])) {
             $_SESSION['reg_success'] = "Registration successful! Please login with your credentials.";
             header('Location: ../login.php');

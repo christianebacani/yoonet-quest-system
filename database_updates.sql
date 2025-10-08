@@ -5,7 +5,7 @@
 ALTER TABLE users 
 ADD COLUMN IF NOT EXISTS profile_photo VARCHAR(255) DEFAULT NULL,
 ADD COLUMN IF NOT EXISTS bio TEXT DEFAULT NULL,
-ADD COLUMN IF NOT EXISTS preferred_role ENUM('quest_taker', 'quest_giver', 'hybrid') DEFAULT NULL,
+ADD COLUMN IF NOT EXISTS preferred_role ENUM('participant', 'contributor') DEFAULT NULL,
 ADD COLUMN IF NOT EXISTS quest_interests TEXT DEFAULT NULL,
 ADD COLUMN IF NOT EXISTS availability ENUM('full_time', 'part_time', 'casual', 'project_based') DEFAULT NULL,
 ADD COLUMN IF NOT EXISTS profile_completed BOOLEAN DEFAULT FALSE,
@@ -37,11 +37,11 @@ CREATE TABLE IF NOT EXISTS user_achievements (
 
 -- Create skill_categories table for organized skill management
 CREATE TABLE IF NOT EXISTS skill_categories (
-    id INT AUTO_INCREMENT PRIMARY KEY-tools',
+    id INT AUTO_INCREMENT PRIMARY KEY,
     display_order INT DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     category_name VARCHAR(50) NOT NULL UNIQUE,
-    category_icon VARCHAR(50) DEFAULT 'fas fa
+    category_icon VARCHAR(50) DEFAULT 'fas fa'
 );
 
 -- Insert default skill categories
@@ -123,3 +123,11 @@ FROM predefined_skills ps
 JOIN skill_categories sc ON ps.category_id = sc.id 
 ORDER BY sc.display_order, ps.display_order 
 LIMIT 20;
+
+-- Update existing roles to new 2-role system
+UPDATE users SET role = 'participant' WHERE role = 'quest_taker';
+UPDATE users SET role = 'contributor' WHERE role = 'hybrid';
+UPDATE users SET role = 'contributor' WHERE role = 'quest_giver'; -- Convert quest_givers to contributors
+
+-- Verify the changes
+SELECT role, COUNT(*) as count FROM users GROUP BY role;

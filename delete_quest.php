@@ -5,8 +5,16 @@ require_once 'includes/functions.php';
 // Start session
 session_start();
 
+// Simple role renaming
+$user_role = $_SESSION['role'] ?? '';
+if ($user_role === 'hybrid') {
+    $user_role = 'contributor';
+} elseif ($user_role === 'quest_giver') {
+    $user_role = 'contributor';
+}
+
 // Check if user is logged in and has quest giver permissions
-if (!is_logged_in() || !in_array($_SESSION['role'], ['quest_giver', 'hybrid'])) {
+if (!is_logged_in() || !in_array($user_role, ['contributor'])) { // was ['quest_giver', 'hybrid']
     header('Location: login.php');
     exit();
 }

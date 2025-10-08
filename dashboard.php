@@ -151,7 +151,16 @@ try {
     header('Location: login.php?error=database_error');
     exit();
 }
-$role = $_SESSION['role'] ?? 'quest_taker';
+$role = $_SESSION['role'] ?? 'participant';
+
+// Simple role renaming (keeping all functionality the same)
+if ($role === 'quest_taker') {
+    $role = 'participant';
+} elseif ($role === 'hybrid') {
+    $role = 'contributor';
+} elseif ($role === 'quest_giver') {
+    $role = 'contributor'; // Quest givers become contributors
+}
 $email = $_SESSION['email'] ?? '';
 $current_theme = $_SESSION['theme'] ?? 'default';
 $dark_mode = $_SESSION['dark_mode'] ?? false;
@@ -168,9 +177,9 @@ try {
     $profile_completed = false;
 }
 
-// Set permissions based on role
-$is_taker = in_array($role, ['quest_taker', 'hybrid']);
-$is_giver = in_array($role, ['quest_giver', 'hybrid']);
+// Set permissions based on role (keeping original logic)
+$is_taker = in_array($role, ['participant', 'contributor']); // participant + contributor (was quest_taker + hybrid)
+$is_giver = in_array($role, ['contributor']); // contributor only (was hybrid + quest_giver)
 
 // Pagination settings
 $items_per_page = 5; // Number of items to show per page
@@ -179,7 +188,7 @@ if ($current_page < 1) $current_page = 1;
 
 // Handle form submissions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Handle accepting a quest (for takers and hybrid)
+    // Handle accepting a quest (for participants and contributors)
     if ($is_taker && isset($_POST['quest_id']) && !isset($_POST['submit_quest'])) {
         $quest_id = (int)$_POST['quest_id'];
         try {
@@ -538,7 +547,8 @@ try {
                               WHERE gm.employee_id = ?");
         $stmt->execute([$employee_id]);
         $user_group = $stmt->fetch(PDO::FETCH_ASSOC);
-        
+    }
+    
     // Always fetch pending submissions for quest creators
     if ($is_giver) {
         $offset = ($current_page - 1) * $items_per_page;
@@ -572,7 +582,9 @@ try {
             $pending_submissions = [];
         }
     }
-    // ...existing code...
+    
+    // Additional quest taker logic
+    if ($is_taker) {
         if ($user_group) {
             $stmt = $pdo->prepare("SELECT u.employee_id, u.full_name 
                                  FROM group_members gm
@@ -581,7 +593,6 @@ try {
                                  GROUP BY u.employee_id");
             $stmt->execute([$user_group['id']]);
             $group_members = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        
         }
         
         // Get available groups to join (excluding user's current group)
@@ -835,17 +846,15 @@ try {
     $available_groups = [];
 }
 
-// Role-based styling
+// Role-based styling (simple rename)
 $role_badge_class = [
-    'quest_taker' => 'bg-green-100 text-green-800',
-    'quest_giver' => 'bg-blue-100 text-blue-800',
-    'hybrid' => 'bg-purple-100 text-purple-800'
+    'participant' => 'bg-green-100 text-green-800',    // was quest_taker
+    'contributor' => 'bg-purple-100 text-purple-800'   // was hybrid 
 ][$role] ?? 'bg-gray-100 text-gray-800';
 
 $role_icon_color = [
-    'quest_taker' => 'text-green-500',
-    'quest_giver' => 'text-blue-500',
-    'hybrid' => 'text-purple-500'
+    'participant' => 'text-green-500',    // was quest_taker
+    'contributor' => 'text-purple-500'    // was hybrid
 ][$role] ?? 'text-gray-500';
 
 // Function to get the body class based on theme
@@ -1493,7 +1502,7 @@ function generatePagination($total_pages, $current_page, $base_url = '') {
                         <?php echo ucfirst(str_replace('_', ' ', $role)); ?>
                     </span>
                 </div>
-                <?php if ($role === 'hybrid' || $role === 'quest_giver'): ?>
+                <?php if ($role === 'contributor'): ?>
                 <!-- Removed unnecessary Create New Account button -->
                 <?php endif; ?>
             </div>
@@ -1527,7 +1536,7 @@ function generatePagination($total_pages, $current_page, $base_url = '') {
                     <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
                     View profile
                 </a>
-                <?php if ($role === 'hybrid' || $role === 'quest_giver'): ?>
+                <?php if ($role === 'contributor'): ?>
                 <a href="create_account.php" class="flex items-center">
                     <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
                     Create New Account
@@ -1712,7 +1721,7 @@ function generatePagination($total_pages, $current_page, $base_url = '') {
             <?php endif; ?>
 
             <!-- Role-Based Content Grid -->
-            <div class="grid gap-6 <?php echo ($is_giver && $is_taker) ? 'md:grid-cols-2' : 'grid-cols-1'; ?>">
+            <div class="grid gap-6 <?php echo ($is_giver && $is_taker) ? 'md:grid-cols-2' : 'grid-cols-1'; ?>">>>
 
                 <!-- Quest Taker Section (if permitted) -->
                 <?php if ($is_taker): ?>

@@ -10,7 +10,15 @@ if (!is_logged_in()) {
 
 // Check if user has quest giver permissions
 $role = $_SESSION['role'] ?? '';
-if (!in_array($role, ['quest_giver', 'hybrid'])) {
+
+// Simple role renaming
+if ($role === 'hybrid') {
+    $role = 'contributor';
+} elseif ($role === 'quest_giver') {
+    $role = 'contributor';
+}
+
+if (!in_array($role, ['contributor'])) { // was ['quest_giver', 'hybrid']
     header('Location: dashboard.php');
     exit();
 }
@@ -28,7 +36,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == 'get_group_members' && isset($_GET[
                               FROM group_members gm
                               JOIN users u ON gm.employee_id = u.employee_id
                               WHERE gm.group_id = ? 
-                              AND u.role IN ('quest_taker', 'hybrid')
+                              AND u.role IN ('participant', 'contributor')
                               AND u.employee_id != ?
                               ORDER BY u.full_name");
         $stmt->execute([$group_id, $current_user_id]);
@@ -141,10 +149,10 @@ $employees = [];
 $categories = [];
 $groups = [];
 try {
-    // Get all quest takers and hybrid users EXCEPT the current user
+    // Get all participants and contributors EXCEPT the current user
     $current_user_id = $_SESSION['employee_id'];
     $stmt = $pdo->prepare("SELECT employee_id, full_name FROM users 
-                          WHERE role IN ('quest_taker', 'hybrid') 
+                          WHERE role IN ('participant', 'contributor') 
                           AND employee_id != ?
                           ORDER BY full_name");
     $stmt->execute([$current_user_id]);
@@ -220,7 +228,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $placeholders = implode(',', array_fill(0, count($assign_to), '?'));
                 $stmt = $pdo->prepare("SELECT COUNT(*) FROM users 
                                       WHERE employee_id IN ($placeholders) 
-                                      AND role IN ('quest_taker', 'hybrid')");
+                                      AND role IN ('participant', 'contributor')");
                 $stmt->execute($assign_to);
                 $count = $stmt->fetchColumn();
                 
