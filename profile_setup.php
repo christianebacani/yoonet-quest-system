@@ -772,7 +772,7 @@ $job_positions = [
                             <i class="fas fa-times"></i> Skip Setup
                         </a>
                         <button type="submit" class="btn btn-primary">
-                            Next: Add Skills <i class="fas fa-arrow-right"></i>
+                            Next: Quest Preferences <i class="fas fa-arrow-right"></i>
                         </button>
                     </div>
                 </form>
