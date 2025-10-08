@@ -13,12 +13,14 @@ $role = $_SESSION['role'] ?? '';
 
 // Simple role renaming
 if ($role === 'hybrid') {
-    $role = 'contributor';
+    $role = 'quest_lead';
 } elseif ($role === 'quest_giver') {
-    $role = 'contributor';
+    $role = 'quest_lead';
+} elseif ($role === 'contributor') {
+    $role = 'quest_lead';
 }
 
-if (!in_array($role, ['contributor'])) { // was ['quest_giver', 'hybrid']
+if (!in_array($role, ['quest_lead'])) { // was ['quest_giver', 'hybrid']
     header('Content-Type: application/json');
     echo json_encode(['success' => false, 'error' => 'Unauthorized']);
     exit();
