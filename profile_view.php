@@ -9,7 +9,7 @@ if (!is_logged_in()) {
 $user_id = $_SESSION['user_id'];
 
 try {
-    $stmt = $pdo->prepare("SELECT full_name, bio, profile_photo, quest_interests, availability, job_position FROM users WHERE id = ?");
+    $stmt = $pdo->prepare("SELECT full_name, bio, profile_photo, quest_interests, availability_status, job_position FROM users WHERE id = ?");
     $stmt->execute([$user_id]);
     $profile = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$profile) redirect('dashboard.php');
@@ -21,23 +21,24 @@ try {
 // Load user's earned skills from quest completions
 $user_skills = [];
 try {
-    // This will fetch skills that users have earned through quest completions
-    // The skills table should track: skill_name, total_points, last_used, level, stage
+    // Fetch skills that users have earned through quest completions
     $stmt = $pdo->prepare("
         SELECT 
-            ues.skill_name,
-            ues.total_points,
-            ues.current_level,
-            ues.current_stage,
-            ues.last_used,
-            ues.recent_points,
-            ues.status,
-            ues.updated_at
-        FROM user_earned_skills ues
-        WHERE ues.user_id = ? 
-        ORDER BY ues.total_points DESC
+            cs.skill_name,
+            usp.total_points,
+            usp.skill_level as current_level,
+            usp.current_stage,
+            usp.last_activity as last_used,
+            usp.activity_status as status,
+            usp.updated_at,
+            sc.category_name
+        FROM user_skill_progress usp
+        JOIN comprehensive_skills cs ON usp.skill_id = cs.id
+        JOIN skill_categories sc ON cs.category_id = sc.id
+        WHERE usp.employee_id = ? 
+        ORDER BY usp.total_points DESC
     ");
-    $stmt->execute([$user_id]);
+    $stmt->execute([$_SESSION['employee_id']]);
     $user_skills = $stmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (PDOException $e) {
     error_log("Error loading user earned skills: " . $e->getMessage());
@@ -132,7 +133,7 @@ $job_positions = [
 ];
 
 $profile_quest_interests = $profile['quest_interests'] ? explode(',', $profile['quest_interests']) : [];
-$profile_availability = $profile['availability'] ?? '';
+$profile_availability = $profile['availability_status'] ?? '';
 $profile_job_position = $profile['job_position'] ?? '';
 $profile_full_name = $profile['full_name'] ?? '';
 $profile_bio = $profile['bio'] ?? '';
@@ -194,6 +195,56 @@ $profile_photo = $profile['profile_photo'] ?? '';
     .pref-label { font-size:0.95rem; color:#374151; font-weight:600; }
     .pref-value { margin-left:auto; font-weight:700; color:var(--primary-color); }
     .pref-badge { display:inline-block; background:linear-gradient(135deg,var(--primary-color),var(--secondary-color)); color:white; padding:6px 10px; border-radius:999px; font-weight:600; font-size:0.9rem; }
+
+    /* Availability badge styles */
+    .availability-badge { 
+        display: inline-flex; 
+        align-items: center; 
+        padding: 8px 14px; 
+        border-radius: 24px; 
+        font-weight: 600; 
+        font-size: 0.9rem; 
+        border: 1px solid; 
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08); 
+        transition: all 0.3s ease; 
+        backdrop-filter: blur(10px);
+    }
+    .availability-badge:hover { 
+        transform: translateY(-1px); 
+        box-shadow: 0 4px 12px rgba(0,0,0,0.12); 
+    }
+    .availability-full-time { 
+        background: linear-gradient(135deg, #ecfdf5, #d1fae5); 
+        color: #064e3b; 
+        border-color: #34d399; 
+    }
+    .availability-part-time { 
+        background: linear-gradient(135deg, #eff6ff, #dbeafe); 
+        color: #1e3a8a; 
+        border-color: #3b82f6; 
+    }
+    .availability-casual { 
+        background: linear-gradient(135deg, #fffbeb, #fef3c7); 
+        color: #78350f; 
+        border-color: #f59e0b; 
+    }
+    .availability-project-based { 
+        background: linear-gradient(135deg, #faf5ff, #f3e8ff); 
+        color: #581c87; 
+        border-color: #8b5cf6; 
+    }
+    .availability-badge i { 
+        font-size: 0.85em; 
+        margin-right: 8px; 
+        opacity: 0.9; 
+    }
+    .availability-subtitle { 
+        font-size: 0.75em; 
+        margin-left: 6px; 
+        opacity: 0.85; 
+        font-weight: 500; 
+        font-style: italic; 
+    }
 
     .interest-list { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
     .interest-pill { background:#eef2ff; color:#1e3a8a; padding:6px 10px; border-radius:999px; font-weight:600; font-size:0.9rem; }
@@ -337,7 +388,9 @@ $profile_photo = $profile['profile_photo'] ?? '';
                 </div>
                 <div class="pref-item">
                     <div class="pref-label">Availability</div>
-                    <div class="pref-value"><?= htmlspecialchars($profile_availability ?: '—') ?></div>
+                    <div class="pref-value">
+                        <?= format_availability($profile_availability) ?>
+                    </div>
                 </div>
                 <div class="pref-item" style="flex-direction:column;align-items:flex-start;">
                     <div class="pref-label">Quest Interests</div>
