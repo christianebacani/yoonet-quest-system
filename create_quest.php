@@ -13,12 +13,14 @@ $role = $_SESSION['role'] ?? '';
 
 // Simple role renaming
 if ($role === 'hybrid') {
-    $role = 'contributor';
+    $role = 'quest_lead';
 } elseif ($role === 'quest_giver') {
-    $role = 'contributor';
+    $role = 'quest_lead';
+} elseif ($role === 'contributor') {
+    $role = 'quest_lead';
 }
 
-if (!in_array($role, ['contributor'])) { // was ['quest_giver', 'hybrid']
+if (!in_array($role, ['quest_lead'])) { // was ['quest_giver', 'hybrid']
     header('Location: dashboard.php');
     exit();
 }
@@ -36,7 +38,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == 'get_group_members' && isset($_GET[
                               FROM group_members gm
                               JOIN users u ON gm.employee_id = u.employee_id
                               WHERE gm.group_id = ? 
-                              AND u.role IN ('participant', 'contributor')
+                              AND u.role IN ('skill_associate', 'quest_lead')
                               AND u.employee_id != ?
                               ORDER BY u.full_name");
         $stmt->execute([$group_id, $current_user_id]);
@@ -132,39 +134,37 @@ $success = '';
 // Initialize form variables
 $title = '';
 $description = '';
-$xp = 10;
-$category_id = null;
+$quest_assignment_type = 'optional';
 $due_date = null;
 $assign_to = [];
 $assign_group = null;
-$quest_type = 'single';
-$visibility = 'public';
-$subtasks = [];
-$recurrence_pattern = '';
-$recurrence_end_date = '';
-$publish_at = '';
+$selected_skills = [];
 
-// Fetch employees, categories, and groups for assignment
+// Fetch employees, groups, and skills for assignment
 $employees = [];
-$categories = [];
 $groups = [];
+$skills = [];
 try {
-    // Get all participants and contributors EXCEPT the current user
+    // Get all skill_associates and quest_leads EXCEPT the current user
     $current_user_id = $_SESSION['employee_id'];
     $stmt = $pdo->prepare("SELECT employee_id, full_name FROM users 
-                          WHERE role IN ('participant', 'contributor') 
+                          WHERE role IN ('skill_associate', 'quest_lead') 
                           AND employee_id != ?
                           ORDER BY full_name");
     $stmt->execute([$current_user_id]);
     $employees = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
-    // Get all quest categories with icons
-    $stmt = $pdo->query("SELECT id, name, icon FROM quest_categories ORDER BY name");
-    $categories = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    
     // Get all employee groups
     $stmt = $pdo->query("SELECT id, group_name FROM employee_groups ORDER BY group_name");
     $groups = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    // Get all skills organized by category
+    $stmt = $pdo->query("SELECT s.id, s.skill_name, s.tier_1_points, s.tier_2_points, s.tier_3_points, 
+                               s.tier_4_points, s.tier_5_points, sc.category_name, sc.id as category_id
+                        FROM comprehensive_skills s 
+                        JOIN skill_categories sc ON s.category_id = sc.id 
+                        ORDER BY sc.category_name, s.skill_name");
+    $skills = $stmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (PDOException $e) {
     error_log("Database error fetching data: " . $e->getMessage());
 }
@@ -172,20 +172,15 @@ try {
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $title = trim($_POST['title'] ?? '');
     $description = trim($_POST['description'] ?? '');
-    $xp = intval($_POST['xp'] ?? 0);
-    $category_id = isset($_POST['category_id']) ? intval($_POST['category_id']) : null;
+    $quest_assignment_type = $_POST['quest_assignment_type'] ?? 'optional';
     $due_date = !empty($_POST['due_date']) ? $_POST['due_date'] : null;
     $assign_to = isset($_POST['assign_to']) ? $_POST['assign_to'] : [];
     $assign_group = isset($_POST['assign_group']) ? $_POST['assign_group'] : null;
     $status = 'active';
     
-    // New fields
-    $quest_type = $_POST['quest_type'] ?? 'single';
-    $visibility = $_POST['visibility'] ?? 'public';
-    $subtasks = isset($_POST['subtasks']) ? array_filter($_POST['subtasks']) : [];
-    $recurrence_pattern = $_POST['recurrence_pattern'] ?? '';
-    $recurrence_end_date = $_POST['recurrence_end_date'] ?? '';
-    $publish_at = $_POST['publish_at'] ?? '';
+    // Handle selected skills with tiers
+    $selected_skills = isset($_POST['quest_skills']) ? $_POST['quest_skills'] : [];
+    $skill_tiers = isset($_POST['skill_tiers']) ? $_POST['skill_tiers'] : [];
 
     // Validate input
     if (empty($title)) {
@@ -196,44 +191,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Description is required';
     } elseif (strlen($description) > 2000) {
         $error = 'Description must be less than 2000 characters';
-    } elseif ($xp < 1 || $xp > 100) {
-        $error = 'XP must be between 1 and 100';
-    } elseif (empty($category_id)) {
-        $error = 'Category is required';
+    } elseif (!in_array($quest_assignment_type, ['mandatory', 'optional'])) {
+        $error = 'Quest assignment type must be either mandatory or optional';
+    } elseif (empty($selected_skills)) {
+        $error = 'At least one skill must be selected for this quest';
     } elseif (!empty($due_date) && !strtotime($due_date)) {
         $error = 'Invalid due date format';
-    } elseif ($quest_type == 'recurring' && empty($recurrence_pattern)) {
-        $error = 'Recurrence pattern is required for recurring quests';
-    } elseif ($quest_type == 'recurring' && !empty($recurrence_end_date) && !strtotime($recurrence_end_date)) {
-        $error = 'Invalid recurrence end date format';
-    } elseif (!empty($publish_at) && !strtotime($publish_at)) {
-        $error = 'Invalid publish date/time format';
-    } elseif (empty($assign_to) && empty($assign_group)) {
-        $error = 'You must assign the quest to at least one employee or group';
     } else {
-        // Validate category exists
-        try {
-            $stmt = $pdo->prepare("SELECT id FROM quest_categories WHERE id = ?");
-            $stmt->execute([$category_id]);
-            if (!$stmt->fetch()) {
-                $error = 'Selected category does not exist';
-            }
-        } catch (PDOException $e) {
-            $error = 'Error validating category: ' . $e->getMessage();
-        }
-        
         // Validate assigned employees exist and are quest takers
         if (empty($error) && !empty($assign_to)) {
             try {
                 $placeholders = implode(',', array_fill(0, count($assign_to), '?'));
                 $stmt = $pdo->prepare("SELECT COUNT(*) FROM users 
                                       WHERE employee_id IN ($placeholders) 
-                                      AND role IN ('participant', 'contributor')");
+                                      AND role IN ('skill_associate', 'quest_lead')");
                 $stmt->execute($assign_to);
                 $count = $stmt->fetchColumn();
                 
                 if ($count != count($assign_to)) {
-                    $error = 'One or more assigned employees are invalid or not quest takers';
+                    $error = 'One or more assigned employees are invalid or not quest participants';
                 }
             } catch (PDOException $e) {
                 $error = 'Error validating assigned employees: ' . $e->getMessage();
@@ -253,125 +229,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
         
-        // Validate file uploads
-        if (empty($error) && !empty($_FILES['attachments']['name'][0])) {
-            $allowedTypes = ['application/pdf', 'image/jpeg', 'image/png'];
-            $maxSize = 5 * 1024 * 1024; // 5MB
-            $maxTotalSize = 20 * 1024 * 1024; // 20MB total
-            $totalSize = 0;
-            
-            foreach ($_FILES['attachments']['tmp_name'] as $key => $tmp_name) {
-                if ($_FILES['attachments']['error'][$key] === UPLOAD_ERR_OK) {
-                    $fileType = $_FILES['attachments']['type'][$key];
-                    $fileSize = $_FILES['attachments']['size'][$key];
-                    $totalSize += $fileSize;
-                    
-                    if (!in_array($fileType, $allowedTypes)) {
-                        $error = 'Only PDF, JPG, and PNG files are allowed';
-                        break;
-                    }
-                    
-                    if ($fileSize > $maxSize) {
-                        $error = 'Each file must be less than 5MB';
-                        break;
-                    }
-                } else {
-                    $error = 'Error uploading one or more files';
-                    break;
-                }
-            }
-            
-            if (empty($error) && $totalSize > $maxTotalSize) {
-                $error = 'Total attachments size must be less than 20MB';
-            }
-        }
-        
-        // Validate subtasks
-        if (empty($error) && !empty($subtasks)) {
-            foreach ($subtasks as $subtask) {
-                if (strlen(trim($subtask)) > 500) {
-                    $error = 'Each subtask must be less than 500 characters';
-                    break;
-                }
-            }
-        }
-        
         // If no validation errors, proceed with database operations
         if (empty($error)) {
             try {
                 $pdo->beginTransaction();
                 
                 // Create the quest
-                // Get user id from employee_id
-                $stmt = $pdo->prepare("SELECT id FROM users WHERE employee_id = ?");
-                $stmt->execute([$_SESSION['employee_id']]);
-                $user = $stmt->fetch();
-                $user_id = $user['id'];
                 $stmt = $pdo->prepare("INSERT INTO quests 
-                    (title, description, xp, status, due_date, created_by, category_id, created_at,
-                     quest_type, visibility, recurrence_pattern, recurrence_end_date, publish_at) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?)");
+                    (title, description, status, due_date, created_by, quest_assignment_type, created_at) 
+                    VALUES (?, ?, ?, ?, ?, ?, NOW())");
                 $stmt->execute([
                     $title, 
                     $description, 
-                    $xp, 
                     $status, 
                     $due_date,
-                    $user_id,
-                    $category_id,
-                    $quest_type,
-                    $visibility,
-                    $recurrence_pattern,
-                    !empty($recurrence_end_date) ? $recurrence_end_date : null,
-                    !empty($publish_at) ? $publish_at : null
+                    $_SESSION['employee_id'],
+                    $quest_assignment_type
                 ]);
                 $quest_id = $pdo->lastInsertId();
                 
-                // Add subtasks if any
-                if (!empty($subtasks)) {
-                    $stmt = $pdo->prepare("INSERT INTO quest_subtasks 
-                        (quest_id, description) VALUES (?, ?)");
-                    foreach ($subtasks as $subtask) {
-                        if (!empty(trim($subtask))) {
-                            $stmt->execute([$quest_id, trim($subtask)]);
-                        }
-                    }
-                }
-                
-                // Handle file uploads
-                if (!empty($_FILES['attachments']['name'][0])) {
-                    $uploadDir = 'uploads/quests/' . $quest_id . '/';
-                    if (!file_exists($uploadDir)) {
-                        mkdir($uploadDir, 0755, true);
-                    }
-                    
-                    $allowedTypes = ['application/pdf', 'image/jpeg', 'image/png'];
-                    $maxSize = 5 * 1024 * 1024; // 5MB
-                    
-                    foreach ($_FILES['attachments']['tmp_name'] as $key => $tmp_name) {
-                        if ($_FILES['attachments']['error'][$key] === UPLOAD_ERR_OK) {
-                            $fileType = $_FILES['attachments']['type'][$key];
-                            $fileSize = $_FILES['attachments']['size'][$key];
-                            $originalName = basename($_FILES['attachments']['name'][$key]);
-                            
-                            if (in_array($fileType, $allowedTypes) && $fileSize <= $maxSize) {
-                                $newFilename = uniqid() . '.' . pathinfo($originalName, PATHINFO_EXTENSION);
-                                $destination = $uploadDir . $newFilename;
-                                
-                                if (move_uploaded_file($tmp_name, $destination)) {
-                                    $stmt = $pdo->prepare("INSERT INTO quest_attachments 
-                                        (quest_id, file_name, file_path, file_size, file_type) 
-                                        VALUES (?, ?, ?, ?, ?)");
-                                    $stmt->execute([
-                                        $quest_id,
-                                        $originalName,
-                                        $destination,
-                                        $fileSize,
-                                        $fileType
-                                    ]);
-                                }
-                            }
-                        }
+                // Add quest skills with tiers
+                if (!empty($selected_skills)) {
+                    $stmt = $pdo->prepare("INSERT INTO quest_skills 
+                        (quest_id, skill_id, tier_level) VALUES (?, ?, ?)");
+                    foreach ($selected_skills as $skill_id) {
+                        $tier = isset($skill_tiers[$skill_id]) ? intval($skill_tiers[$skill_id]) : 1;
+                        $stmt->execute([$quest_id, $skill_id, $tier]);
                     }
                 }
                 
@@ -390,7 +273,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (!empty($all_assignments)) {
                     foreach ($all_assignments as $employee_id) {
                         // First check if the employee exists
-                        $stmt = $pdo->prepare("SELECT id FROM users WHERE id = ?");
+                        $stmt = $pdo->prepare("SELECT employee_id FROM users WHERE employee_id = ?");
                         $stmt->execute([$employee_id]);
                         $userExists = $stmt->fetch();
                         
@@ -399,21 +282,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             continue; // Skip this assignment
                         }
 
+                        // Set initial status based on quest assignment type
+                        $initial_status = ($quest_assignment_type === 'mandatory') ? 'in_progress' : 'assigned';
+                        
                         $stmt = $pdo->prepare("INSERT INTO user_quests 
                             (employee_id, quest_id, status, assigned_at) 
-                            VALUES (?, ?, 'assigned', NOW())");
-                        $stmt->execute([$employee_id, $quest_id]);
-                        
-                        // Record in XP history only if user exists
-                        $stmt = $pdo->prepare("INSERT INTO xp_history 
-                            (employee_id, xp_change, source_type, source_id, description, created_at)
-                            VALUES (?, ?, 'quest_assigned', ?, ?, NOW())");
-                        $stmt->execute([
-                            $employee_id,
-                            0, // No XP change on assignment
-                            $quest_id,
-                            "Quest assigned: $title"
-                        ]);
+                            VALUES (?, ?, ?, NOW())");
+                        $stmt->execute([$employee_id, $quest_id, $initial_status]);
                     }
                 }
                 
@@ -426,15 +301,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // Clear form on success
                 if ($success) {
                     $title = $description = '';
-                    $xp = 10;
+                    $quest_assignment_type = 'optional';
                     $assign_to = [];
                     $assign_group = null;
-                    $category_id = null;
                     $due_date = null;
-                    $subtasks = [];
-                    $recurrence_pattern = '';
-                    $recurrence_end_date = '';
-                    $publish_at = '';
+                    $selected_skills = [];
                 }
             } catch (PDOException $e) {
                 $pdo->rollBack();
@@ -1221,19 +1092,20 @@ function getFontSize() {
 
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
-                                <label for="category_id" class="block text-sm font-medium text-gray-700 mb-1">Category*</label>
-                                <select name="category_id" id="category_id" 
+                                <label for="quest_assignment_type" class="block text-sm font-medium text-gray-700 mb-1">Assignment Type*</label>
+                                <select name="quest_assignment_type" id="quest_assignment_type" 
                                         class="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300" required>
-                                    <option value="">-- Select Category --</option>
-                                    <?php foreach ($categories as $category): ?>
-                                        <option value="<?php echo $category['id']; ?>" <?php echo (isset($category_id) && $category_id == $category['id']) ? 'selected' : ''; ?>>
-                                            <?php if ($category['icon']): ?>
-                                                <i class="<?php echo htmlspecialchars($category['icon']); ?> category-icon"></i>
-                                            <?php endif; ?>
-                                            <?php echo htmlspecialchars($category['name']); ?>
-                                        </option>
-                                    <?php endforeach; ?>
+                                    <option value="optional" <?php echo (isset($quest_assignment_type) && $quest_assignment_type == 'optional') ? 'selected' : ''; ?>>
+                                        📋 Optional - Users can choose to accept or decline
+                                    </option>
+                                    <option value="mandatory" <?php echo (isset($quest_assignment_type) && $quest_assignment_type == 'mandatory') ? 'selected' : ''; ?>>
+                                        ⚡ Mandatory - Automatically assigned to users
+                                    </option>
                                 </select>
+                                <p class="text-xs text-gray-500 mt-1">
+                                    <span class="font-medium">Optional:</span> Users can accept/decline. 
+                                    <span class="font-medium">Mandatory:</span> Automatically starts for assigned users.
+                                </p>
                             </div>
                             <div>
                                 <label for="due_date" class="block text-sm font-medium text-gray-700 mb-1">Due Date &amp; Time (Optional)</label>
@@ -1253,30 +1125,59 @@ function getFontSize() {
                         <i class="fas fa-gem text-indigo-500 mr-2"></i> Reward & Settings
                     </h2>
                     
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="space-y-6">
+                        <!-- Quest Skills Selection -->
                         <div>
-                            <label for="xp" class="block text-sm font-medium text-gray-700 mb-1">XP Reward*</label>
-                            <div class="xp-input-container">
-                                <input type="number" id="xp" name="xp" value="<?php echo htmlspecialchars($xp ?? 10); ?>"
-                                       class="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300"
-                                       min="1" max="100" required>
-                                <span class="xp-badge">XP</span>
+                            <label class="block text-sm font-medium text-gray-700 mb-3">Required Skills*</label>
+                            <div class="bg-gray-50 p-4 rounded-lg max-h-96 overflow-y-auto">
+                                <div class="space-y-4">
+                                    <?php 
+                                    $current_category = '';
+                                    foreach ($skills as $skill): 
+                                        if ($current_category !== $skill['category_name']): 
+                                            if ($current_category !== ''): ?>
+                                </div>
+                            <?php endif;
+                            $current_category = $skill['category_name']; ?>
+                            <div class="skill-category mb-4">
+                                <h4 class="font-semibold text-gray-800 mb-2 border-b border-gray-300 pb-1">
+                                    <?php echo htmlspecialchars($skill['category_name']); ?>
+                                </h4>
+                                <div class="grid grid-cols-1 gap-2">
+                        <?php endif; ?>
+                                    
+                                    <div class="skill-item p-3 bg-white rounded border hover:bg-blue-50 transition-colors">
+                                        <div class="flex items-start justify-between">
+                                            <label class="flex items-center cursor-pointer flex-1">
+                                                <input type="checkbox" 
+                                                       name="quest_skills[]" 
+                                                       value="<?php echo $skill['id']; ?>"
+                                                       class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 rounded mr-3"
+                                                       onchange="toggleSkillTiers(this, <?php echo $skill['id']; ?>)">
+                                                <div class="flex-1">
+                                                    <span class="font-medium text-gray-900"><?php echo htmlspecialchars($skill['skill_name']); ?></span>
+                                                </div>
+                                            </label>
+                                            
+                                            <div id="tier-selector-<?php echo $skill['id']; ?>" class="hidden ml-4">
+                                                <select name="skill_tiers[<?php echo $skill['id']; ?>]" 
+                                                        class="text-sm border border-gray-300 rounded px-2 py-1 focus:ring-2 focus:ring-indigo-500">
+                                                    <option value="1">Tier 1 (<?php echo $skill['tier_1_points']; ?> pts)</option>
+                                                    <option value="2">Tier 2 (<?php echo $skill['tier_2_points']; ?> pts)</option>
+                                                    <option value="3">Tier 3 (<?php echo $skill['tier_3_points']; ?> pts)</option>
+                                                    <option value="4">Tier 4 (<?php echo $skill['tier_4_points']; ?> pts)</option>
+                                                    <option value="5">Tier 5 (<?php echo $skill['tier_5_points']; ?> pts)</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                        <?php endforeach; ?>
+                                </div>
                             </div>
-                            <p class="mt-1 text-xs text-gray-500">XP value between 1-100 based on quest difficulty</p>
+                            </div>
+                            <p class="mt-2 text-xs text-gray-500">Select the skills this quest will assess and their difficulty tiers</p>
                         </div>
-
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Quest Type</label>
-                            <div class="flex space-x-4">
-                                <label class="inline-flex items-center">
-                                    <input type="radio" name="quest_type" value="single" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500" 
-                                           <?php echo ($quest_type === 'single' || empty($quest_type)) ? 'checked' : ''; ?>>
-                                    <span class="ml-2 text-gray-700">Single Quest</span>
-                                </label>
-                                <label class="inline-flex items-center">
-                                    <input type="radio" name="quest_type" value="recurring" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500"
-                                           <?php echo ($quest_type === 'recurring') ? 'checked' : ''; ?>>
-                                    <span class="ml-2 text-gray-700">Recurring Quest</span>
                                 </label>
                             </div>
                         </div>
@@ -1313,76 +1214,9 @@ function getFontSize() {
                             </div>
                         </div>
                     </div>
-
-                    <div class="mt-4">
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Visibility</label>
-                        <div class="flex space-x-4">
-                            <label class="inline-flex items-center">
-                                <input type="radio" name="visibility" value="public" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500"
-                                       <?php echo ($visibility === 'public' || empty($visibility)) ? 'checked' : ''; ?>>
-                                <span class="ml-2 text-gray-700">Public (Visible to all)</span>
-                            </label>    
-                            <label class="inline-flex items-center">
-                                <input type="radio" name="visibility" value="private" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500"
-                                       <?php echo ($visibility === 'private') ? 'checked' : ''; ?>>
-                                <span class="ml-2 text-gray-700">Private (Only assigned users)</span>
-                            </label>
-                        </div>
-                    </div>
-
-                    <div class="mt-4 schedule-options">
-                        <label for="publish_at" class="block text-sm font-medium text-gray-700 mb-1">Schedule Publish (Optional)</label>
-                        <input type="text" id="publish_at" name="publish_at" 
-                               class="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300"
-                               placeholder="Select publish date/time"
-                               value="<?php echo htmlspecialchars($publish_at ?? ''); ?>">
-                        <p class="mt-1 text-xs text-gray-500">Quest will be automatically published at this time</p>
-                    </div>
                 </div>
 
-                <!-- Subtasks Section -->
-                <div>
-                    <h2 class="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b border-gray-100">
-                        <i class="fas fa-tasks text-indigo-500 mr-2"></i> Subtasks (Optional)
-                    </h2>
-                    
-                    <div id="subtasksContainer" class="space-y-2 mb-4">
-                        <?php if (!empty($subtasks)): ?>
-                            <?php foreach ($subtasks as $index => $subtask): ?>
-                                <?php if (!empty(trim($subtask))): ?>
-                                    <div class="subtask-item flex items-center">
-                                        <input type="text" name="subtasks[]" value="<?php echo htmlspecialchars(trim($subtask)); ?>" 
-                                               class="flex-1 px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300"
-                                               placeholder="Enter subtask description" maxlength="500">
-                                        <button type="button" class="remove-subtask ml-2 text-gray-400 hover:text-red-500">
-                                            <i class="fas fa-times-circle"></i>
-                                        </button>
-                                    </div>
-                                <?php endif; ?>
-                            <?php endforeach; ?>
-                        <?php endif; ?>
-                    </div>
-                    
-                    <button type="button" id="addSubtask" class="btn-secondary px-4 py-2 rounded-lg text-sm font-medium">
-                        <i class="fas fa-plus mr-2"></i> Add Subtask
-                    </button>
-                </div>
 
-                <!-- Attachments Section -->
-                <div>
-                    <h2 class="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b border-gray-100">
-                        <i class="fas fa-paperclip text-indigo-500 mr-2"></i> Attachments (Optional)
-                    </h2>
-                    
-                    <div class="border-2 border-dashed border-gray-200 rounded-lg p-6 text-center file-upload-hover">
-                        <input type="file" id="attachments" name="attachments[]" multiple 
-                               class="hidden" accept=".pdf,.jpg,.jpeg,.png">
-                        <label for="attachments" class="cursor-pointer">
-                            <div class="flex flex-col items-center justify-center">
-                                <i class="fas fa-cloud-upload-alt text-3xl text-indigo-500 mb-2"></i>
-                                <p class="text-sm text-gray-600 mb-1">
-                                    <span class="font-medium text-indigo-600">Click to upload</span> or drag and drop
-                                </p>
                                 <p class="text-xs text-gray-500">PDF, JPG, PNG (Max 5MB each)</p>
                             </div>
                         </label>
@@ -2174,6 +2008,16 @@ function getFontSize() {
                 }
             });
         });
+
+        // Function to toggle skill tier selectors
+        function toggleSkillTiers(checkbox, skillId) {
+            const tierSelector = document.getElementById(`tier-selector-${skillId}`);
+            if (checkbox.checked) {
+                tierSelector.classList.remove('hidden');
+            } else {
+                tierSelector.classList.add('hidden');
+            }
+        }
     </script>
 
     <!-- Recurrence Pattern Visual Feedback Script -->
