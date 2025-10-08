@@ -4,11 +4,11 @@
 -- Add new columns to users table for profile completion
 ALTER TABLE users 
 ADD COLUMN IF NOT EXISTS profile_photo VARCHAR(255) DEFAULT NULL,
-ADD COLUMN IF NOT EXISTS bio TEXT DEFAULT NULL,
+ADD COLUMN IF NOT EXISTS bio TEXT DEFAUL NULL,
 ADD COLUMN IF NOT EXISTS preferred_role ENUM('participant', 'contributor') DEFAULT NULL,
 ADD COLUMN IF NOT EXISTS quest_interests TEXT DEFAULT NULL,
 ADD COLUMN IF NOT EXISTS availability ENUM('full_time', 'part_time', 'casual', 'project_based') DEFAULT NULL,
-ADD COLUMN IF NOT EXISTS profile_completed BOOLEAN DEFAULT FALSE,
+ADD COLUMN IF NOT EXISTS profile_completed BOOLEAN DEFAULT FALSTE,
 ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP;
 
 -- Create user_skills table for storing user skills and proficiency levels
