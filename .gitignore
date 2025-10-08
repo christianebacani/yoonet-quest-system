@@ -1,0 +1,39 @@
+# YooNet Quest System - Git Ignore
+
+# Archived SQL migration files (developers should use complete_database_setup.sql)
+sql_archive/
+
+# User uploads
+uploads/profile_photos/*.jpg
+uploads/profile_photos/*.png
+uploads/quest_submissions/*
+!uploads/profile_photos/.gitkeep
+!uploads/quest_submissions/.gitkeep
+
+# Configuration files with sensitive data
+includes/config.php.local
+
+# Verification scripts (optional for deployment)
+verify_setup.php
+test_quest_assignment.php
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+error.log
+access.log
+
+# Temporary files
+tmp/
+temp/
+cache/
