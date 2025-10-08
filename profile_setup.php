@@ -113,14 +113,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             
             try {
-                // First ensure the required columns exist
-                $columns_check = $pdo->query("SHOW COLUMNS FROM users LIKE 'job_position'");
-                if ($columns_check->rowCount() == 0) {
-                    $pdo->exec("ALTER TABLE users ADD COLUMN job_position VARCHAR(50) AFTER availability");
-                }
-                
-                // Now perform the update
-                $stmt = $pdo->prepare("UPDATE users SET quest_interests = ?, availability = ?, job_position = ?, profile_completed = 1 WHERE id = ?");
+                // Update user preferences
+                $stmt = $pdo->prepare("UPDATE users SET quest_interests = ?, availability_status = ?, job_position = ?, profile_completed = 1 WHERE id = ?");
                 if ($stmt->execute([implode(',', $quest_interests), $availability, $job_position, $user_id])) {
                     redirect('dashboard.php?welcome=1');
                 } else {
@@ -139,7 +133,7 @@ if ($step === null) {
     // Default to step 1
     $inferred = 1;
     // If quest preferences / availability or job_position were already set, move to step 2
-    if (!empty($user['quest_interests']) || !empty($user['availability']) || !empty($user['job_position']) || (!empty($user) && ($user['profile_completed'] ?? 0))) {
+    if (!empty($user['quest_interests'] ?? '') || !empty($user['availability_status']) || !empty($user['job_position'] ?? '') || (!empty($user) && ($user['profile_completed'] ?? 0))) {
         $inferred = 2;
     }
     $step = $inferred;
@@ -808,16 +802,16 @@ $job_positions = [
                         <label for="availability" class="form-label">Availability</label>
                         <select id="availability" name="availability" class="form-select">
                             <option value="">Select your availability</option>
-                            <option value="full_time" <?= ($user['availability'] ?? '') == 'full_time' ? 'selected' : '' ?>>Full-time (40+ hours/week)</option>
-                            <option value="part_time" <?= ($user['availability'] ?? '') == 'part_time' ? 'selected' : '' ?>>Part-time (20-40 hours/week)</option>
-                            <option value="casual" <?= ($user['availability'] ?? '') == 'casual' ? 'selected' : '' ?>>Casual (Less than 20 hours/week)</option>
-                            <option value="project_based" <?= ($user['availability'] ?? '') == 'project_based' ? 'selected' : '' ?>>Project-based (Flexible timing)</option>
+                            <option value="full_time" <?= ($user['availability_status'] ?? '') == 'full_time' ? 'selected' : '' ?>>Full-time (40+ hours/week)</option>
+                            <option value="part_time" <?= ($user['availability_status'] ?? '') == 'part_time' ? 'selected' : '' ?>>Part-time (20-40 hours/week)</option>
+                            <option value="casual" <?= ($user['availability_status'] ?? '') == 'casual' ? 'selected' : '' ?>>Casual (Less than 20 hours/week)</option>
+                            <option value="project_based" <?= ($user['availability_status'] ?? '') == 'project_based' ? 'selected' : '' ?>>Project-based (Flexible timing)</option>
                         </select>
                         <div class="form-group">
                         <label for="job_position_input" class="form-label">Job Position</label>
                         <div class="autocomplete" style="display:flex;align-items:flex-start;gap:8px;">
                             <div style="flex:1;min-width:0;">
-                                <input type="text" id="job_position_input" class="form-input" placeholder="Start typing to search..." autocomplete="off" value="<?= htmlspecialchars($job_positions[$user['job_position']] ?? '') ?>">
+                                <input type="text" id="job_position_input" class="form-input" placeholder="Start typing to search..." autocomplete="off" value="<?= htmlspecialchars(isset($user['job_position']) && isset($job_positions[$user['job_position']]) ? $job_positions[$user['job_position']] : '') ?>">
                                 <input type="hidden" id="job_position" name="job_position" value="<?= htmlspecialchars($user['job_position'] ?? '') ?>">
                                 <div class="autocomplete-list" id="job-position-list" role="listbox" aria-label="Job position suggestions"></div>
                             </div>
