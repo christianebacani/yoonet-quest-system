@@ -18,6 +18,9 @@ if ($role === 'hybrid') {
     $role = 'quest_lead';
 } elseif ($role === 'contributor') {
     $role = 'quest_lead';
+} elseif ($role === 'learning_architect') {
+    // Normalize newer role name to internal quest_lead for consistent permission checks
+    $role = 'quest_lead';
 }
 
 if (!in_array($role, ['quest_lead'])) { // was ['quest_giver', 'hybrid']

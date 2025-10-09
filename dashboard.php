@@ -169,6 +169,9 @@ if ($role === 'quest_taker') {
     $role = 'skill_associate'; // Update old participant to skill_associate
 } elseif ($role === 'contributor') {
     $role = 'quest_lead'; // Update old contributor to quest_lead
+} elseif ($role === 'learning_architect') {
+    // Normalize newer role name to internal quest_lead for consistent permission checks
+    $role = 'quest_lead';
 }
 $email = $_SESSION['email'] ?? '';
 $current_theme = $_SESSION['theme'] ?? 'default';
@@ -193,8 +196,8 @@ if (!$profile_completed) {
 }
 
 // Set permissions based on role (keeping original logic)
-$is_taker = in_array($role, ['skill_associate', 'quest_lead']); // skill_associate + quest_lead (was quest_taker + hybrid)
-$is_giver = in_array($role, ['quest_lead']); // quest_lead only (was hybrid + quest_giver)
+$is_taker = in_array($role, ['skill_associate', 'quest_lead']); // skill_associate + quest_lead
+$is_giver = in_array($role, ['quest_lead']); // quest_lead only
 
 // Pagination settings - Separate for each section to avoid conflicts
 $items_per_page = 8; // Increased from 5 to 8 for better content density
@@ -461,9 +464,9 @@ if ($is_giver && isset($_POST['delete_quest'])) {
         $stmt = $pdo->prepare("DELETE FROM xp_history WHERE source_type = 'quest_complete' AND source_id = ?");
         $stmt->execute([$quest_id]);
         
-        // Finally delete the quest itself
-        $stmt = $pdo->prepare("DELETE FROM quests WHERE id = ? AND created_by = ?");
-        $stmt->execute([$quest_id, $employee_id]);
+    // Finally delete the quest itself (support both employee_id and legacy user_id stored values)
+    $stmt = $pdo->prepare("DELETE FROM quests WHERE id = ? AND (created_by = ? OR created_by = ?)");
+    $stmt->execute([$quest_id, $employee_id, (string)$user_id]);
         
         $affected_rows = $stmt->rowCount();
         
@@ -590,18 +593,19 @@ try {
     // Always fetch pending submissions for quest creators
     if ($is_giver) {
         $offset = ($current_page - 1) * $items_per_page;
-        $stmt = $pdo->prepare("SELECT qs.*, e.full_name as employee_name, q.title as quest_title, 
-                              q.xp as base_xp, q.description as quest_description
-                              FROM quest_submissions qs
-                              JOIN users e ON qs.employee_id = e.id
-                              JOIN quests q ON qs.quest_id = q.id
-                              WHERE qs.status = 'pending'
-                              AND q.created_by = ?
-                              ORDER BY qs.submitted_at DESC
-                              LIMIT ? OFFSET ?");
-        $stmt->bindValue(1, $employee_id); // Use employee_id instead of user_id
-        $stmt->bindValue(2, $items_per_page, PDO::PARAM_INT);
-        $stmt->bindValue(3, $offset, PDO::PARAM_INT);
+    $stmt = $pdo->prepare("SELECT qs.*, e.full_name as employee_name, q.title as quest_title, 
+                  q.xp as base_xp, q.description as quest_description
+                  FROM quest_submissions qs
+                  JOIN users e ON qs.employee_id = e.employee_id
+                  JOIN quests q ON qs.quest_id = q.id
+                  WHERE qs.status = 'pending'
+                  AND (q.created_by = ? OR q.created_by = ?)
+                  ORDER BY qs.submitted_at DESC
+                  LIMIT ? OFFSET ?");
+    $stmt->bindValue(1, $employee_id); // current user's employee_id
+    $stmt->bindValue(2, (string)$user_id); // also support legacy created_by stored as user id
+    $stmt->bindValue(3, $items_per_page, PDO::PARAM_INT);
+    $stmt->bindValue(4, $offset, PDO::PARAM_INT);
         $stmt->execute();
         $pending_submissions = [];
         while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
@@ -626,9 +630,9 @@ try {
     $stmt = $pdo->prepare("SELECT COUNT(*) FROM quests q 
                   LEFT JOIN user_quests uq ON q.id = uq.quest_id AND uq.employee_id = ?
                   WHERE q.status = 'active'
-                  AND q.created_by != ?
+                  AND q.created_by NOT IN (?, ?)
                   AND (uq.quest_id IS NULL OR (uq.employee_id = ? AND uq.status = 'assigned'))");
-    $stmt->execute([$employee_id, $employee_id, $employee_id]);
+    $stmt->execute([$employee_id, $employee_id, (string)$user_id, $employee_id]);
     $total_available_quests = $stmt->fetchColumn();
     $total_pages_available_quests = ceil($total_available_quests / $items_per_page);
 
@@ -642,15 +646,16 @@ try {
     $stmt = $pdo->prepare("SELECT q.*, uq.status as user_status FROM quests q 
                   LEFT JOIN user_quests uq ON q.id = uq.quest_id AND uq.employee_id = ?
                   WHERE q.status = 'active'
-                  AND q.created_by != ?
+                  AND q.created_by NOT IN (?, ?)
                   AND (uq.quest_id IS NULL OR (uq.employee_id = ? AND uq.status = 'assigned'))
                   ORDER BY q.created_at DESC
                   LIMIT ? OFFSET ?");
     $stmt->bindValue(1, $employee_id);
     $stmt->bindValue(2, $employee_id);
-    $stmt->bindValue(3, $employee_id);
-    $stmt->bindValue(4, $items_per_page, PDO::PARAM_INT);
-    $stmt->bindValue(5, $offset_available, PDO::PARAM_INT);
+    $stmt->bindValue(3, (string)$user_id);
+    $stmt->bindValue(4, $employee_id);
+    $stmt->bindValue(5, $items_per_page, PDO::PARAM_INT);
+    $stmt->bindValue(6, $offset_available, PDO::PARAM_INT);
     $stmt->execute();
     $available_quests = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -712,24 +717,24 @@ try {
         
         // Get user's submissions with pagination
         // First get total count
-        $stmt = $pdo->prepare("SELECT COUNT(*) FROM quest_submissions qs
-                              JOIN quests q ON qs.quest_id = q.id
-                              LEFT JOIN users u ON qs.reviewed_by = u.id
-                              WHERE qs.employee_id = ?");
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM quest_submissions qs
+                  JOIN quests q ON qs.quest_id = q.id
+                  LEFT JOIN users u ON qs.reviewed_by = u.employee_id
+                  WHERE qs.employee_id = ?");
         $stmt->execute([$employee_id]);
         $total_submissions = $stmt->fetchColumn();
         $total_pages = ceil($total_submissions / $items_per_page);
         
         // Then get paginated results
         $offset = ($current_page - 1) * $items_per_page;
-        $stmt = $pdo->prepare("SELECT qs.*, q.title as quest_title, qs.status as submission_status, 
-                              q.xp as quest_xp, qs.additional_xp, u.full_name as reviewer_name
-                              FROM quest_submissions qs
-                              JOIN quests q ON qs.quest_id = q.id
-                              LEFT JOIN users u ON qs.reviewed_by = u.id
-                              WHERE qs.employee_id = ?
-                              ORDER BY qs.submitted_at DESC
-                              LIMIT ? OFFSET ?");
+    $stmt = $pdo->prepare("SELECT qs.*, q.title as quest_title, qs.status as submission_status, 
+                  q.xp as quest_xp, qs.additional_xp, u.full_name as reviewer_name
+                  FROM quest_submissions qs
+                  JOIN quests q ON qs.quest_id = q.id
+                  LEFT JOIN users u ON qs.reviewed_by = u.employee_id
+                  WHERE qs.employee_id = ?
+                  ORDER BY qs.submitted_at DESC
+                  LIMIT ? OFFSET ?");
         $stmt->bindValue(1, $employee_id);
         $stmt->bindValue(2, $items_per_page, PDO::PARAM_INT);
         $stmt->bindValue(3, $offset, PDO::PARAM_INT);
@@ -741,9 +746,9 @@ try {
     if ($is_giver) {
         // Get all quests for management (created by this user) with pagination
         // First get total count
-        $stmt = $pdo->prepare("SELECT COUNT(*) FROM quests q
-                             WHERE q.created_by = ?");
-        $stmt->execute([$employee_id]);
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM quests q
+                 WHERE q.created_by = ? OR q.created_by = ?");
+    $stmt->execute([$employee_id, (string)$user_id]);
         $total_quests = $stmt->fetchColumn();
         $total_pages_quests = ceil($total_quests / $items_per_page);
         
@@ -754,85 +759,88 @@ try {
         
         // Then get paginated results
         $offset = ($created_page - 1) * $items_per_page;
-        $stmt = $pdo->prepare("SELECT q.*, 
+    $stmt = $pdo->prepare("SELECT q.*, 
                              (SELECT COUNT(*) FROM quest_submissions WHERE quest_id = q.id AND status = 'approved') as approved_count,
                              (SELECT COUNT(*) FROM quest_submissions WHERE quest_id = q.id AND status = 'pending') as pending_count,
                              (SELECT COUNT(*) FROM quest_submissions WHERE quest_id = q.id AND status = 'rejected') as rejected_count,
                              (SELECT COUNT(*) FROM user_quests WHERE quest_id = q.id) as assigned_count 
                              FROM quests q
-                             WHERE q.created_by = ?
+                 WHERE q.created_by = ? OR q.created_by = ?
                              ORDER BY q.status, q.created_at DESC
                              LIMIT ? OFFSET ?");
-        $stmt->bindValue(1, $employee_id);
-        $stmt->bindValue(2, $items_per_page, PDO::PARAM_INT);
-        $stmt->bindValue(3, $offset, PDO::PARAM_INT);
+    $stmt->bindValue(1, $employee_id);
+    $stmt->bindValue(2, (string)$user_id);
+    $stmt->bindValue(3, $items_per_page, PDO::PARAM_INT);
+    $stmt->bindValue(4, $offset, PDO::PARAM_INT);
         $stmt->execute();
         $all_quests = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
         // Get pending submissions for quests created by this user with pagination
         // First get total count
-        $stmt = $pdo->prepare("SELECT COUNT(*) FROM quest_submissions qs
-                             JOIN users e ON qs.employee_id = e.id
-                             JOIN quests q ON qs.quest_id = q.id
-                             WHERE qs.status = 'pending'
-                             AND q.created_by = ?
-        ");
-        $stmt->execute([$employee_id]);
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM quest_submissions qs
+                 JOIN users e ON qs.employee_id = e.employee_id
+                 JOIN quests q ON qs.quest_id = q.id
+                 WHERE qs.status = 'pending'
+                 AND (q.created_by = ? OR q.created_by = ?)
+    ");
+    $stmt->execute([$employee_id, (string)$user_id]);
         $total_pending = $stmt->fetchColumn();
         $total_pages_pending = ceil($total_pending / $items_per_page);
         
         // Then get paginated results
         $offset = ($current_page - 1) * $items_per_page;
-        $stmt = $pdo->prepare("SELECT qs.*, e.full_name as employee_name, q.title as quest_title, 
-                              q.xp as base_xp, q.description as quest_description
-                              FROM quest_submissions qs
-                              JOIN users e ON qs.employee_id = e.id
-                              JOIN quests q ON qs.quest_id = q.id
-                              WHERE qs.status = 'pending'
-                              AND q.created_by = ?
-                              ORDER BY qs.submitted_at DESC
-                              LIMIT ? OFFSET ?");
-        $stmt->bindValue(1, $employee_id);
-        $stmt->bindValue(2, $items_per_page, PDO::PARAM_INT);
-        $stmt->bindValue(3, $offset, PDO::PARAM_INT);
+    $stmt = $pdo->prepare("SELECT qs.*, e.full_name as employee_name, q.title as quest_title, 
+                  q.xp as base_xp, q.description as quest_description
+                  FROM quest_submissions qs
+                  JOIN users e ON qs.employee_id = e.employee_id
+                  JOIN quests q ON qs.quest_id = q.id
+                  WHERE qs.status = 'pending'
+                  AND (q.created_by = ? OR q.created_by = ?)
+                  ORDER BY qs.submitted_at DESC
+                  LIMIT ? OFFSET ?");
+    $stmt->bindValue(1, $employee_id);
+    $stmt->bindValue(2, (string)$user_id);
+    $stmt->bindValue(3, $items_per_page, PDO::PARAM_INT);
+    $stmt->bindValue(4, $offset, PDO::PARAM_INT);
         $stmt->execute();
         $pending_submissions = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
         // Get all submissions for quests created by this giver with pagination
         // First get total count
-        $stmt = $pdo->prepare("SELECT COUNT(*) FROM quest_submissions qs
-                             JOIN quests q ON qs.quest_id = q.id
-                             JOIN users u ON qs.employee_id = u.id
-                             LEFT JOIN users rev ON qs.reviewed_by = rev.id
-                             WHERE q.created_by = ?
-        ");
-        $stmt->execute([$employee_id]);
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM quest_submissions qs
+                 JOIN quests q ON qs.quest_id = q.id
+                 JOIN users u ON qs.employee_id = u.employee_id
+                 LEFT JOIN users rev ON qs.reviewed_by = rev.employee_id
+                 WHERE (q.created_by = ? OR q.created_by = ?)
+    ");
+    $stmt->execute([$employee_id, (string)$user_id]);
         $total_all_submissions = $stmt->fetchColumn();
         $total_pages_all_submissions = ceil($total_all_submissions / $items_per_page);
         
         // Then get paginated results
         $offset = ($current_page - 1) * $items_per_page;
-        $stmt = $pdo->prepare("SELECT qs.*, q.title as quest_title, u.full_name as employee_name, 
-                              q.xp as base_xp, qs.additional_xp, rev.full_name as reviewer_name
-                              FROM quest_submissions qs
-                              JOIN quests q ON qs.quest_id = q.id
-                              JOIN users u ON qs.employee_id = u.id
-                              LEFT JOIN users rev ON qs.reviewed_by = rev.id
-                              WHERE q.created_by = ?
-                              ORDER BY qs.submitted_at DESC
-                              LIMIT ? OFFSET ?");
-        $stmt->bindValue(1, $employee_id);
-        $stmt->bindValue(2, $items_per_page, PDO::PARAM_INT);
-        $stmt->bindValue(3, $offset, PDO::PARAM_INT);
+    $stmt = $pdo->prepare("SELECT qs.*, q.title as quest_title, u.full_name as employee_name, 
+                  q.xp as base_xp, qs.additional_xp, rev.full_name as reviewer_name
+                  FROM quest_submissions qs
+                  JOIN quests q ON qs.quest_id = q.id
+                  JOIN users u ON qs.employee_id = u.employee_id
+                  LEFT JOIN users rev ON qs.reviewed_by = rev.employee_id
+                  WHERE (q.created_by = ? OR q.created_by = ?)
+                  ORDER BY qs.submitted_at DESC
+                  LIMIT ? OFFSET ?");
+    $stmt->bindValue(1, $employee_id);
+    $stmt->bindValue(2, (string)$user_id);
+    $stmt->bindValue(3, $items_per_page, PDO::PARAM_INT);
+    $stmt->bindValue(4, $offset, PDO::PARAM_INT);
         $stmt->execute();
         $all_submissions = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
         // Get quests assigned to this giver (if any)
-        $stmt = $pdo->prepare("SELECT q.*, uq.status as user_status 
-                              FROM quests q
-                              JOIN user_quests uq ON q.id = uq.quest_id
-                              JOIN users u ON uq.employee_id = u.id
-                              WHERE u.employee_id = ?");
+    $stmt = $pdo->prepare("SELECT q.*, uq.status as user_status 
+                  FROM quests q
+                  JOIN user_quests uq ON q.id = uq.quest_id
+                  JOIN users u ON uq.employee_id = u.employee_id
+                  WHERE u.employee_id = ?");
         $stmt->execute([$employee_id]);
         $assigned_quests = $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
@@ -853,8 +861,8 @@ try {
     $completed_quests = $stmt->fetchColumn();
 
     // Quests created
-    $stmt = $pdo->prepare("SELECT COUNT(*) FROM quests WHERE created_by = ?");
-    $stmt->execute([$employee_id]);
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM quests WHERE created_by = ? OR created_by = ?");
+    $stmt->execute([$employee_id, (string)$user_id]);
     $created_quests = $stmt->fetchColumn();
 
     // Submissions reviewed
@@ -898,6 +906,63 @@ try {
     $total_pages_quests = 0;
     $total_submissions = 0;
     $total_pages = 0;
+}
+
+// Dedicated retrieval for "My Created Quests" to guarantee visibility even if prior queries failed
+if ($is_giver) {
+    try {
+        $createdIdentifiers = [$employee_id];
+        if (!empty($user_id) && (string)$user_id !== (string)$employee_id) {
+            $createdIdentifiers[] = (string)$user_id;
+        }
+
+        // Build dynamic condition placeholders (q.created_by = ? [OR ...])
+        $creatorConditions = implode(' OR ', array_fill(0, count($createdIdentifiers), 'q.created_by = ?'));
+
+        // Recompute total quests for pagination using robust identifiers
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM quests q WHERE $creatorConditions");
+        $stmt->execute($createdIdentifiers);
+        $total_quests = (int)$stmt->fetchColumn();
+        $total_pages_quests = ($total_quests > 0) ? ceil($total_quests / $items_per_page) : 0;
+
+        if ($created_page < 1) {
+            $created_page = 1;
+        }
+        if ($total_pages_quests > 0 && $created_page > $total_pages_quests) {
+            $created_page = $total_pages_quests;
+        }
+
+        $offset_created = ($created_page - 1) * $items_per_page;
+
+        // Fetch quests created by this user (handles both employee_id and legacy user_id storage)
+        $listSql = "SELECT q.*, 
+                         (SELECT COUNT(*) FROM quest_submissions WHERE quest_id = q.id AND status = 'approved') as approved_count,
+                         (SELECT COUNT(*) FROM quest_submissions WHERE quest_id = q.id AND status = 'pending') as pending_count,
+                         (SELECT COUNT(*) FROM quest_submissions WHERE quest_id = q.id AND status = 'rejected') as rejected_count,
+                         (SELECT COUNT(*) FROM user_quests WHERE quest_id = q.id) as assigned_count
+                     FROM quests q
+                     WHERE $creatorConditions
+                     ORDER BY q.status, q.created_at DESC
+                     LIMIT ? OFFSET ?";
+
+        $stmt = $pdo->prepare($listSql);
+        $bindParams = array_merge($createdIdentifiers, [$items_per_page, $offset_created]);
+        foreach ($bindParams as $idx => $value) {
+            $stmt->bindValue($idx + 1, $value, is_int($value) ? PDO::PARAM_INT : PDO::PARAM_STR);
+        }
+        $stmt->execute();
+        $all_quests = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Ensure stats section reflects accurate created quest count
+        if (isset($stats)) {
+            $stats['created_quests'] = $total_quests;
+        }
+    } catch (PDOException $e) {
+        error_log("Created quests retrieval error: " . $e->getMessage());
+        if (!isset($all_quests) || !is_array($all_quests)) {
+            $all_quests = [];
+        }
+    }
 }
 
 // Role-based styling (simple rename)
@@ -2077,7 +2142,7 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
                                                     </p>
                                                 </div>
                                                 <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 border border-blue-200 ml-2">
-                                                    🏆 +<?php echo $quest['xp']; ?> XP
+                                                    🏆 +<?php echo isset($quest['xp']) ? (int)$quest['xp'] : 0; ?> XP
                                                 </span>
                                             </div>
                                             <div class="flex justify-end">
@@ -2152,7 +2217,7 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
                                                         ?>
                                                     </span>
                                                     <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 border border-green-200">
-                                                        🏆 +<?php echo $quest['xp']; ?> XP
+                                                        🏆 +<?php echo isset($quest['xp']) ? (int)$quest['xp'] : 0; ?> XP
                                                     </span>
                                                 </div>
                                             </div>
@@ -2359,7 +2424,7 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
                                                                      ($quest['status'] === 'inactive' ? '⚪ Inactive' : '🔵 ' . ucfirst($quest['status'])); ?>
                                                         </span>
                                                         <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 border border-blue-200">
-                                                            🏆 <?php echo $quest['xp']; ?> XP
+                                                            🏆 <?php echo isset($quest['xp']) ? (int)$quest['xp'] : 0; ?> XP
                                                         </span>
                                                     </div>
                                                 </div>
