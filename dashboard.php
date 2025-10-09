@@ -599,7 +599,7 @@ try {
                               AND q.created_by = ?
                               ORDER BY qs.submitted_at DESC
                               LIMIT ? OFFSET ?");
-        $stmt->bindValue(1, $user_id, PDO::PARAM_INT); // Ensure user_id is int
+        $stmt->bindValue(1, $employee_id); // Use employee_id instead of user_id
         $stmt->bindValue(2, $items_per_page, PDO::PARAM_INT);
         $stmt->bindValue(3, $offset, PDO::PARAM_INT);
         $stmt->execute();
@@ -742,9 +742,8 @@ try {
         // Get all quests for management (created by this user) with pagination
         // First get total count
         $stmt = $pdo->prepare("SELECT COUNT(*) FROM quests q
-                             LEFT JOIN user_quests uq ON q.id = uq.quest_id
                              WHERE q.created_by = ?");
-        $stmt->execute([$user_id]);
+        $stmt->execute([$employee_id]);
         $total_quests = $stmt->fetchColumn();
         $total_pages_quests = ceil($total_quests / $items_per_page);
         
@@ -759,11 +758,9 @@ try {
                              (SELECT COUNT(*) FROM quest_submissions WHERE quest_id = q.id AND status = 'approved') as approved_count,
                              (SELECT COUNT(*) FROM quest_submissions WHERE quest_id = q.id AND status = 'pending') as pending_count,
                              (SELECT COUNT(*) FROM quest_submissions WHERE quest_id = q.id AND status = 'rejected') as rejected_count,
-                             COUNT(uq.employee_id) as assigned_count 
+                             (SELECT COUNT(*) FROM user_quests WHERE quest_id = q.id) as assigned_count 
                              FROM quests q
-                             LEFT JOIN user_quests uq ON q.id = uq.quest_id
                              WHERE q.created_by = ?
-                             GROUP BY q.id
                              ORDER BY q.status, q.created_at DESC
                              LIMIT ? OFFSET ?");
         $stmt->bindValue(1, $employee_id);
@@ -780,7 +777,7 @@ try {
                              WHERE qs.status = 'pending'
                              AND q.created_by = ?
         ");
-        $stmt->execute([$user_id]);
+        $stmt->execute([$employee_id]);
         $total_pending = $stmt->fetchColumn();
         $total_pages_pending = ceil($total_pending / $items_per_page);
         
@@ -795,7 +792,7 @@ try {
                               AND q.created_by = ?
                               ORDER BY qs.submitted_at DESC
                               LIMIT ? OFFSET ?");
-        $stmt->bindValue(1, $user_id);
+        $stmt->bindValue(1, $employee_id);
         $stmt->bindValue(2, $items_per_page, PDO::PARAM_INT);
         $stmt->bindValue(3, $offset, PDO::PARAM_INT);
         $stmt->execute();
@@ -809,7 +806,7 @@ try {
                              LEFT JOIN users rev ON qs.reviewed_by = rev.id
                              WHERE q.created_by = ?
         ");
-        $stmt->execute([$user_id]);
+        $stmt->execute([$employee_id]);
         $total_all_submissions = $stmt->fetchColumn();
         $total_pages_all_submissions = ceil($total_all_submissions / $items_per_page);
         
@@ -824,7 +821,7 @@ try {
                               WHERE q.created_by = ?
                               ORDER BY qs.submitted_at DESC
                               LIMIT ? OFFSET ?");
-        $stmt->bindValue(1, $user_id);
+        $stmt->bindValue(1, $employee_id);
         $stmt->bindValue(2, $items_per_page, PDO::PARAM_INT);
         $stmt->bindValue(3, $offset, PDO::PARAM_INT);
         $stmt->execute();

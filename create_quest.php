@@ -159,11 +159,11 @@ try {
     $groups = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
     // Get all skills organized by category
-    $stmt = $pdo->query("SELECT s.id, s.skill_name, s.tier_1_points, s.tier_2_points, s.tier_3_points, 
-                               s.tier_4_points, s.tier_5_points, sc.category_name, sc.id as category_id
-                        FROM comprehensive_skills s 
-                        JOIN skill_categories sc ON s.category_id = sc.id 
-                        ORDER BY sc.category_name, s.skill_name");
+    $stmt = $pdo->query("SELECT cs.id as skill_id, cs.skill_name, sc.category_name, sc.id as category_id,
+                                cs.tier_1_points, cs.tier_2_points, cs.tier_3_points, cs.tier_4_points, cs.tier_5_points
+                        FROM comprehensive_skills cs 
+                        JOIN skill_categories sc ON cs.category_id = sc.id 
+                        ORDER BY sc.category_name, cs.skill_name");
     $skills = $stmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (PDOException $e) {
     error_log("Database error fetching data: " . $e->getMessage());
@@ -181,6 +181,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Handle selected skills with tiers
     $selected_skills = isset($_POST['quest_skills']) ? $_POST['quest_skills'] : [];
     $skill_tiers = isset($_POST['skill_tiers']) ? $_POST['skill_tiers'] : [];
+    $custom_skill_names = isset($_POST['custom_skill_names']) ? $_POST['custom_skill_names'] : [];
+    $custom_skill_categories = isset($_POST['custom_skill_categories']) ? $_POST['custom_skill_categories'] : [];
+    
+    // Separate custom and existing skills, and validate skill IDs
+    $existing_skills = [];
+    $custom_skills = [];
+    
+    foreach ($selected_skills as $skill_id) {
+        if (is_string($skill_id) && strpos($skill_id, 'custom_') === 0) {
+            // This is a custom skill
+            $custom_skills[] = $skill_id;
+        } else {
+            // This should be an existing skill - convert to integer
+            $int_id = intval($skill_id);
+            if ($int_id > 0) {
+                $existing_skills[] = $int_id;
+            }
+        }
+    }
+    
+    // Update selected_skills to only include valid IDs for validation
+    $selected_skills = array_merge($existing_skills, $custom_skills);
+    
+    // Debug logging
+    error_log("DEBUG: Quest creation - POST data: " . json_encode($_POST));
+    error_log("DEBUG: Quest creation - existing skills: " . json_encode($existing_skills));
+    error_log("DEBUG: Quest creation - custom skills: " . json_encode($custom_skills));
+    error_log("DEBUG: Quest creation - custom skill names: " . json_encode($custom_skill_names));
 
     // Validate input
     if (empty($title)) {
@@ -193,11 +221,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Description must be less than 2000 characters';
     } elseif (!in_array($quest_assignment_type, ['mandatory', 'optional'])) {
         $error = 'Quest assignment type must be either mandatory or optional';
-    } elseif (empty($selected_skills)) {
+    } elseif (empty($existing_skills) && empty($custom_skills)) {
         $error = 'At least one skill must be selected for this quest';
+    } elseif (count($selected_skills) > 8) {
+        $error = 'Maximum of 8 skills can be selected per quest';
     } elseif (!empty($due_date) && !strtotime($due_date)) {
         $error = 'Invalid due date format';
     } else {
+        
+        // Validate that all existing skills exist in comprehensive_skills table
+        if (empty($error) && !empty($existing_skills)) {
+            try {
+                $skill_placeholders = implode(',', array_fill(0, count($existing_skills), '?'));
+                $stmt = $pdo->prepare("SELECT COUNT(*) FROM comprehensive_skills WHERE id IN ($skill_placeholders)");
+                $stmt->execute($existing_skills);
+                $valid_skill_count = $stmt->fetchColumn();
+                
+                if ($valid_skill_count != count($existing_skills)) {
+                    $error = 'One or more selected skills are invalid. Please refresh the page and try again.';
+                }
+            } catch (PDOException $e) {
+                $error = 'Error validating selected skills: ' . $e->getMessage();
+            }
+        }
+        
+        // Validate custom skills have names
+        if (empty($error) && !empty($custom_skills)) {
+            foreach ($custom_skills as $custom_skill_id) {
+                if (!isset($custom_skill_names[$custom_skill_id]) || empty(trim($custom_skill_names[$custom_skill_id]))) {
+                    $error = 'All custom skills must have names';
+                    break;
+                }
+            }
+        }
+        
         // Validate assigned employees exist and are quest takers
         if (empty($error) && !empty($assign_to)) {
             try {
@@ -248,11 +305,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ]);
                 $quest_id = $pdo->lastInsertId();
                 
+                // Process skills: use the already separated existing and custom skills
+                $final_skill_ids = [];
+                
+                // Add existing skills (already validated)
+                $final_skill_ids = array_merge($final_skill_ids, $existing_skills);
+                
+                // Create custom skills and add their IDs
+                foreach ($custom_skills as $temp_id) {
+                    if (isset($custom_skill_names[$temp_id])) {
+                        $skill_name = trim($custom_skill_names[$temp_id]);
+                        $category_name = isset($custom_skill_categories[$temp_id]) ? trim($custom_skill_categories[$temp_id]) : 'General';
+                        
+                        if (!empty($skill_name)) {
+                            // Find or create the skill category
+                            $stmt = $pdo->prepare("SELECT id FROM skill_categories WHERE category_name = ?");
+                            $stmt->execute([$category_name]);
+                            $category_id = $stmt->fetchColumn();
+                            
+                            if (!$category_id) {
+                                // Create new category
+                                $stmt = $pdo->prepare("INSERT INTO skill_categories (category_name) VALUES (?)");
+                                $stmt->execute([$category_name]);
+                                $category_id = $pdo->lastInsertId();
+                            }
+                            
+                            // Create the custom skill
+                            $stmt = $pdo->prepare("INSERT INTO comprehensive_skills 
+                                (skill_name, category_id, description, tier_1_points, tier_2_points, tier_3_points, tier_4_points, tier_5_points) 
+                                VALUES (?, ?, ?, 5, 10, 15, 20, 25)");
+                            $stmt->execute([$skill_name, $category_id, "Custom skill: $skill_name"]);
+                            $new_skill_id = $pdo->lastInsertId();
+                            $final_skill_ids[] = $new_skill_id;
+                            
+                            // Update skill_tiers mapping for the new ID
+                            if (isset($skill_tiers[$temp_id])) {
+                                $skill_tiers[$new_skill_id] = $skill_tiers[$temp_id];
+                            }
+                        }
+                    }
+                }
+                
                 // Add quest skills with tiers
-                if (!empty($selected_skills)) {
+                if (!empty($final_skill_ids)) {
                     $stmt = $pdo->prepare("INSERT INTO quest_skills 
                         (quest_id, skill_id, tier_level) VALUES (?, ?, ?)");
-                    foreach ($selected_skills as $skill_id) {
+                    foreach ($final_skill_ids as $skill_id) {
                         $tier = isset($skill_tiers[$skill_id]) ? intval($skill_tiers[$skill_id]) : 1;
                         $stmt->execute([$quest_id, $skill_id, $tier]);
                     }
@@ -435,10 +533,19 @@ function getFontSize() {
             border-radius: 12px;
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
             transition: all 0.3s ease;
+            width: 100%;
+            max-width: 100%;
         }
         
         .card:hover {
             box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.07), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+        
+        /* Ensure all form sections have consistent alignment */
+        form .card {
+            margin-left: 0;
+            margin-right: 0;
+            width: 100%;
         }
         
         .btn-primary {
@@ -509,7 +616,7 @@ function getFontSize() {
         }
         
         .select2-container--default .select2-selection--multiple .select2-selection__choice__display {
-            order: 2;
+            order:  2;
         }
 
         /* Updated clear button styles */
@@ -527,32 +634,7 @@ function getFontSize() {
             right: 10px;
         }
         
-        .assignment-tabs {
-            display: flex;
-            border-bottom: 1px solid #e2e8f0;
-            margin-bottom: 1rem;
-        }
-        
-        .assignment-tab {
-            padding: 0.75rem 1.5rem;
-            cursor: pointer;
-            border-bottom: 2px solid transparent;
-            font-weight: 500;
-            color: #64748b;
-            transition: all 0.2s ease;
-        }
-        
-        .assignment-tab:hover {
-            color: #4f46e5;
-        }
-        
-        .assignment-tab.active {
-            border-bottom-color: #6366f1;
-            color: #6366f1;
-        }
-        
         .tab-content {
-            display: none;
             animation: fadeIn 0.3s ease;
         }
         
@@ -1067,10 +1149,9 @@ function getFontSize() {
             </div>
         <?php endif; ?>
 
-        <form method="post" class="card p-8" enctype="multipart/form-data">
-            <div class="space-y-6">
+        <form method="post" class="space-y-6" enctype="multipart/form-data">
                 <!-- Basic Information Section -->
-                <div>
+                <div class="card p-6">
                     <h2 class="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b border-gray-100">
                         <i class="fas fa-info-circle text-indigo-500 mr-2"></i> Basic Information
                     </h2>
@@ -1109,109 +1190,264 @@ function getFontSize() {
                             </div>
                             <div>
                                 <label for="due_date" class="block text-sm font-medium text-gray-700 mb-1">Due Date &amp; Time (Optional)</label>
-                                <input type="text" id="due_date" name="due_date" 
-                                       class="w-full px-4 py-2.5 border border-indigo-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300 shadow-sm transition duration-200"
-                                       placeholder="Select due date and time"
-                                       value="<?php echo htmlspecialchars($due_date ?? ''); ?>">
-                                <p class="mt-1 text-xs text-gray-500">Choose both date and time for quest deadline</p>
+                                <div class="relative">
+                                    <!-- Date/Time Display Button -->
+                                    <button type="button" 
+                                            id="dueDateBtn"
+                                            class="w-full px-4 py-2.5 border border-indigo-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300 shadow-sm transition duration-200 bg-white hover:bg-gray-50 text-left flex items-center justify-between"
+                                            onclick="toggleCalendarBox()">
+                                        <span id="dueDateDisplay" class="text-gray-500">
+                                            <i class="fas fa-calendar-alt mr-2 text-indigo-500"></i>
+                                            Click to select due date and time
+                                        </span>
+                                        <i class="fas fa-chevron-down text-gray-400" id="chevronIcon"></i>
+                                    </button>
+                                    <input type="hidden" id="due_date" name="due_date" value="<?php echo htmlspecialchars($due_date ?? ''); ?>">
+                                    
+                                    <!-- Calendar Box (Initially Hidden) -->
+                                    <div id="calendarBox" class="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded-lg shadow-xl z-50 mt-1 hidden">
+                                        <div class="p-4">
+                                            <!-- Calendar Container -->
+                                            <div id="calendarContainer" class="mb-4"></div>
+                                            
+                                            <!-- Time Selection -->
+                                            <div class="border-t pt-4">
+                                                <div class="flex items-center justify-between mb-3">
+                                                    <label class="text-sm font-medium text-gray-700">Select Time</label>
+                                                    <button type="button" 
+                                                            onclick="clearDueDate()" 
+                                                            class="text-xs text-red-600 hover:text-red-800 flex items-center">
+                                                        <i class="fas fa-times mr-1"></i>Clear
+                                                    </button>
+                                                </div>
+                                                
+                                                <div class="grid grid-cols-3 gap-2 mb-3">
+                                                    <div>
+                                                        <input type="number" 
+                                                               id="hourSelect" 
+                                                               min="1" 
+                                                               max="12" 
+                                                               value="12"
+                                                               oninput="clearFieldError(this)"
+                                                               class="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-center">
+                                                        <label class="text-xs text-gray-500 mt-1 block text-center">Hour</label>
+                                                    </div>
+                                                    <div>
+                                                        <input type="number" 
+                                                               id="minuteSelect" 
+                                                               min="0" 
+                                                               max="59" 
+                                                               value="00"
+                                                               oninput="clearFieldError(this)"
+                                                               class="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-center">
+                                                        <label class="text-xs text-gray-500 mt-1 block text-center">Min</label>
+                                                    </div>
+                                                    <div>
+                                                        <select id="ampmSelect" class="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                                                            <option value="AM">AM</option>
+                                                            <option value="PM">PM</option>
+                                                        </select>
+                                                        <label class="text-xs text-gray-500 mt-1 block text-center">AM/PM</label>
+                                                    </div>
+                                                </div>
+                                                
+                                                <!-- Quick Time Buttons -->
+                                                <div class="flex flex-wrap gap-1 mb-3">
+                                                    <button type="button" onclick="setQuickTime('09:00 AM')" class="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded transition-colors">9 AM</button>
+                                                    <button type="button" onclick="setQuickTime('12:00 PM')" class="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded transition-colors">12 PM</button>
+                                                    <button type="button" onclick="setQuickTime('05:00 PM')" class="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded transition-colors">5 PM</button>
+                                                    <button type="button" onclick="setQuickTime('11:59 PM')" class="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded transition-colors">End of Day</button>
+                                                </div>
+                                                
+                                                <!-- Apply Button -->
+                                                <button type="button" 
+                                                        onclick="applyDateTime()" 
+                                                        class="w-full px-3 py-2 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition-colors">
+                                                    Apply Date & Time
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <p class="mt-1 text-xs text-gray-500">
+                                    <i class="fas fa-info-circle mr-1"></i>
+                                    Click the button above to select both date and time for quest deadline
+                                </p>
                             </div>
                         </div>
                     </div>
                 </div>
 
                 <!-- Reward & Settings Section -->
-                <div>
+                <div class="card p-6">
                     <h2 class="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b border-gray-100">
                         <i class="fas fa-gem text-indigo-500 mr-2"></i> Reward & Settings
                     </h2>
                     
-                    <div class="space-y-6">
+                    <div class="grid grid-cols-1 gap-6">
                         <!-- Quest Skills Selection -->
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-3">Required Skills*</label>
-                            <div class="bg-gray-50 p-4 rounded-lg max-h-96 overflow-y-auto">
-                                <div class="space-y-4">
-                                    <?php 
-                                    $current_category = '';
-                                    foreach ($skills as $skill): 
-                                        if ($current_category !== $skill['category_name']): 
-                                            if ($current_category !== ''): ?>
+                        <div id="skillsSection">
+                            <div class="flex items-center justify-between mb-2">
+                                <label class="block text-sm font-medium text-gray-700">Required Skills* (Select or Add 1-8)</label>
+                                <div class="text-sm text-gray-600">
+                                    <span id="skill-counter" class="font-semibold text-indigo-600">0</span>/8 selected
                                 </div>
-                            <?php endif;
-                            $current_category = $skill['category_name']; ?>
-                            <div class="skill-category mb-4">
-                                <h4 class="font-semibold text-gray-800 mb-2 border-b border-gray-300 pb-1">
-                                    <?php echo htmlspecialchars($skill['category_name']); ?>
-                                </h4>
-                                <div class="grid grid-cols-1 gap-2">
-                        <?php endif; ?>
+                            </div>
+                            
+                            <!-- Selected Skills Display -->
+                            <div id="selected-skills-display" class="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-lg min-h-[50px]">
+                                <div class="text-xs font-medium text-blue-800 mb-1">Selected Skills:</div>
+                                <div id="selected-skills-badges" class="flex flex-wrap gap-2">
+                                    <div class="text-xs text-blue-600 italic">No skills selected yet</div>
+                                </div>
+                            </div>
+
+                            <!-- Category Buttons -->
+                            <div class="mb-4">
+                                <div class="flex flex-wrap gap-2">
+                                    <button type="button" 
+                                            onclick="showCategorySkills('technical', 'Technical Skills')" 
+                                            class="skill-category-btn px-4 py-2 bg-blue-100 hover:bg-blue-200 text-blue-800 rounded-lg border border-blue-300 transition-colors flex items-center">
+                                        <i class="fas fa-code mr-2"></i>Technical Skills
+                                    </button>
+                                    <button type="button" 
+                                            onclick="showCategorySkills('communication', 'Communication Skills')" 
+                                            class="skill-category-btn px-4 py-2 bg-amber-100 hover:bg-amber-200 text-amber-800 rounded-lg border border-amber-300 transition-colors flex items-center">
+                                        <i class="fas fa-comments mr-2"></i>Communication Skills
+                                    </button>
+                                    <button type="button" 
+                                            onclick="showCategorySkills('soft', 'Soft Skills')" 
+                                            class="skill-category-btn px-4 py-2 bg-rose-100 hover:bg-rose-200 text-rose-800 rounded-lg border border-rose-300 transition-colors flex items-center">
+                                        <i class="fas fa-heart mr-2"></i>Soft Skills
+                                    </button>
+                                    <button type="button" 
+                                            onclick="showCategorySkills('business', 'Business Skills')" 
+                                            class="skill-category-btn px-4 py-2 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 rounded-lg border border-emerald-300 transition-colors flex items-center">
+                                        <i class="fas fa-briefcase mr-2"></i>Business Skills
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Skills Modal Container -->
+                            <div id="skillsModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden flex items-center justify-center">
+                                <div class="bg-white rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[80vh] flex flex-col">
+                                    <!-- Modal Header -->
+                                    <div class="p-6 border-b border-gray-200 flex items-center justify-between">
+                                        <h3 class="text-lg font-semibold text-gray-800 flex items-center">
+                                            <span id="modalCategoryIcon" class="mr-2"></span>
+                                            <span id="modalCategoryTitle">Select Skills</span>
+                                        </h3>
+                                        <button type="button" onclick="closeSkillsModal()" class="text-gray-400 hover:text-gray-600">
+                                            <i class="fas fa-times text-xl"></i>
+                                        </button>
+                                    </div>
                                     
-                                    <div class="skill-item p-3 bg-white rounded border hover:bg-blue-50 transition-colors">
-                                        <div class="flex items-start justify-between">
-                                            <label class="flex items-center cursor-pointer flex-1">
-                                                <input type="checkbox" 
-                                                       name="quest_skills[]" 
-                                                       value="<?php echo $skill['id']; ?>"
-                                                       class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 rounded mr-3"
-                                                       onchange="toggleSkillTiers(this, <?php echo $skill['id']; ?>)">
-                                                <div class="flex-1">
-                                                    <span class="font-medium text-gray-900"><?php echo htmlspecialchars($skill['skill_name']); ?></span>
-                                                </div>
-                                            </label>
-                                            
-                                            <div id="tier-selector-<?php echo $skill['id']; ?>" class="hidden ml-4">
-                                                <select name="skill_tiers[<?php echo $skill['id']; ?>]" 
-                                                        class="text-sm border border-gray-300 rounded px-2 py-1 focus:ring-2 focus:ring-indigo-500">
-                                                    <option value="1">Tier 1 (<?php echo $skill['tier_1_points']; ?> pts)</option>
-                                                    <option value="2">Tier 2 (<?php echo $skill['tier_2_points']; ?> pts)</option>
-                                                    <option value="3">Tier 3 (<?php echo $skill['tier_3_points']; ?> pts)</option>
-                                                    <option value="4">Tier 4 (<?php echo $skill['tier_4_points']; ?> pts)</option>
-                                                    <option value="5">Tier 5 (<?php echo $skill['tier_5_points']; ?> pts)</option>
-                                                </select>
-                                            </div>
+                                    <!-- Search Bar -->
+                                    <div class="p-4 border-b border-gray-200">
+                                        <div class="relative">
+                                            <input type="text" 
+                                                   id="skillSearchInput" 
+                                                   placeholder="Search skills..." 
+                                                   class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                                   oninput="filterSkills()">
+                                            <i class="fas fa-search absolute left-3 top-3 text-gray-400"></i>
                                         </div>
                                     </div>
                                     
-                        <?php endforeach; ?>
+                                    <!-- Skills List -->
+                                    <div class="flex-1 overflow-y-auto p-4">
+                                        <div id="skillsList" class="space-y-2">
+                                            <!-- Skills will be populated here -->
+                                        </div>
+                                        <div id="noSkillsFound" class="hidden text-center py-8 text-gray-500">
+                                            <i class="fas fa-search text-3xl mb-2"></i>
+                                            <p>No skills found matching your search.</p>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Modal Footer -->
+                                    <div class="p-4 border-t border-gray-200 flex items-center justify-between">
+                                        <button type="button" 
+                                                onclick="showCustomSkillModal()"
+                                                class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg border border-gray-300 transition-colors flex items-center">
+                                            <i class="fas fa-plus mr-2"></i>Add Custom Skill
+                                        </button>
+                                        <div class="flex gap-3">
+                                            <button type="button" 
+                                                    onclick="closeSkillsModal()" 
+                                                    class="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors">
+                                                Cancel
+                                            </button>
+                                            <button type="button" 
+                                                    onclick="applySelectedSkills()" 
+                                                    class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors">
+                                                Apply Selected Skills
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
-                            </div>
-                            <p class="mt-2 text-xs text-gray-500">Select the skills this quest will assess and their difficulty tiers</p>
-                        </div>
-                                </label>
-                            </div>
+                            
+                            <p class="mt-2 text-xs text-gray-500">
+                                <i class="fas fa-info-circle mr-1"></i>
+                                Click on a category button to select skills from that category.
+                            </p>
                         </div>
                     </div>
+                </div>
 
-                    <!-- Recurring Options (Hidden by default) -->
-                    <div id="recurringOptions" class="mt-4 recurring-options <?php echo ($quest_type === 'recurring') ? 'visible' : ''; ?>">
-                        <div style="width: 100%; display: flex; justify-content: center; align-items: center;">
-                            <div style="min-width: 400px; max-width: 500px; width: 100%;">
-                                <label class="block text-sm font-medium text-gray-700 mb-2">Recurrence Pattern*</label>
-                                <div class="recurrence-patterns recurrence-center">
-                                    <div class="recurrence-patterns-inner">
-                                        <div class="recurrence-row">
-                                            <label class="recurrence-pattern <?php echo $recurrence_pattern == 'daily' ? 'selected' : ''; ?>" style="display: flex; align-items: center; justify-content: center; padding: 1.5rem; border-radius: 12px; border: 1.5px solid #e5e7eb; cursor: pointer; background: <?php echo $recurrence_pattern == 'daily' ? '#eef2ff' : '#fff'; ?>; color: <?php echo $recurrence_pattern == 'daily' ? '#4338ca' : '#374151'; ?>; font-weight: 500; flex-direction: row; gap: 0.75rem;">
-                                                <input type="radio" name="recurrence_pattern" value="daily" class="hidden" <?php echo $recurrence_pattern == 'daily' ? 'checked' : ''; ?>><i class="fas fa-redo" style="font-size:2rem;"></i><span>Daily</span>
-                                            </label>
-                                            <label class="recurrence-pattern <?php echo $recurrence_pattern == 'weekly' ? 'selected' : ''; ?>" style="display: flex; align-items: center; justify-content: center; padding: 1.5rem; border-radius: 12px; border: 1.5px solid #e5e7eb; cursor: pointer; background: <?php echo $recurrence_pattern == 'weekly' ? '#eef2ff' : '#fff'; ?>; color: <?php echo $recurrence_pattern == 'weekly' ? '#4338ca' : '#374151'; ?>; font-weight: 500; flex-direction: row; gap: 0.75rem;">
-                                                <input type="radio" name="recurrence_pattern" value="weekly" class="hidden" <?php echo $recurrence_pattern == 'weekly' ? 'checked' : ''; ?>><i class="fas fa-calendar-week" style="font-size:2rem;"></i><span>Weekly</span>
-                                            </label>
-                                            <label class="recurrence-pattern <?php echo $recurrence_pattern == 'monthly' ? 'selected' : ''; ?>" style="display: flex; align-items: center; justify-content: center; padding: 1.5rem; border-radius: 12px; border: 1.5px solid #e5e7eb; cursor: pointer; background: <?php echo $recurrence_pattern == 'monthly' ? '#eef2ff' : '#fff'; ?>; color: <?php echo $recurrence_pattern == 'monthly' ? '#4338ca' : '#374151'; ?>; font-weight: 500; flex-direction: row; gap: 0.75rem;">
-                                                <input type="radio" name="recurrence_pattern" value="monthly" class="hidden" <?php echo $recurrence_pattern == 'monthly' ? 'checked' : ''; ?>><i class="fas fa-calendar-alt" style="font-size:2rem;"></i><span>Monthly</span>
-                                            </label>
-                                            <label class="recurrence-pattern <?php echo $recurrence_pattern == 'custom' ? 'selected' : ''; ?>" style="display: flex; align-items: center; justify-content: center; padding: 1.5rem; border-radius: 12px; border: 1.5px solid #4338ca; cursor: pointer; background: <?php echo $recurrence_pattern == 'custom' ? '#eef2ff' : '#fff'; ?>; color: <?php echo $recurrence_pattern == 'custom' ? '#4338ca' : '#374151'; ?>; font-weight: 500; flex-direction: row; gap: 0.75rem;">
-                                                <input type="radio" name="recurrence_pattern" value="custom" class="hidden" <?php echo $recurrence_pattern == 'custom' ? 'checked' : ''; ?>><i class="fas fa-cog" style="font-size:2rem;"></i><span>Custom</span>
-                                            </label>
-                                        </div>
-                                    </div>
-                                </div>
-                                    <!-- Custom recurrence settings -->
-                                    <div id="customRecurrenceSettings" style="display: <?php echo $recurrence_pattern == 'custom' ? 'block' : 'none'; ?>; margin-top: 1rem;">
-                                        <textarea name="custom_recurrence_data" id="customRecurrenceData" rows="3" class="w-full px-4 py-2 border border-gray-200 rounded-lg" placeholder="Describe custom recurrence..."><?php echo htmlspecialchars($custom_recurrence_data ?? ''); ?></textarea>
-                                    </div>
-                                    <input type="hidden" name="custom_recurrence_data_hidden" id="customRecurrenceDataHidden" value="<?php echo htmlspecialchars($custom_recurrence_data ?? ''); ?>">
-                            </div>
+                <!-- Custom Skill Modal -->
+                <div id="customSkillModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden flex items-center justify-center">
+                    <div class="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-lg font-semibold text-gray-800">
+                                <i class="fas fa-plus-circle text-indigo-500 mr-2"></i>Add Custom Skill
+                            </h3>
+                            <button type="button" onclick="closeCustomSkillModal()" class="text-gray-400 hover:text-gray-600">
+                                <i class="fas fa-times text-xl"></i>
+                            </button>
+                        </div>
+                        
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                Category: <span id="modalCategoryName" class="text-indigo-600 font-semibold"></span>
+                            </label>
+                            <input type="hidden" id="modalCategoryId" value="">
+                        </div>
+                        
+                        <div class="mb-4">
+                            <label for="customSkillName" class="block text-sm font-medium text-gray-700 mb-1">Skill Name*</label>
+                            <input type="text" 
+                                   id="customSkillName" 
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                   placeholder="Enter skill name (e.g., Python Programming)"
+                                   maxlength="100">
+                        </div>
+                        
+                        <div class="mb-4">
+                            <label for="customSkillTier" class="block text-sm font-medium text-gray-700 mb-1">Skill Tier*</label>
+                            <select id="customSkillTier" 
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                                <option value="1">Tier 1 - Beginner</option>
+                                <option value="2" selected>Tier 2 - Intermediate</option>
+                                <option value="3">Tier 3 - Advanced</option>
+                                <option value="4">Tier 4 - Expert</option>
+                                <option value="5">Tier 5 - Master</option>
+                            </select>
+                        </div>
+                        
+                        <div class="flex gap-3">
+                            <button type="button" 
+                                    onclick="closeCustomSkillModal()" 
+                                    class="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors">
+                                Cancel
+                            </button>
+                            <button type="button" 
+                                    onclick="addCustomSkill()" 
+                                    class="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors">
+                                <i class="fas fa-plus mr-1"></i>Add Skill
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -1225,63 +1461,117 @@ function getFontSize() {
                 </div>
 
                 <!-- Assignment Section -->
-                <div id="assignmentSection">
-                    <h2 class="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b border-gray-100 flex justify-between items-center">
-                        <span>
+                <div class="max-w-2xl mx-auto">
+                    <div class="card p-6">
+                        <h2 class="text-xl font-semibold text-gray-800 mb-3 pb-2 border-b border-gray-100">
                             <i class="fas fa-users text-indigo-500 mr-2"></i> Assignment (Required)
-                        </span>
-                        <button type="button" id="removeAllEmployees" class="text-sm text-red-500 hover:text-red-700 hidden">
-                            <i class="fas fa-times-circle mr-1"></i> Remove all items
-                        </button>
-                    </h2>
-                    
-                    <div class="assignment-tabs">
-                        <div class="assignment-tab active" data-tab="individual">Assign to Individuals</div>
-                        <div class="assignment-tab" data-tab="group">Assign to Group</div>
-                    </div>
-                    
-                    <div class="tab-content active" id="individualTab">
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Select Employees*</label>
-                        <select name="assign_to[]" id="assign_to" multiple="multiple" 
-                                class="w-full">
-                            <?php foreach ($employees as $employee): ?>
-                                <option value="<?php echo $employee['employee_id']; ?>"
-                                    <?php echo in_array($employee['employee_id'], $assign_to) ? 'selected' : ''; ?>>
-                                    <?php echo htmlspecialchars($employee['full_name']); ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                    
-                    <div class="tab-content" id="groupTab">
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Select Group*</label>
-                        <select name="assign_group" id="assign_group" 
-                                class="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300">
-                            <option value="">-- Select Group --</option>
-                            <?php foreach ($groups as $group): ?>
-                                <option value="<?php echo $group['id']; ?>"
-                                    <?php echo ($assign_group == $group['id']) ? 'selected' : ''; ?>>
-                                    <?php echo htmlspecialchars($group['group_name']); ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
+                        </h2>
                         
-                        <div id="groupMembersContainer" class="mt-4">
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Group Members</label>
-                            <div id="groupMembersList" class="bg-gray-50 p-3 rounded-lg min-h-20">
-                                <p class="text-sm text-gray-500">Select a group to view members</p>
+                        <div>
+                            <!-- Assignment Type Selection -->
+                            <div class="flex gap-4 border-b border-gray-200 pb-2 mb-3">
+                            <label class="flex items-center cursor-pointer">
+                                <input type="radio" name="assignment_type" value="individual" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500" checked onchange="toggleAssignmentType()">
+                                <span class="ml-2 text-sm font-medium text-gray-700"><i class="fas fa-user mr-1"></i>Individuals</span>
+                            </label>
+                            <label class="flex items-center cursor-pointer">
+                                <input type="radio" name="assignment_type" value="group" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500" onchange="toggleAssignmentType()">
+                                <span class="ml-2 text-sm font-medium text-gray-700"><i class="fas fa-users mr-1"></i>Group</span>
+                            </label>
+                        </div>
+                        
+                        <!-- Individual Assignment -->
+                        <div id="individualAssignment">
+                            <!-- Search Box -->
+                            <div class="mb-3">
+                                <div class="relative">
+                                    <input type="text" 
+                                           id="employeeSearch" 
+                                           placeholder="Search employees by name or ID..." 
+                                           class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+                                           oninput="filterEmployees()">
+                                    <i class="fas fa-search absolute left-3 top-3 text-gray-400"></i>
+                                    <button type="button" 
+                                            onclick="clearEmployeeSearch()" 
+                                            class="absolute right-3 top-3 text-gray-400 hover:text-gray-600"
+                                            id="clearSearchBtn" 
+                                            style="display: none;">
+                                        <i class="fas fa-times text-xs"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <!-- Selected Employees Display -->
+                            <div id="selectedEmployeesDisplay" class="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-lg min-h-[40px]">
+                                <div class="text-xs font-medium text-blue-800 mb-1">Selected Employees:</div>
+                                <div id="selectedEmployeesBadges" class="flex flex-wrap gap-2">
+                                    <div class="text-xs text-blue-600 italic">No employees selected</div>
+                                </div>
+                            </div>
+                            
+                            <!-- Employee List -->
+                            <div class="border border-gray-200 rounded-lg max-h-20 overflow-y-auto bg-white">
+                                <div id="employeeList">
+                                    <?php foreach ($employees as $employee): ?>
+                                        <label class="employee-item flex items-center p-2 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-0" 
+                                               data-name="<?php echo strtolower($employee['full_name']); ?>"
+                                               data-id="<?php echo strtolower($employee['employee_id']); ?>">
+                                            <input type="checkbox" 
+                                                   name="assign_to[]" 
+                                                   value="<?php echo $employee['employee_id']; ?>"
+                                                   class="employee-checkbox h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                                                   data-name="<?php echo htmlspecialchars($employee['full_name']); ?>"
+                                                   data-employee-id="<?php echo htmlspecialchars($employee['employee_id']); ?>"
+                                                   onchange="handleEmployeeSelection(this)"
+                                                   <?php echo in_array($employee['employee_id'], $assign_to) ? 'checked' : ''; ?>>
+                                            <div class="ml-2 flex-1">
+                                                <div class="text-sm font-medium text-gray-900"><?php echo htmlspecialchars($employee['full_name']); ?></div>
+                                                <div class="text-xs text-gray-500">ID: <?php echo htmlspecialchars($employee['employee_id']); ?></div>
+                                            </div>
+                                        </label>
+                                    <?php endforeach; ?>
+                                </div>
+                                <div id="noEmployeesFound" class="hidden p-4 text-center text-gray-500 text-sm">
+                                    <i class="fas fa-search text-2xl mb-2"></i>
+                                    <p>No employees found matching your search.</p>
+                                </div>
+                            </div>
+                            <p class="mt-1 text-xs text-gray-500">
+                                <i class="fas fa-info-circle mr-1"></i>
+                                Search and select employees to assign this quest. You cannot assign quests to yourself.
+                            </p>
+                        </div>
+                        
+                        <!-- Group Assignment -->
+                        <div id="groupAssignment" class="hidden">
+                            <select name="assign_group" id="assign_group" 
+                                    class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white text-sm"
+                                    onchange="loadGroupMembers(this.value)">
+                                <option value="">-- Select a Group --</option>
+                                <?php foreach ($groups as $group): ?>
+                                    <option value="<?php echo $group['id']; ?>"
+                                        <?php echo ($assign_group == $group['id']) ? 'selected' : ''; ?>>
+                                        <?php echo htmlspecialchars($group['group_name']); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                            
+                            <div id="groupMembersPreview" class="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-xs text-gray-700 hidden max-h-16 overflow-y-auto">
+                                <strong class="text-blue-800">Members:</strong> <span id="groupMembersList"></span>
                             </div>
                         </div>
+                    </div>
                     </div>
                 </div>
 
                 <!-- Submit Button -->
-                <div class="pt-4">
-                    <button type="submit" class="btn-primary px-6 py-3 rounded-lg font-medium w-full">
-                        <i class="fas fa-plus-circle mr-2"></i> Create Quest
-                    </button>
+                <div class="mt-8 pt-6 border-t border-gray-100">
+                    <div class="flex justify-center">
+                        <button type="submit" class="btn-primary px-8 py-3 rounded-lg font-medium shadow-lg hover:shadow-xl transition-shadow duration-200 flex items-center">
+                            <i class="fas fa-plus-circle mr-2"></i> Create Quest
+                        </button>
+                    </div>
                 </div>
-            </div>
         </form>
     </div>
 
@@ -1705,25 +1995,13 @@ function getFontSize() {
                 width: '100%'
             });
 
-            // Initialize date pickers with time selection for due date
-            const dateConfig = {
-                enableTime: true,
-                dateFormat: "Y-m-d h:i K",
-                minDate: "today",
-                static: true,
-                monthSelectorType: 'static',
-                time_24hr: false,
-                onReady: function(selectedDates, dateStr, instance) {
-                    // Fix for year dropdown
-                    if (instance.yearNav) {
-                        instance.yearNav.addEventListener('click', function(e) {
-                            e.stopPropagation();
-                        });
-                    }
-                }
-            };
-
-            $('#due_date').flatpickr(dateConfig);
+            // Initialize with existing value if any
+            const existingValue = document.getElementById('due_date').value;
+            if (existingValue) {
+                updateDateDisplay(existingValue);
+            }
+            
+            // Initialize recurrence end date picker (keep Flatpickr for this)
             $('#recurrence_end_date').flatpickr({
                 enableTime: false,
                 dateFormat: "Y-m-d",
@@ -1760,14 +2038,50 @@ function getFontSize() {
             $('.assignment-tab').click(function() {
                 const tabId = $(this).data('tab');
                 
-                // Update active tab
-                $('.assignment-tab').removeClass('active');
-                $(this).addClass('active');
+                // Update active tab styling
+                $('.assignment-tab').removeClass('active bg-white')
+                    .removeClass('border-indigo-500 text-indigo-600')
+                    .addClass('border-transparent text-gray-500');
+                
+                $(this).addClass('active bg-white')
+                    .removeClass('border-transparent text-gray-500')
+                    .addClass('border-indigo-500 text-indigo-600');
                 
                 // Update active content
-                $('.tab-content').removeClass('active');
-                $(`#${tabId}Tab`).addClass('active');
+                $('.tab-content').removeClass('active').addClass('hidden');
+                $(`#${tabId}Tab`).addClass('active').removeClass('hidden');
             });
+
+            // Employee search functionality
+            function searchEmployees() {
+                const searchTerm = document.getElementById('employeeSearch').value.toLowerCase();
+                const employeeItems = document.querySelectorAll('.employee-item');
+                const noResultsDiv = document.getElementById('noEmployeeResults');
+                
+                let visibleCount = 0;
+                
+                employeeItems.forEach(item => {
+                    const name = item.getAttribute('data-name');
+                    const id = item.getAttribute('data-id');
+                    
+                    if (name.includes(searchTerm) || id.includes(searchTerm)) {
+                        item.style.display = 'flex';
+                        visibleCount++;
+                    } else {
+                        item.style.display = 'none';
+                    }
+                });
+                
+                // Show/hide no results message
+                if (visibleCount === 0 && searchTerm !== '') {
+                    noResultsDiv.classList.remove('hidden');
+                } else {
+                    noResultsDiv.classList.add('hidden');
+                }
+            }
+
+            // Make searchEmployees function globally available
+            window.searchEmployees = searchEmployees;
 
             // Show/hide recurring options based on quest type
             $('input[name="quest_type"]').change(function() {
@@ -1921,11 +2235,25 @@ function getFontSize() {
 
             // Form validation
             $('form').submit(function(e) {
+                // Ensure hidden inputs are updated before submission
+                updateHiddenInputs();
+                
                 let isValid = true;
                 
                 // Clear previous errors
                 $('.is-invalid').removeClass('is-invalid');
                 $('.error-message').remove();
+                
+                // Validate skills selection
+                if (selectedSkills.size === 0) {
+                    $('#skillsSection').addClass('is-invalid');
+                    $('#skillsSection').append('<p class="error-message text-red-500 text-sm mt-1">Please select at least one skill for this quest</p>');
+                    isValid = false;
+                }
+                
+                console.log('DEBUG: Form validation - Selected skills:', selectedSkills.size);
+                console.log('DEBUG: Form validation - Hidden inputs count:', 
+                    document.querySelectorAll('input[name^="quest_skills"]').length);
                 
                 // Validate at least one assignment method
                 const assignTo = $('#assign_to').val();
@@ -2009,15 +2337,833 @@ function getFontSize() {
             });
         });
 
-        // Function to toggle skill tier selectors
-        function toggleSkillTiers(checkbox, skillId) {
-            const tierSelector = document.getElementById(`tier-selector-${skillId}`);
+        // Enhanced skill selection functionality
+        let selectedSkills = new Set();
+        const MAX_SKILLS = 8;
+        let customSkillCounter = 1000; // Start custom skill IDs from 1000
+        let currentCategory = '';
+        let currentCategoryName = '';
+        let tempSelectedSkills = new Set(); // Temporary storage for modal selections
+        
+        // Skills data from PHP
+        const allSkills = <?php echo json_encode($skills); ?>;
+        
+        // Category configurations
+        const categoryConfig = {
+            'technical': {
+                name: 'Technical Skills',
+                icon: '<i class="fas fa-code"></i>',
+                color: 'blue'
+            },
+            'communication': {
+                name: 'Communication Skills', 
+                icon: '<i class="fas fa-comments"></i>',
+                color: 'amber'
+            },
+            'soft': {
+                name: 'Soft Skills',
+                icon: '<i class="fas fa-heart"></i>',
+                color: 'rose'
+            },
+            'business': {
+                name: 'Business Skills',
+                icon: '<i class="fas fa-briefcase"></i>',
+                color: 'emerald'
+            }
+        };
+        
+        // Function to show category skills modal
+        function showCategorySkills(categoryId, categoryName) {
+            currentCategory = categoryId;
+            currentCategoryName = categoryName;
+            
+            // Update modal title and icon
+            const config = categoryConfig[categoryId];
+            document.getElementById('modalCategoryIcon').innerHTML = config.icon;
+            document.getElementById('modalCategoryTitle').textContent = config.name;
+            
+            // Filter skills for this category
+            const categorySkills = allSkills.filter(skill => {
+                const catMap = {
+                    'Technical Skills': 'technical',
+                    'Communication Skills': 'communication', 
+                    'Soft Skills': 'soft',
+                    'Business Skills': 'business'
+                };
+                return catMap[skill.category_name] === categoryId;
+            });
+            
+            // Copy current selections to temp
+            tempSelectedSkills.clear();
+            selectedSkills.forEach(skill => tempSelectedSkills.add(skill));
+            
+            // Populate skills list
+            populateSkillsList(categorySkills);
+            
+            // Show modal
+            document.getElementById('skillsModal').classList.remove('hidden');
+            document.getElementById('skillSearchInput').value = '';
+            document.getElementById('skillSearchInput').focus();
+        }
+        
+        // Function to populate skills list in modal
+        function populateSkillsList(skills) {
+            const skillsList = document.getElementById('skillsList');
+            skillsList.innerHTML = '';
+            
+            if (skills.length === 0) {
+                skillsList.innerHTML = `
+                    <div class="text-center py-8 text-gray-500">
+                        <i class="fas fa-exclamation-circle text-3xl mb-2"></i>
+                        <p>No skills available in this category.</p>
+                        <button type="button" 
+                                onclick="showCustomSkillModal()" 
+                                class="mt-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors">
+                            <i class="fas fa-plus mr-2"></i>Add Custom Skill
+                        </button>
+                    </div>
+                `;
+                return;
+            }
+            
+            skills.forEach(skill => {
+                const isSelected = Array.from(tempSelectedSkills).some(s => s.id == skill.skill_id);
+                const skillHTML = `
+                    <div class="skill-item border border-gray-200 rounded-lg p-3 hover:bg-gray-50 transition-colors" 
+                         data-skill-name="${skill.skill_name.toLowerCase()}"
+                         data-skill-id="${skill.skill_id}">
+                        <label class="flex items-start cursor-pointer">
+                            <input type="checkbox" 
+                                   class="skill-modal-checkbox mt-1 h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                                   data-skill-id="${skill.skill_id}"
+                                   data-skill-name="${skill.skill_name}"
+                                   data-category-name="${skill.category_name}"
+                                   ${isSelected ? 'checked' : ''}
+                                   onchange="handleModalSkillSelection(this)">
+                            <div class="ml-3 flex-1">
+                                <div class="text-sm font-medium text-gray-900">${skill.skill_name}</div>
+                                
+                                <!-- Tier Selector -->
+                                <div class="mt-2 ${isSelected ? '' : 'hidden'}" id="tier-modal-${skill.skill_id}">
+                                    <select class="tier-selector text-xs border border-gray-300 rounded px-2 py-1 focus:ring-2 focus:ring-indigo-500 bg-white"
+                                            data-skill-id="${skill.skill_id}">
+                                        <option value="1">Tier 1 - Beginner (${skill.tier_1_points} pts)</option>
+                                        <option value="2" selected>Tier 2 - Intermediate (${skill.tier_2_points} pts)</option>
+                                        <option value="3">Tier 3 - Advanced (${skill.tier_3_points} pts)</option>
+                                        <option value="4">Tier 4 - Expert (${skill.tier_4_points} pts)</option>
+                                        <option value="5">Tier 5 - Master (${skill.tier_5_points} pts)</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </label>
+                    </div>
+                `;
+                skillsList.insertAdjacentHTML('beforeend', skillHTML);
+            });
+        }
+        
+        // Function to handle skill selection in modal
+        function handleModalSkillSelection(checkbox) {
+            const skillId = checkbox.dataset.skillId;
+            const skillName = checkbox.dataset.skillName;
+            const categoryName = checkbox.dataset.categoryName;
+            const tierSelector = document.getElementById(`tier-modal-${skillId}`);
+            
             if (checkbox.checked) {
+                if (tempSelectedSkills.size >= MAX_SKILLS) {
+                    alert(`You can only select up to ${MAX_SKILLS} skills per quest.`);
+                    checkbox.checked = false;
+                    return;
+                }
+                
+                tempSelectedSkills.add({
+                    id: skillId,
+                    name: skillName,
+                    category: categoryName,
+                    isCustom: false
+                });
+                
                 tierSelector.classList.remove('hidden');
             } else {
+                // Remove from temp selected
+                tempSelectedSkills.forEach(skill => {
+                    if (skill.id == skillId) {
+                        tempSelectedSkills.delete(skill);
+                    }
+                });
+                
                 tierSelector.classList.add('hidden');
             }
         }
+        
+        // Function to filter skills based on search
+        function filterSkills() {
+            const searchTerm = document.getElementById('skillSearchInput').value.toLowerCase();
+            const skillItems = document.querySelectorAll('.skill-item');
+            let visibleCount = 0;
+            
+            skillItems.forEach(item => {
+                const skillName = item.dataset.skillName;
+                if (skillName.includes(searchTerm)) {
+                    item.style.display = 'block';
+                    visibleCount++;
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+            
+            // Show/hide no results message
+            const noResults = document.getElementById('noSkillsFound');
+            if (visibleCount === 0 && searchTerm.length > 0) {
+                noResults.classList.remove('hidden');
+            } else {
+                noResults.classList.add('hidden');
+            }
+        }
+        
+        // Function to apply selected skills from modal
+        function applySelectedSkills() {
+            // Clear current selections for this category
+            selectedSkills.forEach(skill => {
+                if (skill.category === currentCategoryName) {
+                    selectedSkills.delete(skill);
+                }
+            });
+            
+            // Add new selections with tier values
+            const selectedCheckboxes = document.querySelectorAll('.skill-modal-checkbox:checked');
+            selectedCheckboxes.forEach(checkbox => {
+                const skillId = checkbox.dataset.skillId;
+                const skillName = checkbox.dataset.skillName;
+                const categoryName = checkbox.dataset.categoryName;
+                const tierSelector = document.querySelector(`.tier-selector[data-skill-id="${skillId}"]`);
+                const tier = tierSelector ? tierSelector.value : '2';
+                
+                selectedSkills.add({
+                    id: skillId,
+                    name: skillName,
+                    category: categoryName,
+                    isCustom: false,
+                    tier: tier
+                });
+            });
+            
+            updateSkillDisplay();
+            updateHiddenInputs(); // Update hidden inputs when skills are applied
+            closeSkillsModal();
+        }
+        
+        // Function to close skills modal
+        function closeSkillsModal() {
+            document.getElementById('skillsModal').classList.add('hidden');
+            tempSelectedSkills.clear();
+        }
+        
+        // Function to show custom skill modal
+        function showCustomSkillModal() {
+            // Close skills modal if open
+            closeSkillsModal();
+            
+            document.getElementById('customSkillModal').classList.remove('hidden');
+            document.getElementById('modalCategoryId').value = currentCategory;
+            document.getElementById('modalCategoryName').textContent = currentCategoryName;
+            document.getElementById('customSkillName').value = '';
+            document.getElementById('customSkillTier').value = '2';
+            document.getElementById('customSkillName').focus();
+        }
+        
+        // Function to close custom skill modal
+        function closeCustomSkillModal() {
+            document.getElementById('customSkillModal').classList.add('hidden');
+        }
+        
+        // Function to add custom skill
+        function addCustomSkill() {
+            const skillName = document.getElementById('customSkillName').value.trim();
+            const tier = document.getElementById('customSkillTier').value;
+            const categoryId = document.getElementById('modalCategoryId').value;
+            const categoryName = document.getElementById('modalCategoryName').textContent;
+            
+            if (!skillName) {
+                alert('Please enter a skill name');
+                return;
+            }
+            
+            if (selectedSkills.size >= MAX_SKILLS) {
+                alert(`You can only select up to ${MAX_SKILLS} skills per quest.`);
+                return;
+            }
+            
+            // Create unique ID for custom skill
+            const customId = `custom_${customSkillCounter++}`;
+            
+            // Add to selected skills
+            selectedSkills.add({
+                id: customId,
+                name: skillName,
+                category: categoryName,
+                isCustom: true,
+                tier: tier
+            });
+            
+            updateSkillDisplay();
+            updateHiddenInputs(); // Update hidden inputs when custom skill is added
+            closeCustomSkillModal();
+        }
+        
+        // Function to get tier name
+        function getTierName(tier) {
+            const tierNames = {
+                '1': 'Beginner',
+                '2': 'Intermediate', 
+                '3': 'Advanced',
+                '4': 'Expert',
+                '5': 'Master'
+            };
+            return tierNames[tier] || 'Unknown';
+        }
+        
+        // Function to update skill display
+        function updateSkillDisplay() {
+            const badgesContainer = document.getElementById('selected-skills-badges');
+            const counter = document.getElementById('skill-counter');
+            
+            // Update counter
+            counter.textContent = selectedSkills.size;
+            
+            // Clear current badges
+            badgesContainer.innerHTML = '';
+            
+            if (selectedSkills.size === 0) {
+                badgesContainer.innerHTML = '<div class="text-xs text-blue-600 italic">No skills selected yet</div>';
+            } else {
+                // Create badges for selected skills
+                selectedSkills.forEach(skill => {
+                    const badgeHTML = `
+                        <div class="inline-flex items-center px-3 py-1 bg-indigo-100 text-indigo-800 text-xs rounded-full border border-indigo-200">
+                            <span class="font-medium">${skill.name}</span>
+                            ${skill.isCustom ? '<span class="ml-1 text-yellow-600">(Custom)</span>' : ''}
+                            <button type="button" 
+                                    onclick="removeSkill('${skill.id}')" 
+                                    class="ml-2 text-indigo-600 hover:text-indigo-800">
+                                <i class="fas fa-times text-xs"></i>
+                            </button>
+                        </div>
+                    `;
+                    badgesContainer.insertAdjacentHTML('beforeend', badgeHTML);
+                });
+            }
+            
+            // Update hidden inputs
+            updateHiddenInputs();
+        }
+        
+        // Function to remove skill
+        function removeSkill(skillId) {
+            selectedSkills.forEach(skill => {
+                if (skill.id == skillId) {
+                    selectedSkills.delete(skill);
+                }
+            });
+            updateSkillDisplay();
+            updateHiddenInputs(); // Update hidden inputs when skill is removed
+        }
+        
+        // Function to update hidden inputs for form submission
+        function updateHiddenInputs() {
+            // Remove existing hidden inputs
+            const existingInputs = document.querySelectorAll('input[name^="quest_skills"], input[name^="skill_tiers"], input[name^="custom_skill"]');
+            existingInputs.forEach(input => input.remove());
+            
+            // Find the main form
+            const form = document.querySelector('form[method="post"]');
+            if (!form) {
+                console.error('Main form not found!');
+                return;
+            }
+            
+            console.log('DEBUG: Updating hidden inputs for', selectedSkills.size, 'skills');
+            
+            // Add hidden inputs for each selected skill
+            selectedSkills.forEach(skill => {
+                console.log('DEBUG: Creating hidden inputs for skill:', skill);
+                
+                // Create skill ID input
+                const skillInput = document.createElement('input');
+                skillInput.type = 'hidden';
+                skillInput.name = 'quest_skills[]';
+                skillInput.value = skill.id;
+                form.appendChild(skillInput);
+                
+                // Create tier input
+                const tierInput = document.createElement('input');
+                tierInput.type = 'hidden';
+                tierInput.name = `skill_tiers[${skill.id}]`;
+                tierInput.value = skill.tier || '2';
+                form.appendChild(tierInput);
+                
+                // Add custom skill data if applicable
+                if (skill.isCustom) {
+                    const nameInput = document.createElement('input');
+                    nameInput.type = 'hidden';
+                    nameInput.name = `custom_skill_names[${skill.id}]`;
+                    nameInput.value = skill.name;
+                    form.appendChild(nameInput);
+                    
+                    const categoryInput = document.createElement('input');
+                    categoryInput.type = 'hidden';
+                    categoryInput.name = `custom_skill_categories[${skill.id}]`;
+                    categoryInput.value = skill.category;
+                    form.appendChild(categoryInput);
+                }
+            });
+            
+            // DEBUG: Show current state
+            console.log('DEBUG: Created', document.querySelectorAll('input[name^="quest_skills"]').length, 'hidden quest_skills inputs');
+        }
+        
+        // Function to handle skill selection (keeping for compatibility)
+        function handleSkillSelection(checkbox, skillId) {
+            const skillName = checkbox.getAttribute('data-skill-name');
+            const categoryName = checkbox.getAttribute('data-category-name');
+            const isCustom = checkbox.getAttribute('data-is-custom') === 'true';
+            const tierSelector = document.getElementById(`tier-selector-${skillId}`);
+            
+            if (checkbox.checked) {
+                // Check if we've reached the maximum number of skills
+                if (selectedSkills.size >= MAX_SKILLS) {
+                    checkbox.checked = false;
+                    alert(`You can only select up to ${MAX_SKILLS} skills per quest. Please deselect a skill first.`);
+                    return;
+                }
+                
+                // Add to selected skills
+                selectedSkills.add({
+                    id: skillId,
+                    name: skillName,
+                    category: categoryName,
+                    isCustom: isCustom
+                });
+                
+                // Show tier selector for predefined skills
+                if (tierSelector && !isCustom) {
+                    tierSelector.classList.remove('hidden');
+                }
+                
+            } else {
+                // Remove from selected skills
+                selectedSkills.forEach(skill => {
+                    if (skill.id == skillId) {
+                        selectedSkills.delete(skill);
+                    }
+                });
+                
+                // Hide tier selector for predefined skills
+                if (tierSelector && !isCustom) {
+                    tierSelector.classList.add('hidden');
+                }
+                
+                // Remove custom skill element
+                if (isCustom) {
+                    checkbox.closest('label').remove();
+                }
+            }
+            
+            updateSkillDisplay();
+        }
+        
+        
+        // Employee search and selection functionality
+        let selectedEmployees = new Set();
+        
+        // Function to filter employees based on search
+        function filterEmployees() {
+            const searchTerm = document.getElementById('employeeSearch').value.toLowerCase();
+            const employeeItems = document.querySelectorAll('.employee-item');
+            const clearBtn = document.getElementById('clearSearchBtn');
+            let visibleCount = 0;
+            
+            // Show/hide clear button
+            if (searchTerm.length > 0) {
+                clearBtn.style.display = 'block';
+            } else {
+                clearBtn.style.display = 'none';
+            }
+            
+            employeeItems.forEach(item => {
+                const name = item.dataset.name;
+                const id = item.dataset.id;
+                
+                if (name.includes(searchTerm) || id.includes(searchTerm)) {
+                    item.style.display = 'flex';
+                    visibleCount++;
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+            
+            // Show/hide no results message
+            const noResults = document.getElementById('noEmployeesFound');
+            if (visibleCount === 0 && searchTerm.length > 0) {
+                noResults.classList.remove('hidden');
+            } else {
+                noResults.classList.add('hidden');
+            }
+        }
+        
+        // Function to clear employee search
+        function clearEmployeeSearch() {
+            document.getElementById('employeeSearch').value = '';
+            document.getElementById('clearSearchBtn').style.display = 'none';
+            filterEmployees();
+        }
+        
+        // Function to handle employee selection
+        function handleEmployeeSelection(checkbox) {
+            const employeeName = checkbox.dataset.name;
+            const employeeId = checkbox.dataset.employeeId;
+            
+            if (checkbox.checked) {
+                selectedEmployees.add({
+                    id: employeeId,
+                    name: employeeName
+                });
+            } else {
+                selectedEmployees.forEach(emp => {
+                    if (emp.id === employeeId) {
+                        selectedEmployees.delete(emp);
+                    }
+                });
+            }
+            
+            updateSelectedEmployeesDisplay();
+        }
+        
+        // Function to update selected employees display
+        function updateSelectedEmployeesDisplay() {
+            const badgesContainer = document.getElementById('selectedEmployeesBadges');
+            
+            if (selectedEmployees.size === 0) {
+                badgesContainer.innerHTML = '<div class="text-xs text-blue-600 italic">No employees selected</div>';
+                return;
+            }
+            
+            let badgesHTML = '';
+            selectedEmployees.forEach(employee => {
+                badgesHTML += `
+                    <div class="inline-flex items-center px-3 py-1 bg-indigo-100 text-indigo-800 text-xs rounded-full border border-indigo-200">
+                        <span class="font-medium">${employee.name}</span>
+                        <span class="ml-1 text-indigo-600">(${employee.id})</span>
+                        <button type="button" 
+                                onclick="removeEmployee('${employee.id}')" 
+                                class="ml-2 text-indigo-600 hover:text-indigo-800">
+                            <i class="fas fa-times text-xs"></i>
+                        </button>
+                    </div>
+                `;
+            });
+            
+            badgesContainer.innerHTML = badgesHTML;
+        }
+        
+        // Function to remove employee from selection
+        function removeEmployee(employeeId) {
+            const checkbox = document.querySelector(`.employee-checkbox[value="${employeeId}"]`);
+            if (checkbox) {
+                checkbox.checked = false;
+                handleEmployeeSelection(checkbox);
+            }
+        }
+        
+        // Initialize selected employees on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            // Check for pre-selected employees (for edit mode)
+            const checkedEmployees = document.querySelectorAll('.employee-checkbox:checked');
+            checkedEmployees.forEach(checkbox => {
+                handleEmployeeSelection(checkbox);
+            });
+        });
+        
+        // Modern Date/Time Picker Functions
+        let calendarBoxOpen = false;
+        let calendarInstance = null;
+        let selectedDate = null;
+        
+        function toggleCalendarBox() {
+            const calendarBox = document.getElementById('calendarBox');
+            const chevronIcon = document.getElementById('chevronIcon');
+            
+            if (calendarBoxOpen) {
+                closeCalendarBox();
+            } else {
+                openCalendarBox();
+            }
+        }
+        
+        function openCalendarBox() {
+            const calendarBox = document.getElementById('calendarBox');
+            const chevronIcon = document.getElementById('chevronIcon');
+            
+            calendarBox.classList.remove('hidden');
+            chevronIcon.classList.remove('fa-chevron-down');
+            chevronIcon.classList.add('fa-chevron-up');
+            calendarBoxOpen = true;
+            
+            // Initialize calendar if not already done
+            if (!calendarInstance) {
+                const calendarContainer = document.getElementById('calendarContainer');
+                calendarInstance = flatpickr(calendarContainer, {
+                    inline: true,
+                    dateFormat: "Y-m-d",
+                    minDate: "today",
+                    defaultDate: "today", // Always default to today
+                    onChange: function(selectedDates, dateStr, instance) {
+                        selectedDate = dateStr;
+                    }
+                });
+                // Set today as default selected date
+                selectedDate = new Date().toISOString().split('T')[0];
+            }
+            
+            // Set current time if no date is selected
+            setDefaultTime();
+            
+            // Close calendar when clicking outside
+            setTimeout(() => {
+                document.addEventListener('click', handleOutsideClick);
+            }, 100);
+        }
+        
+        function closeCalendarBox() {
+            const calendarBox = document.getElementById('calendarBox');
+            const chevronIcon = document.getElementById('chevronIcon');
+            
+            calendarBox.classList.add('hidden');
+            chevronIcon.classList.remove('fa-chevron-up');
+            chevronIcon.classList.add('fa-chevron-down');
+            calendarBoxOpen = false;
+            
+            document.removeEventListener('click', handleOutsideClick);
+        }
+        
+        function handleOutsideClick(event) {
+            const calendarBox = document.getElementById('calendarBox');
+            const dueDateBtn = document.getElementById('dueDateBtn');
+            
+            if (!calendarBox.contains(event.target) && !dueDateBtn.contains(event.target)) {
+                closeCalendarBox();
+            }
+        }
+        
+        function setDefaultTime() {
+            const now = new Date();
+            let hours = now.getHours();
+            const minutes = Math.ceil(now.getMinutes() / 15) * 15; // Round to nearest 15 minutes
+            const ampm = hours >= 12 ? 'PM' : 'AM';
+            hours = hours % 12;
+            hours = hours ? hours : 12; // Handle midnight
+            
+            document.getElementById('hourSelect').value = hours;
+            document.getElementById('minuteSelect').value = minutes;
+            document.getElementById('ampmSelect').value = ampm;
+        }
+        
+        function setQuickTime(timeStr) {
+            const [time, ampm] = timeStr.split(' ');
+            const [hours, minutes] = time.split(':');
+            
+            document.getElementById('hourSelect').value = parseInt(hours);
+            document.getElementById('minuteSelect').value = parseInt(minutes);
+            document.getElementById('ampmSelect').value = ampm;
+        }
+        
+        function applyDateTime() {
+            // Ensure we have a date (should always be today by default)
+            if (!selectedDate) {
+                selectedDate = new Date().toISOString().split('T')[0];
+            }
+            
+            const hourInput = document.getElementById('hourSelect');
+            const minuteInput = document.getElementById('minuteSelect');
+            const hour = parseInt(hourInput.value);
+            const minute = parseInt(minuteInput.value);
+            const ampm = document.getElementById('ampmSelect').value;
+            
+            // Clear any previous error styles
+            hourInput.classList.remove('border-red-500', 'bg-red-50');
+            minuteInput.classList.remove('border-red-500', 'bg-red-50');
+            
+            // Validation with better error messages and styling
+            if (isNaN(hour) || hour < 1 || hour > 12) {
+                hourInput.classList.add('border-red-500', 'bg-red-50');
+                hourInput.focus();
+                showErrorMessage('Please enter a valid hour between 1 and 12');
+                return;
+            }
+            
+            if (isNaN(minute) || minute < 0 || minute > 59) {
+                minuteInput.classList.add('border-red-500', 'bg-red-50');
+                minuteInput.focus();
+                showErrorMessage('Please enter a valid minute between 0 and 59');
+                return;
+            }
+            
+            // Convert to 24-hour format for storage
+            let hour24 = hour;
+            if (ampm === 'PM' && hour24 !== 12) {
+                hour24 += 12;
+            } else if (ampm === 'AM' && hour24 === 12) {
+                hour24 = 0;
+            }
+            
+            const minuteStr = minute.toString().padStart(2, '0');
+            const dateTimeStr = `${selectedDate} ${hour24.toString().padStart(2, '0')}:${minuteStr}:00`;
+            document.getElementById('due_date').value = dateTimeStr;
+            
+            updateDateDisplay(dateTimeStr);
+            closeCalendarBox();
+        }
+        
+        function showErrorMessage(message) {
+            // Remove any existing error message
+            const existingError = document.getElementById('time-error-message');
+            if (existingError) {
+                existingError.remove();
+            }
+            
+            // Create and show new error message
+            const errorDiv = document.createElement('div');
+            errorDiv.id = 'time-error-message';
+            errorDiv.className = 'mt-2 px-3 py-2 bg-red-100 border border-red-300 text-red-700 rounded-lg text-sm flex items-center';
+            errorDiv.innerHTML = `
+                <i class="fas fa-exclamation-triangle mr-2"></i>
+                ${message}
+            `;
+            
+            // Insert after the time selection grid
+            const timeGrid = document.querySelector('#calendarBox .grid');
+            timeGrid.parentNode.insertBefore(errorDiv, timeGrid.nextSibling);
+            
+            // Auto-remove after 5 seconds
+            setTimeout(() => {
+                if (errorDiv.parentNode) {
+                    errorDiv.remove();
+                }
+            }, 5000);
+        }
+        
+        function updateDateDisplay(dateTimeStr) {
+            const displaySpan = document.getElementById('dueDateDisplay');
+            
+            if (dateTimeStr) {
+                const date = new Date(dateTimeStr);
+                const options = { 
+                    weekday: 'short',
+                    year: 'numeric', 
+                    month: 'short', 
+                    day: 'numeric',
+                    hour: 'numeric',
+                    minute: '2-digit',
+                    hour12: true
+                };
+                
+                displaySpan.innerHTML = `
+                    <i class="fas fa-calendar-check mr-2 text-green-500"></i>
+                    ${date.toLocaleDateString('en-US', options)}
+                `;
+                displaySpan.classList.remove('text-gray-500');
+                displaySpan.classList.add('text-gray-900', 'font-medium');
+            } else {
+                displaySpan.innerHTML = `
+                    <i class="fas fa-calendar-alt mr-2 text-indigo-500"></i>
+                    Click to select due date and time
+                `;
+                displaySpan.classList.remove('text-gray-900', 'font-medium');
+                displaySpan.classList.add('text-gray-500');
+            }
+        }
+        
+        function clearFieldError(input) {
+            input.classList.remove('border-red-500', 'bg-red-50');
+            const errorMessage = document.getElementById('time-error-message');
+            if (errorMessage) {
+                errorMessage.remove();
+            }
+        }
+        
+        function clearDueDate() {
+            document.getElementById('due_date').value = '';
+            selectedDate = null;
+            if (calendarInstance) {
+                calendarInstance.clear();
+            }
+            updateDateDisplay('');
+            closeCalendarBox();
+        }
+        
+        // Function to remove a skill
+        function removeSkill(skillId) {
+            const checkbox = document.querySelector(`.skill-checkbox[value="${skillId}"]`);
+            if (checkbox) {
+                checkbox.checked = false;
+                handleSkillSelection(checkbox, skillId);
+            }
+        }
+        
+        // Function to toggle assignment type
+        function toggleAssignmentType() {
+            const individualAssignment = document.getElementById('individualAssignment');
+            const groupAssignment = document.getElementById('groupAssignment');
+            const selectedType = document.querySelector('input[name="assignment_type"]:checked').value;
+            
+            if (selectedType === 'individual') {
+                individualAssignment.classList.remove('hidden');
+                groupAssignment.classList.add('hidden');
+            } else {
+                individualAssignment.classList.add('hidden');
+                groupAssignment.classList.remove('hidden');
+            }
+        }
+        
+        // Function to load group members
+        function loadGroupMembers(groupId) {
+            if (!groupId) {
+                document.getElementById('groupMembersPreview').classList.add('hidden');
+                return;
+            }
+            
+            // Make AJAX call to get group members
+            fetch(`?ajax=get_group_members&group_id=${groupId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success && data.members.length > 0) {
+                        const memberNames = data.members.map(m => m.full_name).join(', ');
+                        document.getElementById('groupMembersList').textContent = memberNames;
+                        document.getElementById('groupMembersPreview').classList.remove('hidden');
+                    } else {
+                        document.getElementById('groupMembersPreview').classList.add('hidden');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading group members:', error);
+                });
+        }
+        
+        // Close modal when clicking outside
+        document.addEventListener('click', function(event) {
+            const modal = document.getElementById('customSkillModal');
+            if (event.target === modal) {
+                closeCustomSkillModal();
+            }
+        });
+        
+        // Allow Enter key to add skill
+        document.addEventListener('keypress', function(event) {
+            if (event.key === 'Enter' && document.getElementById('customSkillName') === document.activeElement) {
+                event.preventDefault();
+                addCustomSkill();
+            }
+        });
     </script>
 
     <!-- Recurrence Pattern Visual Feedback Script -->
