@@ -37,3 +37,6 @@ access.log
 tmp/
 temp/
 cache/
+
+# Text file
+todo.txt
