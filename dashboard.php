@@ -229,7 +229,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                    WHERE uq.employee_id = ? AND uq.quest_id = ?");
             $stmt->execute([$employee_id, $quest_id]);
             $assignment = $stmt->fetch(PDO::FETCH_ASSOC);
-            $current_status = $assignment['status'] ?? false;
+            $current_status = $assignment && isset($assignment['status'])
+                ? strtolower(trim($assignment['status']))
+                : false;
             $assignment_type = $assignment['quest_assignment_type'] ?? null;
 
             $can_proceed = true;
@@ -243,7 +245,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
 
-            $assignment_type_normalized = strtolower((string)$assignment_type);
+            $assignment_type_normalized = strtolower(trim((string)$assignment_type));
             $is_mandatory = in_array($assignment_type_normalized, ['mandatory', 'required'], true);
 
             if ($can_proceed) {
@@ -717,7 +719,7 @@ try {
     $assigned_pending_quests = [];
     $active_quest_rows = [];
     foreach ($user_quest_rows as $quest_row) {
-        $status = strtolower($quest_row['user_status'] ?? '');
+        $status = strtolower(trim($quest_row['user_status'] ?? ''));
         if ($status === 'assigned') {
             $assigned_pending_quests[] = $quest_row;
             $active_quest_rows[] = $quest_row;
@@ -927,33 +929,57 @@ try {
     
 } catch (PDOException $e) {
     error_log("Database error: " . $e->getMessage());
-    // Initialize default values on error
-    $stats = [
-        'total_xp' => 0,
-        'completed_quests' => 0,
-        'created_quests' => 0,
-        'reviewed_submissions' => 0
-    ];
-    $level = 1;
-    $rank = 'Newbie';
-    $available_quests = [];
-    $active_quests = [];
-    $submissions = [];
-    $pending_submissions = [];
-    $all_quests = [];
-    $assigned_quests = [];
-    $assigned_pending_quests = [];
-    $user_group = null;
-    $available_groups = [];
-    $group_members = [];
-    $total_available_quests = 0;
-    $total_pages_available_quests = 0;
-    $total_active_quests = 0;
-    $total_pages_active_quests = 0;
-    $total_quests = 0;
-    $total_pages_quests = 0;
-    $total_submissions = 0;
-    $total_pages = 0;
+    // Preserve any data gathered before the exception and only provide safe defaults where missing
+    if (!isset($stats) || !is_array($stats)) {
+        $stats = [
+            'total_xp' => 0,
+            'completed_quests' => 0,
+            'created_quests' => 0,
+            'reviewed_submissions' => 0
+        ];
+    } else {
+        $stats = array_merge([
+            'total_xp' => 0,
+            'completed_quests' => 0,
+            'created_quests' => 0,
+            'reviewed_submissions' => 0
+        ], $stats);
+    }
+
+    if (!isset($level)) {
+        $level = 1;
+    }
+    if (!isset($rank)) {
+        $rank = 'Newbie';
+    }
+}
+
+// Fallback: if no assigned quests were collected (e.g., due to a later query failure), re-fetch directly
+if ($is_taker && empty($assigned_pending_quests)) {
+    try {
+        $stmt = $pdo->prepare("SELECT q.*, uq.status AS user_status, uq.assigned_at AS user_assigned_at, uq.started_at AS user_started_at, uq.completed_at AS user_completed_at
+                               FROM user_quests uq
+                               JOIN quests q ON q.id = uq.quest_id
+                               WHERE uq.employee_id = ?
+                                 AND LOWER(TRIM(uq.status)) IN ('assigned', 'pending', 'pending_acceptance')
+                             ORDER BY COALESCE(uq.assigned_at, q.created_at) DESC");
+        $stmt->execute([$employee_id]);
+        $fallback_rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        foreach ($fallback_rows as $row) {
+            $assigned_pending_quests[] = $row;
+            $active_quest_rows[] = $row;
+        }
+
+        if (empty($active_quests) && !empty($active_quest_rows)) {
+            $total_active_quests = count($active_quest_rows);
+            $total_pages_active_quests = $total_active_quests > 0 ? ceil($total_active_quests / $items_per_page) : 0;
+            $offset_active = ($active_page - 1) * $items_per_page;
+            $active_quests = array_slice($active_quest_rows, $offset_active, $items_per_page);
+        }
+    } catch (PDOException $e) {
+        error_log('Fallback assigned quest retrieval failed: ' . $e->getMessage());
+    }
 }
 
 // Dedicated retrieval for "My Created Quests" to guarantee visibility even if prior queries failed
@@ -2183,7 +2209,7 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
                                             <div class="flex justify-between items-start mb-3">
                                             <div class="flex-1">
                                                 <?php 
-                                                    $assignmentType = strtolower($quest['quest_assignment_type'] ?? 'optional');
+                                                    $assignmentType = strtolower(trim($quest['quest_assignment_type'] ?? 'optional'));
                                                     $isMandatory = in_array($assignmentType, ['mandatory', 'required'], true);
                                                 ?>
                                                 <h4 class="font-semibold text-gray-900 mb-1">
@@ -2338,7 +2364,7 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
                                                     </p>
                                                 </div>
                                                 <div class="ml-2 flex flex-col items-end space-y-1">
-                                                    <?php $status = strtolower($quest['user_status'] ?? ''); ?>
+                                                    <?php $status = strtolower(trim($quest['user_status'] ?? '')); ?>
                                                     <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium <?php 
                                                         echo $status === 'in_progress' ? 'bg-blue-100 text-blue-800 border border-blue-200' : 
                                                             ($status === 'submitted' ? 'bg-yellow-100 text-yellow-800 border border-yellow-200' : 
@@ -2415,7 +2441,7 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
                                                             </button>
                                                         </form>
                                                         <?php 
-                                                            $assignmentType = strtolower($quest['quest_assignment_type'] ?? 'optional');
+                                                            $assignmentType = strtolower(trim($quest['quest_assignment_type'] ?? 'optional'));
                                                             $isMandatory = in_array($assignmentType, ['mandatory', 'required'], true);
                                                         ?>
                                                         <?php if (!$isMandatory): ?>
