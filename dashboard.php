@@ -212,38 +212,73 @@ if ($available_page < 1) $available_page = 1;
 if ($active_page < 1) $active_page = 1;
 if ($created_page < 1) $created_page = 1;
 
+$error = '';
+$success = '';
+
 // Handle form submissions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Handle accepting a quest (for skill_associates and quest_leads)
+    // Handle accepting/declining a quest (for skill_associates and quest_leads)
     if ($is_taker && isset($_POST['quest_id']) && !isset($_POST['submit_quest'])) {
-        $quest_id = (int)$_POST['quest_id'];
+        $quest_id = (int)($_POST['quest_id'] ?? 0);
+        $quest_action = $_POST['quest_action'] ?? 'accept';
         try {
-            // Check quest assignment status
-            $stmt = $pdo->prepare("SELECT status FROM user_quests WHERE employee_id = ? AND quest_id = ?");
+            // Current assignment record (if any)
+            $stmt = $pdo->prepare("SELECT uq.status, q.quest_assignment_type 
+                                   FROM user_quests uq 
+                                   JOIN quests q ON uq.quest_id = q.id 
+                                   WHERE uq.employee_id = ? AND uq.quest_id = ?");
             $stmt->execute([$employee_id, $quest_id]);
-            $current_status = $stmt->fetchColumn();
-            if ($current_status === false) {
-                // Not assigned yet, create as assigned (quest giver assigns, taker must accept)
-                $stmt = $pdo->prepare("INSERT INTO user_quests (employee_id, quest_id, status, assigned_at) VALUES (?, ?, 'assigned', NOW())");
-                $stmt->execute([$employee_id, $quest_id]);
-                $success = "Quest assigned. Please accept to start.";
-            } elseif ($current_status === 'assigned') {
-                // Update status to in_progress when taker accepts
-                $stmt = $pdo->prepare("UPDATE user_quests SET status = 'in_progress', assigned_at = NOW() WHERE employee_id = ? AND quest_id = ?");
-                $stmt->execute([$employee_id, $quest_id]);
-                $success = "Quest successfully accepted.";
-            } elseif (in_array($current_status, ['in_progress', 'submitted', 'completed'])) {
-                $error = "You have already accepted this quest.";
-            } else {
-                $error = "You cannot accept this quest.";
+            $assignment = $stmt->fetch(PDO::FETCH_ASSOC);
+            $current_status = $assignment['status'] ?? false;
+            $assignment_type = $assignment['quest_assignment_type'] ?? null;
+
+            $can_proceed = true;
+            if ($assignment === false) {
+                $stmt = $pdo->prepare("SELECT quest_assignment_type FROM quests WHERE id = ? AND status = 'active'");
+                $stmt->execute([$quest_id]);
+                $assignment_type = $stmt->fetchColumn();
+                if ($assignment_type === false) {
+                    $error = "This quest is no longer available.";
+                    $can_proceed = false;
+                }
+            }
+
+            $assignment_type_normalized = strtolower((string)$assignment_type);
+            $is_mandatory = in_array($assignment_type_normalized, ['mandatory', 'required'], true);
+
+            if ($can_proceed) {
+                if ($quest_action === 'decline') {
+                    if ($current_status === 'assigned' && !$is_mandatory) {
+                        $stmt = $pdo->prepare("DELETE FROM user_quests WHERE employee_id = ? AND quest_id = ?");
+                        $stmt->execute([$employee_id, $quest_id]);
+                        $success = "Quest declined. You can pick it up again later from Available Quests.";
+                    } elseif ($is_mandatory) {
+                        $error = "Mandatory quests can't be declined.";
+                    } else {
+                        $error = "There is no pending assignment to decline.";
+                    }
+                } else { // accept action
+                    if ($current_status === false) {
+                        // Accepting a public optional quest
+                        $stmt = $pdo->prepare("INSERT INTO user_quests (employee_id, quest_id, status, assigned_at, started_at) VALUES (?, ?, 'in_progress', NOW(), NOW())");
+                        $stmt->execute([$employee_id, $quest_id]);
+                        $success = "Quest accepted! It's now in your active list.";
+                    } elseif ($current_status === 'assigned') {
+                        $stmt = $pdo->prepare("UPDATE user_quests SET status = 'in_progress', started_at = COALESCE(started_at, NOW()), assigned_at = COALESCE(assigned_at, NOW()) WHERE employee_id = ? AND quest_id = ?");
+                        $stmt->execute([$employee_id, $quest_id]);
+                        $success = "Quest successfully accepted.";
+                    } elseif (in_array($current_status, ['in_progress', 'submitted', 'completed'], true)) {
+                        $error = "You have already accepted this quest.";
+                    } else {
+                        $error = "You cannot accept this quest.";
+                    }
+                }
             }
         } catch (PDOException $e) {
-            error_log("Database error accepting quest: " . $e->getMessage());
-            $error = "Error accepting quest.";
+            error_log("Database error processing quest action: " . $e->getMessage());
+            $error = "We're unable to update this quest right now.";
         }
     }
-    $error = '';
-    $success = '';
     
     // Handle group creation
     if ($is_taker && isset($_POST['create_group'])) {
@@ -554,6 +589,7 @@ $submissions = [];
 $pending_submissions = [];
 $all_quests = [];
 $assigned_quests = [];
+$assigned_pending_quests = [];
 $user_group = null;
 $available_groups = [];
 $pending_submissions = [];
@@ -631,8 +667,8 @@ try {
                   LEFT JOIN user_quests uq ON q.id = uq.quest_id AND uq.employee_id = ?
                   WHERE q.status = 'active'
                   AND q.created_by NOT IN (?, ?)
-                  AND (uq.quest_id IS NULL OR (uq.employee_id = ? AND uq.status = 'assigned'))");
-    $stmt->execute([$employee_id, $employee_id, (string)$user_id, $employee_id]);
+                  AND uq.quest_id IS NULL");
+    $stmt->execute([$employee_id, $employee_id, (string)$user_id]);
     $total_available_quests = $stmt->fetchColumn();
     $total_pages_available_quests = ceil($total_available_quests / $items_per_page);
 
@@ -647,47 +683,58 @@ try {
                   LEFT JOIN user_quests uq ON q.id = uq.quest_id AND uq.employee_id = ?
                   WHERE q.status = 'active'
                   AND q.created_by NOT IN (?, ?)
-                  AND (uq.quest_id IS NULL OR (uq.employee_id = ? AND uq.status = 'assigned'))
+                  AND uq.quest_id IS NULL
                   ORDER BY q.created_at DESC
                   LIMIT ? OFFSET ?");
     $stmt->bindValue(1, $employee_id);
     $stmt->bindValue(2, $employee_id);
     $stmt->bindValue(3, (string)$user_id);
-    $stmt->bindValue(4, $employee_id);
-    $stmt->bindValue(5, $items_per_page, PDO::PARAM_INT);
-    $stmt->bindValue(6, $offset_available, PDO::PARAM_INT);
+    $stmt->bindValue(4, $items_per_page, PDO::PARAM_INT);
+    $stmt->bindValue(5, $offset_available, PDO::PARAM_INT);
     $stmt->execute();
     $available_quests = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // Get total count of active quests
-    $stmt = $pdo->prepare("SELECT COUNT(*) FROM quests q 
-                  JOIN user_quests uq ON q.id = uq.quest_id 
-                  WHERE uq.employee_id = ? 
+    // Aggregate quests already attached to this user and categorize them
+    $stmt = $pdo->prepare("SELECT q.*, uq.status as user_status, 
+                    uq.assigned_at AS user_assigned_at,
+                    uq.started_at AS user_started_at,
+                    uq.completed_at AS user_completed_at 
+                  FROM user_quests uq
+                  JOIN quests q ON q.id = uq.quest_id
+                  WHERE uq.employee_id = ?
                   AND q.status = 'active'
-                  AND (uq.status = 'in_progress' OR uq.status = 'submitted')");
+                  ORDER BY 
+                    CASE 
+                        WHEN uq.status = 'assigned' THEN 0
+                        WHEN uq.status = 'in_progress' THEN 1
+                        WHEN uq.status = 'submitted' THEN 2
+                        ELSE 3
+                    END,
+                    COALESCE(uq.assigned_at, q.created_at) DESC");
     $stmt->execute([$employee_id]);
-    $total_active_quests = $stmt->fetchColumn();
-    $total_pages_active_quests = ceil($total_active_quests / $items_per_page);
+    $user_quest_rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // Ensure active_page doesn't exceed total pages
+    $assigned_pending_quests = [];
+    $active_quest_rows = [];
+    foreach ($user_quest_rows as $quest_row) {
+        $status = strtolower($quest_row['user_status'] ?? '');
+        if ($status === 'assigned') {
+            $assigned_pending_quests[] = $quest_row;
+            $active_quest_rows[] = $quest_row;
+        } elseif (in_array($status, ['in_progress', 'submitted'], true)) {
+            $active_quest_rows[] = $quest_row;
+        }
+    }
+
+    $total_active_quests = count($active_quest_rows);
+    $total_pages_active_quests = $total_active_quests > 0 ? ceil($total_active_quests / $items_per_page) : 0;
+
     if ($active_page > $total_pages_active_quests && $total_pages_active_quests > 0) {
         $active_page = $total_pages_active_quests;
     }
 
-    // Get paginated active quests
     $offset_active = ($active_page - 1) * $items_per_page;
-    $stmt = $pdo->prepare("SELECT q.*, uq.status as user_status FROM quests q 
-                  JOIN user_quests uq ON q.id = uq.quest_id 
-                  WHERE uq.employee_id = ? 
-                  AND q.status = 'active'
-                  AND (uq.status = 'in_progress' OR uq.status = 'submitted')
-                  ORDER BY q.created_at DESC
-                  LIMIT ? OFFSET ?");
-    $stmt->bindValue(1, $employee_id);
-    $stmt->bindValue(2, $items_per_page, PDO::PARAM_INT);
-    $stmt->bindValue(3, $offset_active, PDO::PARAM_INT);
-    $stmt->execute();
-    $active_quests = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $active_quests = array_slice($active_quest_rows, $offset_active, $items_per_page);
     
     // Additional quest taker logic
     if ($is_taker) {
@@ -895,6 +942,7 @@ try {
     $pending_submissions = [];
     $all_quests = [];
     $assigned_quests = [];
+    $assigned_pending_quests = [];
     $user_group = null;
     $available_groups = [];
     $group_members = [];
@@ -2119,6 +2167,89 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
                         </p>
                     </div>
                     
+                    <?php if (!empty($assigned_pending_quests)): ?>
+                    <!-- Assigned Quests Awaiting Acceptance -->
+                    <div class="mb-8">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-xl font-semibold text-gray-800">Assigned to You</h3>
+                            <span class="bg-purple-100 text-purple-800 px-3 py-1 rounded-full text-sm font-medium">
+                                <?php echo count($assigned_pending_quests); ?> awaiting action
+                            </span>
+                        </div>
+                        <div class="grid <?php echo $is_giver ? 'grid-cols-1 xl:grid-cols-2' : 'grid-cols-1 lg:grid-cols-2 xl:grid-cols-3'; ?> gap-4">
+                            <?php foreach ($assigned_pending_quests as $quest): ?>
+                                <div class="bg-gradient-to-r from-purple-50 to-fuchsia-50 border border-purple-200 rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200 overflow-hidden">
+                                    <div class="p-4">
+                                            <div class="flex justify-between items-start mb-3">
+                                            <div class="flex-1">
+                                                <?php 
+                                                    $assignmentType = strtolower($quest['quest_assignment_type'] ?? 'optional');
+                                                    $isMandatory = in_array($assignmentType, ['mandatory', 'required'], true);
+                                                ?>
+                                                <h4 class="font-semibold text-gray-900 mb-1">
+                                                    📌 <?php echo htmlspecialchars($quest['title']); ?>
+                                                </h4>
+                                                <p class="text-gray-600 text-sm leading-relaxed mb-2">
+                                                    <?php echo htmlspecialchars($quest['description']); ?>
+                                                </p>
+                                                <div class="space-y-1 text-xs text-gray-500">
+                                                    <div class="flex items-center gap-2">
+                                                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border <?php 
+                                                            echo $isMandatory ? 'bg-red-100 text-red-700 border-red-200' : 'bg-blue-100 text-blue-700 border-blue-200';
+                                                        ?>">
+                                                            <?php echo $isMandatory ? '⚠️ Mandatory Quest' : '✅ Optional Quest'; ?>
+                                                        </span>
+                                                    </div>
+                                                    <div>
+                                                        <strong>Assigned:</strong> <?php echo !empty($quest['user_assigned_at']) ? date('M d, Y g:i A', strtotime($quest['user_assigned_at'])) : 'Just now'; ?>
+                                                    </div>
+                                                    <?php if (!empty($quest['due_date'])): ?>
+                                                        <div>
+                                                            <strong>Due:</strong> <?php echo date('M d, Y g:i A', strtotime($quest['due_date'])); ?>
+                                                        </div>
+                                                    <?php endif; ?>
+                                                </div>
+                                            </div>
+                                            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800 border border-purple-200 ml-2">
+                                                🏆 +<?php echo isset($quest['xp']) ? (int)$quest['xp'] : 0; ?> XP
+                                            </span>
+                                        </div>
+                                        <div class="bg-white border border-purple-100 rounded-md p-3 mb-3">
+                                            <p class="text-xs text-gray-600">
+                                                This quest has been assigned to you and is waiting for your acceptance. Once you accept, it will move to <strong>My Active Quests</strong> so you can submit your work.
+                                            </p>
+                                        </div>
+                                        <div class="flex justify-end flex-wrap gap-2">
+                                            <form method="post" class="flex items-center">
+                                                <input type="hidden" name="quest_id" value="<?php echo $quest['id']; ?>">
+                                                <input type="hidden" name="quest_action" value="accept">
+                                                <button type="submit" class="inline-flex items-center px-3 py-2 bg-purple-600 text-white text-xs font-medium rounded-md hover:bg-purple-700 focus:ring-2 focus:ring-purple-500 transition-colors">
+                                                    <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                                                    </svg>
+                                                    Accept Quest
+                                                </button>
+                                            </form>
+                                            <?php if (!$isMandatory): ?>
+                                                <form method="post" class="flex items-center">
+                                                    <input type="hidden" name="quest_id" value="<?php echo $quest['id']; ?>">
+                                                    <input type="hidden" name="quest_action" value="decline">
+                                                    <button type="submit" class="inline-flex items-center px-3 py-2 bg-white text-purple-700 border border-purple-300 text-xs font-medium rounded-md hover:bg-purple-50 focus:ring-2 focus:ring-purple-400 transition-colors">
+                                                        <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                                                        </svg>
+                                                        Decline
+                                                    </button>
+                                                </form>
+                                            <?php endif; ?>
+                                        </div>
+                                    </div>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                    <?php endif; ?>
+                    
                     <!-- Available Quests to Accept -->
                     <div class="mb-8">
                         <div class="flex items-center justify-between mb-4">
@@ -2148,6 +2279,7 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
                                             <div class="flex justify-end">
                                                 <form method="post" name="accept_quest_form">
                                                     <input type="hidden" name="quest_id" value="<?php echo $quest['id']; ?>">
+                                                    <input type="hidden" name="quest_action" value="accept">
                                                     <button type="submit" class="inline-flex items-center px-3 py-2 bg-blue-600 text-white text-xs font-medium rounded-md hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 transition-colors">
                                                         <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
@@ -2188,7 +2320,7 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
                         <div class="flex items-center justify-between mb-4">
                             <h3 class="text-xl font-semibold text-gray-800">My Active Quests</h3>
                             <span class="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm font-medium">
-                                <?php echo count($active_quests); ?> in progress
+                                <?php echo count($active_quests); ?> active / assigned
                             </span>
                         </div>
                         <?php if (!empty($active_quests)): ?>
@@ -2206,14 +2338,16 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
                                                     </p>
                                                 </div>
                                                 <div class="ml-2 flex flex-col items-end space-y-1">
+                                                    <?php $status = strtolower($quest['user_status'] ?? ''); ?>
                                                     <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium <?php 
-                                                        echo $quest['user_status'] === 'in_progress' ? 'bg-blue-100 text-blue-800 border border-blue-200' : 
-                                                            ($quest['user_status'] === 'submitted' ? 'bg-yellow-100 text-yellow-800 border border-yellow-200' : 
-                                                             'bg-gray-100 text-gray-800 border border-gray-200'); ?>">
+                                                        echo $status === 'in_progress' ? 'bg-blue-100 text-blue-800 border border-blue-200' : 
+                                                            ($status === 'submitted' ? 'bg-yellow-100 text-yellow-800 border border-yellow-200' : 
+                                                             ($status === 'assigned' ? 'bg-purple-100 text-purple-800 border border-purple-200' : 'bg-gray-100 text-gray-800 border border-gray-200'));
+                                                    ?>">
                                                         <?php 
-                                                        echo $quest['user_status'] === 'in_progress' ? '🔄 In Progress' : 
-                                                            ($quest['user_status'] === 'submitted' ? '📤 Submitted' : 
-                                                             '📝 ' . ucfirst(str_replace('_', ' ', $quest['user_status']))); 
+                                                        echo $status === 'in_progress' ? '🔄 In Progress' : 
+                                                            ($status === 'submitted' ? '📤 Submitted' : 
+                                                             ($status === 'assigned' ? '📌 Assigned' : '📝 ' . ucfirst(str_replace('_', ' ', $status)))); 
                                                         ?>
                                                     </span>
                                                     <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 border border-green-200">
@@ -2222,7 +2356,7 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
                                                 </div>
                                             </div>
                                             
-                                            <?php if ($quest['user_status'] === 'in_progress'): ?>
+                                            <?php if ($status === 'in_progress'): ?>
                                                 <div class="bg-white rounded-md p-3 border border-gray-200 mt-3">
                                                     <h5 class="font-medium text-gray-800 mb-2 text-sm">📤 Submit Your Work</h5>
                                                     <form method="post" enctype="multipart/form-data" class="space-y-3">
@@ -2264,6 +2398,39 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
                                                             </button>
                                                         </div>
                                                     </form>
+                                                </div>
+                                            <?php elseif ($status === 'assigned'): ?>
+                                                <div class="bg-white rounded-md p-3 border border-purple-200 mt-3">
+                                                    <h5 class="font-medium text-gray-800 mb-2 text-sm">✅ Accept or Decline</h5>
+                                                    <p class="text-xs text-gray-600 mb-3">Accept to move this quest into progress. Declining will remove it from your list.</p>
+                                                    <div class="flex flex-wrap gap-2">
+                                                        <form method="post">
+                                                            <input type="hidden" name="quest_id" value="<?php echo $quest['id']; ?>">
+                                                            <input type="hidden" name="quest_action" value="accept">
+                                                            <button type="submit" class="inline-flex items-center px-3 py-2 bg-purple-600 text-white text-xs font-medium rounded-md hover:bg-purple-700 focus:ring-2 focus:ring-purple-500 transition-colors">
+                                                                <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                                                                </svg>
+                                                                Accept Quest
+                                                            </button>
+                                                        </form>
+                                                        <?php 
+                                                            $assignmentType = strtolower($quest['quest_assignment_type'] ?? 'optional');
+                                                            $isMandatory = in_array($assignmentType, ['mandatory', 'required'], true);
+                                                        ?>
+                                                        <?php if (!$isMandatory): ?>
+                                                            <form method="post">
+                                                                <input type="hidden" name="quest_id" value="<?php echo $quest['id']; ?>">
+                                                                <input type="hidden" name="quest_action" value="decline">
+                                                                <button type="submit" class="inline-flex items-center px-3 py-2 bg-white text-purple-700 border border-purple-300 text-xs font-medium rounded-md hover:bg-purple-50 focus:ring-2 focus:ring-purple-400 transition-colors">
+                                                                    <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                                                                    </svg>
+                                                                    Decline
+                                                                </button>
+                                                            </form>
+                                                        <?php endif; ?>
+                                                    </div>
                                                 </div>
                                             <?php endif; ?>
                                         </div>

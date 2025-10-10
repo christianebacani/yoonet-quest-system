@@ -369,28 +369,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 
                 // Combine individual assignments with group assignments
                 $all_assignments = array_unique(array_merge($assign_to, $group_employees));
-                
-                // Assign quest to selected employees
-                if (!empty($all_assignments)) {
-                    foreach ($all_assignments as $employee_id) {
-                        // First check if the employee exists
-                        $stmt = $pdo->prepare("SELECT employee_id FROM users WHERE employee_id = ?");
-                        $stmt->execute([$employee_id]);
-                        $userExists = $stmt->fetch();
-                        
-                        if (!$userExists) {
-                            error_log("Attempted to assign quest to non-existent user: " . $employee_id);
-                            continue; // Skip this assignment
-                        }
 
-                        // Set initial status based on quest assignment type
-                        $initial_status = ($quest_assignment_type === 'mandatory') ? 'in_progress' : 'assigned';
-                        
-                        $stmt = $pdo->prepare("INSERT INTO user_quests 
-                            (employee_id, quest_id, status, assigned_at) 
-                            VALUES (?, ?, ?, NOW())");
-                        $stmt->execute([$employee_id, $quest_id, $initial_status]);
+                if (empty($all_assignments)) {
+                    throw new Exception('VALIDATION_NO_ASSIGNEES');
+                }
+
+                // Assign quest to selected employees
+                foreach ($all_assignments as $employee_id) {
+                    // First check if the employee exists
+                    $stmt = $pdo->prepare("SELECT employee_id FROM users WHERE employee_id = ?");
+                    $stmt->execute([$employee_id]);
+                    $userExists = $stmt->fetch();
+                    
+                    if (!$userExists) {
+                        error_log("Attempted to assign quest to non-existent user: " . $employee_id);
+                        continue; // Skip this assignment
                     }
+
+                    // Set initial status based on quest assignment type
+                    $initial_status = ($quest_assignment_type === 'mandatory') ? 'in_progress' : 'assigned';
+                    
+                    $stmt = $pdo->prepare("INSERT INTO user_quests 
+                        (employee_id, quest_id, status, assigned_at) 
+                        VALUES (?, ?, ?, NOW())");
+                    $stmt->execute([$employee_id, $quest_id, $initial_status]);
                 }
                 
                 $pdo->commit();
@@ -409,9 +411,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $selected_skills = [];
                 }
             } catch (PDOException $e) {
-                $pdo->rollBack();
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
                 error_log("Database error: " . $e->getMessage());
                 $error = 'Error creating quest: ' . $e->getMessage();
+            } catch (Exception $e) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                if ($e->getMessage() === 'VALIDATION_NO_ASSIGNEES') {
+                    $error = 'Please assign this quest to at least one employee or group before saving.';
+                } else {
+                    $error = 'Error creating quest: ' . $e->getMessage();
+                }
             }
         }
     }
