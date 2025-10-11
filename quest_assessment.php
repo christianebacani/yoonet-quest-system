@@ -10,47 +10,105 @@ if (!is_logged_in()) {
 
 $quest_id = isset($_GET['quest_id']) ? (int)$_GET['quest_id'] : 0;
 $user_id = isset($_GET['user_id']) ? (int)$_GET['user_id'] : 0;
+$employee_id_param = isset($_GET['employee_id']) ? trim((string)$_GET['employee_id']) : '';
+$submission_id = isset($_GET['submission_id']) ? (int)$_GET['submission_id'] : 0;
 $error = '';
 $success = '';
 
+// Try to resolve missing identifiers gracefully before redirecting
+if ($quest_id && !$user_id) {
+    try {
+        if ($submission_id > 0) {
+            $stmt = $pdo->prepare("SELECT u.id AS user_id, qs.quest_id, u.employee_id FROM quest_submissions qs LEFT JOIN users u ON qs.employee_id = u.employee_id WHERE qs.id = ?");
+            $stmt->execute([$submission_id]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($row) {
+                $user_id = (int)($row['user_id'] ?? 0);
+                if (!$quest_id && isset($row['quest_id'])) { $quest_id = (int)$row['quest_id']; }
+                if (!$employee_id_param && isset($row['employee_id'])) { $employee_id_param = (string)$row['employee_id']; }
+            }
+        }
+        if (!$user_id && $employee_id_param !== '') {
+            $stmt = $pdo->prepare("SELECT id FROM users WHERE employee_id = ?");
+            $stmt->execute([$employee_id_param]);
+            $uid = $stmt->fetchColumn();
+            if ($uid) { $user_id = (int)$uid; }
+        }
+    } catch (PDOException $e) {
+        error_log('quest_assessment: resolution error ' . $e->getMessage());
+    }
+}
+
 if (!$quest_id || !$user_id) {
-    redirect('dashboard.php');
+    // Show a friendly message instead of bouncing back immediately
+    $error = 'Missing or invalid parameters for assessment. Please return to Submitted Quest list and try again.';
 }
 
 // Get quest details
-try {
-    $stmt = $pdo->prepare("SELECT * FROM quests WHERE id = ?");
-    $stmt->execute([$quest_id]);
-    $quest = $stmt->fetch();
-    
-    if (!$quest) {
-        redirect('dashboard.php');
+if (empty($error)) {
+    try {
+        $stmt = $pdo->prepare("SELECT * FROM quests WHERE id = ?");
+        $stmt->execute([$quest_id]);
+        $quest = $stmt->fetch();
+        
+        if (!$quest) {
+            $error = 'Quest not found.';
+        }
+    } catch (PDOException $e) {
+        error_log("Error fetching quest: " . $e->getMessage());
+        $error = 'Unable to load quest details.';
     }
-} catch (PDOException $e) {
-    error_log("Error fetching quest: " . $e->getMessage());
-    redirect('dashboard.php');
 }
 
-// Get user details
-try {
-    $stmt = $pdo->prepare("SELECT full_name, username FROM users WHERE id = ?");
-    $stmt->execute([$user_id]);
-    $user = $stmt->fetch();
-    
-    if (!$user) {
-        redirect('dashboard.php');
+// Get user details (non-fatal if missing; we'll still show submission + employee_id)
+if (empty($error)) {
+    try {
+        $stmt = $pdo->prepare("SELECT id, full_name, username, employee_id, email FROM users WHERE id = ?");
+        $stmt->execute([$user_id]);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+    } catch (PDOException $e) {
+        error_log("Error fetching user: " . $e->getMessage());
+        $user = [];
     }
-} catch (PDOException $e) {
-    error_log("Error fetching user: " . $e->getMessage());
-    redirect('dashboard.php');
 }
 
 // Get quest skills
 $skillManager = new SkillProgression($pdo);
 $quest_skills = $skillManager->getQuestSkills($quest_id);
 
+// Fetch latest submission by this user for this quest (schema-adaptive)
+$latestSubmission = null;
+// Prefer employee_id from user; fallback to explicit employee_id param
+$employeeIdForSubmission = $user['employee_id'] ?? ($employee_id_param !== '' ? $employee_id_param : null);
+if (!empty($employeeIdForSubmission)) {
+    try {
+        $stmt = $pdo->prepare("SELECT * FROM quest_submissions WHERE employee_id = ? AND quest_id = ? ORDER BY submitted_at DESC LIMIT 1");
+        $stmt->execute([$employeeIdForSubmission, $quest_id]);
+        $latestSubmission = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    } catch (PDOException $e) {
+        error_log('Error fetching latest submission: ' . $e->getMessage());
+        $latestSubmission = null;
+    }
+}
+
+// If user record is missing or incomplete but we have a submission, try resolving by employee_id from the submission
+if ((!is_array($user) || empty($user) || empty($user['full_name'])) && $latestSubmission && !empty($latestSubmission['employee_id'])) {
+    try {
+        $stmt = $pdo->prepare("SELECT id, full_name, username, email, employee_id FROM users WHERE employee_id = ? LIMIT 1");
+        $stmt->execute([$latestSubmission['employee_id']]);
+        $maybeUser = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($maybeUser) {
+            $user = $maybeUser;
+            if (!$user_id) { $user_id = (int)$user['id']; }
+            if (!$employeeIdForSubmission) { $employeeIdForSubmission = $user['employee_id']; }
+        }
+    } catch (PDOException $e) {
+        error_log('user resolve by employee_id failed: ' . $e->getMessage());
+    }
+}
+
 // Handle form submission
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_assessment'])) {
+if (empty($error) && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_assessment'])) {
     $assessments = $_POST['assessments'] ?? [];
     $total_points = 0;
     $awarded_skills = [];
@@ -61,7 +119,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_assessment']))
         foreach ($assessments as $skill_name => $assessment) {
             $performance = (float)$assessment['performance'];
             $base_points = (int)$assessment['base_points'];
-            $notes = sanitize_user_input($assessment['notes'] ?? '');
+            $notes = sanitize_input($assessment['notes'] ?? '');
             
             // Award skill points
             $result = $skillManager->awardSkillPoints($user_id, $skill_name, $base_points, $performance);
@@ -107,11 +165,12 @@ if (isset($_GET['success'])) {
 // Calculate tier points
 function getTierPoints($tier) {
     switch($tier) {
+        // Aligned with provided tier dropdown: T1 25, T2 40, T3 60, T4 85, T5 115
         case 'T1': return 25;
         case 'T2': return 40;
-        case 'T3': return 55;
-        case 'T4': return 70;
-        case 'T5': return 85;
+        case 'T3': return 60;
+        case 'T4': return 85;
+        case 'T5': return 115;
         default: return 25;
     }
 }
@@ -126,34 +185,20 @@ function getTierPoints($tier) {
     <link rel="stylesheet" href="assets/css/buttons.css">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
     <style>
-        body {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            font-family: 'Segoe UI', Arial, sans-serif;
-            margin: 0;
-            padding: 20px;
-        }
-        
-        .assessment-container {
-            max-width: 900px;
-            margin: 0 auto;
-            background: white;
-            border-radius: 20px;
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
-            overflow: hidden;
-        }
-        
-        .assessment-header {
-            background: linear-gradient(135deg, #1e293b, #334155);
-            color: white;
-            padding: 30px;
-            text-align: center;
-        }
-        
-        .quest-title { font-size: 1.8rem; font-weight: bold; margin-bottom: 10px; }
-        .user-info { font-size: 1.2rem; color: #cbd5e1; }
-        
-        .assessment-content { padding: 30px; }
+        body { background: #f3f4f6; min-height: 100vh; font-family: 'Segoe UI', Arial, sans-serif; margin:0; }
+        .assessment-container { max-width: 1200px; margin: 24px auto; padding: 0 16px; }
+        .topbar { display:flex; justify-content:space-between; align-items:center; margin-bottom: 16px; }
+        .topbar .title { font-size: 1.5rem; font-weight: 700; color:#111827; }
+        .topbar .meta { color:#6b7280; font-size:0.9rem; }
+    .btn-link { display:inline-block; padding:8px 12px; border-radius:8px; background:#111827; color:#fff; text-decoration:none; }
+        .page-grid { display:grid; grid-template-columns: 1fr; gap: 16px; }
+        @media (min-width: 980px){ .page-grid { grid-template-columns: 2fr 1fr; } }
+        .col-left { display:flex; flex-direction:column; gap:16px; }
+        .col-right { display:flex; flex-direction:column; gap:16px; }
+        .card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:16px; }
+        .card h3 { margin:0 0 8px 0; font-size:1.1rem; color:#111827; }
+        .meta-line { display:flex; justify-content:space-between; color:#6b7280; font-size: 0.9rem; }
+        .assessment-content { padding: 0; }
         
         .section-title {
             font-size: 1.3rem;
@@ -224,40 +269,9 @@ function getTierPoints($tier) {
             margin-bottom: 10px;
         }
         
-        .performance-options {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 10px;
-            margin-bottom: 15px;
-        }
-        
-        .performance-option {
-            background: white;
-            border: 2px solid #e5e7eb;
-            border-radius: 8px;
-            padding: 12px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            text-align: center;
-        }
-        
-        .performance-option:hover {
-            border-color: #4338ca;
-            background: #f0f9ff;
-        }
-        
-        .performance-option.selected {
-            border-color: #10b981;
-            background: #ecfdf5;
-        }
-        
-        .performance-option input[type="radio"] {
-            display: none;
-        }
-        
-        .option-label { font-weight: 600; color: #374151; }
-        .option-multiplier { color: #6b7280; font-size: 0.9rem; }
-        .option-points { color: #059669; font-weight: bold; }
+        .performance-select { width: 100%; max-width: 380px; padding: 10px 12px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 0.95rem; }
+        .line { color:#374151; margin-top:8px; }
+        .line small { color:#6b7280; }
         
         .notes-section {
             margin-top: 15px;
@@ -319,16 +333,167 @@ function getTierPoints($tier) {
             transform: translateY(-2px);
             box-shadow: 0 8px 25px rgba(67, 56, 202, 0.3);
         }
+
+        /* Submission preview styles */
+        .submission-card { background: #ffffff; border: 2px solid #e5e7eb; border-radius: 12px; padding: 20px; }
+        .submission-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .submission-title { font-weight: 700; color: #1f2937; }
+        .submission-meta { color: #6b7280; font-size: 0.9rem; }
+        .badge { display:inline-block; padding:4px 8px; border-radius:9999px; font-size: 12px; font-weight:600; }
+        .badge-pending{ background:#FEF3C7; color:#92400E; border:1px solid #F59E0B; }
+        .badge-under{ background:#DBEAFE; color:#1E40AF; border:1px solid #3B82F6; }
+        .badge-approved{ background:#D1FAE5; color:#065F46; border:1px solid #10B981; }
+        .badge-rejected{ background:#FEE2E2; color:#991B1B; border:1px solid #EF4444; }
+        .preview-block { margin-top: 12px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px; padding:12px; }
+        .preview-media { max-width:100%; max-height:480px; border-radius:8px; border:1px solid #e5e7eb; }
+        .preview-text { white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; background:#111827; color:#e5e7eb; padding:12px; border-radius:8px; overflow:auto; }
     </style>
 </head>
 <body>
     <div class="assessment-container">
-        <div class="assessment-header">
-            <div class="quest-title">QUEST: <?= htmlspecialchars($quest['title']) ?></div>
-            <div class="user-info">USER: <?= htmlspecialchars($user['full_name']) ?></div>
+        <div class="nav-header">
+            <div class="nav-left">
+                <a class="btn btn-navigation btn-back" href="pending_reviews.php">
+                    <span class="btn-icon">◀</span>
+                    <span class="btn-text">Back</span>
+                </a>
+                <h1 class="nav-title">Review Submission</h1>
+            </div>
+            <div class="nav-right">
+                <span class="meta">Quest: <?= htmlspecialchars(is_array($quest) && isset($quest['title']) ? $quest['title'] : 'Unknown Quest') ?><?= isset($quest['id']) ? ' • ID #'.(int)$quest['id'] : '' ?></span>
+            </div>
         </div>
         
         <div class="assessment-content">
+            <div class="page-grid">
+                <div class="col-left">
+                    <?php if (is_array($latestSubmission) && !empty($latestSubmission)): ?>
+                <?php
+                    $status = strtolower(trim($latestSubmission['status'] ?? 'pending'));
+                    $submittedAt = $latestSubmission['submitted_at'] ?? null;
+                    $when = $submittedAt ? date('M d, Y g:i A', strtotime($submittedAt)) : 'Unknown time';
+                            $filePath = $latestSubmission['file_path'] ?? '';
+                    $driveLink = $latestSubmission['drive_link'] ?? '';
+                    $textContent = $latestSubmission['text_content'] ?? '';
+                    $submissionText = $latestSubmission['submission_text'] ?? '';
+
+                    $badgeClass = 'badge badge-pending';
+                    $badgeLabel = 'Pending';
+                    if ($status === 'under_review') { $badgeClass = 'badge badge-under'; $badgeLabel = 'Under Review'; }
+                    elseif ($status === 'approved') { $badgeClass = 'badge badge-approved'; $badgeLabel = 'Reviewed'; }
+                    elseif ($status === 'rejected') { $badgeClass = 'badge badge-rejected'; $badgeLabel = 'Declined'; }
+                ?>
+                <div class="card">
+                    <div class="submission-header">
+                        <div>
+                            <div class="submission-title">Submission</div>
+                            <div class="submission-meta">Submitted: <?= htmlspecialchars($when) ?></div>
+                        </div>
+                        <span class="<?= $badgeClass ?>"><?= $badgeLabel ?></span>
+                    </div>
+
+                    <?php
+                        $rendered = false;
+                        // Helper: normalize absolute disk paths to web paths
+                        $toWeb = function($p) {
+                            if (!is_string($p) || $p === '') return '';
+                            $n = str_replace('\\','/',$p);
+                            $root = str_replace('\\','/', realpath(__DIR__) . '/');
+                            if (stripos($n, $root) === 0) {
+                                $rel = substr($n, strlen($root));
+                                return $rel;
+                            }
+                            $pos = stripos($n, '/uploads/');
+                            if ($pos !== false) {
+                                return substr($n, $pos+1); // drop leading slash
+                            }
+                            return $n; // fallback
+                        };
+
+                        $path = is_string($filePath) ? trim($filePath) : '';
+                        $web = $toWeb($path);
+                        if ($web !== '') {
+                            $ext = strtolower(pathinfo($web, PATHINFO_EXTENSION));
+                            $src = preg_match('~^https?://~i', $web) ? $web : $web;
+                            $fname = htmlspecialchars(basename($web));
+                            if (in_array($ext, ['jpg','jpeg','png','gif','webp'])) {
+                                echo '<div class="preview-block">'
+                                   . '<img class="preview-media" src="' . htmlspecialchars($src) . '" alt="submission image" />'
+                                   . '<div class="btn-group" style="margin-top:8px;">'
+                                   . '<a class="btn btn-primary btn-sm" href="' . htmlspecialchars($src) . '" target="_blank">Open Image</a>'
+                                   . '<a class="btn btn-outline-primary btn-sm" href="' . htmlspecialchars($src) . '" download>Download</a>'
+                                   . '</div>'
+                                   . '</div>';
+                                $rendered = true;
+                            } elseif ($ext === 'pdf') {
+                                echo '<div class="preview-block">'
+                                   . '<object data="' . htmlspecialchars($src) . '" type="application/pdf" width="100%" height="480"></object>'
+                                   . '<div class="btn-group" style="margin-top:8px;">'
+                                   . '<a class="btn btn-primary btn-sm" href="' . htmlspecialchars($src) . '" target="_blank">Open PDF</a>'
+                                   . '<a class="btn btn-outline-primary btn-sm" href="' . htmlspecialchars($src) . '" download>Download</a>'
+                                   . '</div>'
+                                   . '</div>';
+                                $rendered = true;
+                            } elseif (in_array($ext, ['txt','md','csv'])) {
+                                echo '<div class="preview-block">'
+                                   . '<div>File: ' . $fname . '</div>'
+                                   . '<div class="btn-group" style="margin-top:8px;">'
+                                   . '<a class="btn btn-primary btn-sm" href="' . htmlspecialchars($src) . '" target="_blank">Open</a>'
+                                   . '<a class="btn btn-outline-primary btn-sm" href="' . htmlspecialchars($src) . '" download>Download</a>'
+                                   . '</div>'
+                                   . '</div>';
+                                $rendered = true;
+                            } else {
+                                echo '<div class="preview-block">'
+                                   . '<div>File: ' . $fname . '</div>'
+                                   . '<div class="btn-group" style="margin-top:8px;">'
+                                   . '<a class="btn btn-primary btn-sm" href="' . htmlspecialchars($src) . '" target="_blank">Open</a>'
+                                   . '<a class="btn btn-outline-primary btn-sm" href="' . htmlspecialchars($src) . '" download>Download</a>'
+                                   . '</div>'
+                                   . '</div>';
+                                $rendered = true;
+                            }
+                        }
+
+                        // Drive link or URL stored in drive_link or submission_text
+                        $link = '';
+                        if (!$rendered) {
+                            if (!empty($driveLink) && filter_var($driveLink, FILTER_VALIDATE_URL)) { $link = $driveLink; }
+                            elseif (!empty($submissionText) && filter_var($submissionText, FILTER_VALIDATE_URL)) { $link = $submissionText; }
+                        }
+                        if (!$rendered && $link !== '') {
+                            echo '<div class="preview-block">'
+                                . '<div>External Link:</div>'
+                                . '<div class="btn-group" style="margin-top:8px;">'
+                                . '<a class="btn btn-primary btn-sm" href="' . htmlspecialchars($link) . '" target="_blank" rel="noopener">Open Link</a>'
+                                . '</div>'
+                                . '<div style="margin-top:6px;color:#374151;word-break:break-all;">' . htmlspecialchars($link) . '</div>'
+                                . '</div>';
+                            $rendered = true;
+                        }
+
+                        // Plain text content fallback
+                        if (!$rendered && !empty($textContent)) {
+                            echo '<div class="preview-block"><div class="preview-text">' . htmlspecialchars($textContent) . '</div></div>';
+                            $rendered = true;
+                        }
+
+                        if (!$rendered && !empty($submissionText) && !filter_var($submissionText, FILTER_VALIDATE_URL)) {
+                            echo '<div class="preview-block"><div class="preview-text">' . htmlspecialchars($submissionText) . '</div></div>';
+                            $rendered = true;
+                        }
+
+                        if (!$rendered) {
+                            echo '<div class="preview-block">No preview available. Check attachments or links in the submission record.</div>';
+                        }
+                    ?>
+                </div>
+            <?php else: ?>
+                <div class="card">
+                    <h3>No Submission Found</h3>
+                    <div class="submission-meta">This learner has no recorded submission for this quest yet.</div>
+                </div>
+            <?php endif; ?>
             <?php if ($error): ?>
                 <div class="alert alert-error">
                     <i class="fas fa-exclamation-triangle"></i>
@@ -345,118 +510,123 @@ function getTierPoints($tier) {
             
             <div class="section-title">SKILL ASSESSMENT:</div>
             
+            <?php $safe_skills = is_array($quest_skills) ? $quest_skills : []; ?>
             <form method="post" id="assessmentForm">
-                <?php foreach ($quest_skills as $skill): ?>
+                <?php foreach ($safe_skills as $skill): ?>
                     <?php 
-                    $base_points = getTierPoints($skill['tier_level']);
+                    $skill_name = isset($skill['skill_name']) ? (string)$skill['skill_name'] : 'Skill';
+                    $tier_level = isset($skill['tier_level']) ? (string)$skill['tier_level'] : 'T2';
+                    $base_points = getTierPoints($tier_level);
+                    $safeId = preg_replace('/[^a-zA-Z0-9_\-]/', '_', strtolower($skill_name));
                     ?>
                     <div class="skill-assessment">
                         <div class="skill-name">
                             <div class="skill-checkbox">[ ]</div>
-                            <?= htmlspecialchars($skill['skill_name']) ?>
+                            <?= htmlspecialchars($skill_name) ?>
                         </div>
                         
                         <div class="tier-info">
-                            <span class="base-tier">Base Tier: <?= htmlspecialchars($skill['tier_level']) ?> (<?= $base_points ?> pts)</span>
+                            <span class="base-tier">Base Tier: <?= htmlspecialchars($tier_level) ?> (<?= $base_points ?> pts)</span>
                         </div>
                         
                         <div class="performance-section">
                             <div class="performance-label">Performance:</div>
-                            <div class="performance-options">
-                                <label class="performance-option" onclick="selectPerformance(this, '<?= $skill['skill_name'] ?>', 0.7, <?= $base_points ?>)">
-                                    <input type="radio" name="assessments[<?= $skill['skill_name'] ?>][performance]" value="0.7">
-                                    <div class="option-label">Below Expectations (-30%)</div>
-                                    <div class="option-points"><?= round($base_points * 0.7) ?> pts</div>
-                                </label>
-                                
-                                <label class="performance-option selected" onclick="selectPerformance(this, '<?= $skill['skill_name'] ?>', 1.0, <?= $base_points ?>)">
-                                    <input type="radio" name="assessments[<?= $skill['skill_name'] ?>][performance]" value="1.0" checked>
-                                    <div class="option-label">Meets Expectations (+0%)</div>
-                                    <div class="option-points"><?= $base_points ?> pts</div>
-                                </label>
-                                
-                                <label class="performance-option" onclick="selectPerformance(this, '<?= $skill['skill_name'] ?>', 1.25, <?= $base_points ?>)">
-                                    <input type="radio" name="assessments[<?= $skill['skill_name'] ?>][performance]" value="1.25">
-                                    <div class="option-label">Exceeds Expectations (+25%)</div>
-                                    <div class="option-points"><?= round($base_points * 1.25) ?> pts</div>
-                                </label>
-                                
-                                <label class="performance-option" onclick="selectPerformance(this, '<?= $skill['skill_name'] ?>', 1.5, <?= $base_points ?>)">
-                                    <input type="radio" name="assessments[<?= $skill['skill_name'] ?>][performance]" value="1.5">
-                                    <div class="option-label">Exceptional (+50%)</div>
-                                    <div class="option-points"><?= round($base_points * 1.5) ?> pts</div>
-                                </label>
-                            </div>
-                            
-                            <div class="skill-result">
-                                Adjusted: <span class="adjusted-points" data-skill="<?= $skill['skill_name'] ?>"><?= $base_points ?></span> pts
-                            </div>
+                            <select class="performance-select" name="assessments[<?= $skill_name ?>][performance]" id="perf_<?= $safeId ?>" data-skill="<?= $safeId ?>" data-base="<?= $base_points ?>" onchange="onPerfChange(this)">
+                                <option value="0.7">Below Expectations (-30%) = <?= round($base_points*0.7) ?> pts</option>
+                                <option value="1.0" selected>Meets Expectations (+0%) = <?= $base_points ?> pts</option>
+                                <option value="1.25">Exceeds Expectations (+25%) = <?= round($base_points*1.25) ?> pts</option>
+                                <option value="1.5">Exceptional (+50%) = <?= round($base_points*1.5) ?> pts</option>
+                            </select>
+
+                            <div class="line">Adjusted: <strong><span class="adjusted-points" id="adj_<?= $safeId ?>"><?= $base_points ?></span> pts</strong></div>
                         </div>
                         
                         <div class="notes-section">
-                            <label for="notes_<?= $skill['skill_name'] ?>">Notes:</label>
+                            <label for="notes_<?= $safeId ?>">Notes:</label>
                             <textarea 
-                                name="assessments[<?= $skill['skill_name'] ?>][notes]" 
-                                id="notes_<?= $skill['skill_name'] ?>"
+                                name="assessments[<?= $skill_name ?>][notes]" 
+                                id="notes_<?= $safeId ?>"
                                 class="notes-textarea" 
                                 placeholder="Add assessment notes..."
                             ></textarea>
                         </div>
                         
-                        <input type="hidden" name="assessments[<?= $skill['skill_name'] ?>][base_points]" value="<?= $base_points ?>">
+                        <input type="hidden" name="assessments[<?= $skill_name ?>][base_points]" value="<?= $base_points ?>">
                     </div>
                 <?php endforeach; ?>
                 
                 <div class="total-section">
-                    <div class="total-points">TOTAL POINTS: <span id="totalPoints"><?= array_sum(array_map(fn($s) => getTierPoints($s['tier_level']), $quest_skills)) ?></span></div>
+                    <?php $total_default = is_array($safe_skills) ? array_sum(array_map(fn($s) => getTierPoints($s['tier_level'] ?? 'T2'), $safe_skills)) : 0; ?>
+                    <div class="total-points">TOTAL POINTS: <span id="totalPoints"><?= $total_default ?></span></div>
                     <div class="points-breakdown" id="pointsBreakdown">
-                        (<?= implode(' + ', array_map(fn($s) => getTierPoints($s['tier_level']), $quest_skills)) ?>)
+                        (<?= implode(' + ', array_map(fn($s) => (string)getTierPoints($s['tier_level'] ?? 'T2'), $safe_skills)) ?>)
                     </div>
                 </div>
                 
-                <div class="submit-section">
-                    <button type="submit" name="submit_assessment" class="btn-submit">
+                <div class="form-actions form-actions-right">
+                    <button type="submit" name="submit_assessment" class="btn btn-primary" <?= (!$user_id || !$quest_id) ? 'disabled' : '' ?> >
                         <i class="fas fa-trophy"></i> Submit Assessment & Award Points
                     </button>
                 </div>
             </form>
+                </div><!-- /col-left -->
+                <div class="col-right">
+                    <div class="card">
+                        <h3>Submitter Details</h3>
+                        <div style="line-height:1.8;">
+                            <div><strong>Name:</strong> <?= htmlspecialchars($user['full_name'] ?? 'Unknown User') ?></div>
+                            <div><strong>Employee ID:</strong> <?= htmlspecialchars($user['employee_id'] ?? ($employee_id_param !== '' ? $employee_id_param : ($latestSubmission['employee_id'] ?? ''))) ?></div>
+                            <div><strong>Username:</strong> <?= htmlspecialchars($user['username'] ?? '') ?></div>
+                            <div><strong>Email:</strong> <?= htmlspecialchars($user['email'] ?? '') ?></div>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <h3>Submission Info</h3>
+                        <?php 
+                            $st = is_array($latestSubmission) ? strtolower(trim($latestSubmission['status'] ?? 'pending')) : 'pending';
+                            $submittedAt = is_array($latestSubmission) ? ($latestSubmission['submitted_at'] ?? null) : null;
+                        ?>
+                        <div style="line-height:1.8;">
+                            <div><strong>Status:</strong> 
+                                <?php if ($st === 'under_review'): ?>Under Review
+                                <?php elseif ($st === 'approved'): ?>Reviewed
+                                <?php elseif ($st === 'rejected'): ?>Declined
+                                <?php else: ?>Pending<?php endif; ?>
+                            </div>
+                            <div><strong>Submitted:</strong> <?= $submittedAt ? htmlspecialchars(date('M d, Y g:i A', strtotime($submittedAt))) : '—' ?></div>
+                            <div><strong>Skills:</strong> <?= is_array($safe_skills) ? count($safe_skills) : 0 ?></div>
+                        </div>
+                    </div>
+                </div><!-- /col-right -->
+            </div><!-- /page-grid -->
         </div>
     </div>
     
     <script>
-        function selectPerformance(element, skillName, multiplier, basePoints) {
-            // Remove selected class from siblings
-            element.parentNode.querySelectorAll('.performance-option').forEach(opt => {
-                opt.classList.remove('selected');
-            });
-            
-            // Add selected class to clicked option
-            element.classList.add('selected');
-            
-            // Update adjusted points
-            const adjustedPoints = Math.round(basePoints * multiplier);
-            document.querySelector(`[data-skill="${skillName}"]`).textContent = adjustedPoints;
-            
-            // Update total
+        function onPerfChange(sel){
+            const base = parseFloat(sel.getAttribute('data-base')) || 0;
+            const mult = parseFloat(sel.value) || 1.0;
+            const skillId = sel.getAttribute('data-skill');
+            const adjusted = Math.round(base * mult);
+            const adjSpan = document.getElementById('adj_'+skillId);
+            if(adjSpan){ adjSpan.textContent = adjusted; }
             updateTotal();
         }
-        
-        function updateTotal() {
-            let total = 0;
-            const breakdown = [];
-            
+
+        function updateTotal(){
+            let total = 0; const breakdown = [];
             document.querySelectorAll('.adjusted-points').forEach(span => {
-                const points = parseInt(span.textContent);
-                total += points;
-                breakdown.push(points);
+                const val = parseInt(span.textContent) || 0;
+                total += val; breakdown.push(val);
             });
-            
-            document.getElementById('totalPoints').textContent = total;
-            document.getElementById('pointsBreakdown').textContent = `(${breakdown.join(' + ')})`;
+            const tp = document.getElementById('totalPoints');
+            const bd = document.getElementById('pointsBreakdown');
+            if(tp) tp.textContent = total;
+            if(bd) bd.textContent = `(${breakdown.join(' + ')})`;
         }
-        
-        // Initialize
-        updateTotal();
+
+        // Initialize once DOM is ready
+        document.addEventListener('DOMContentLoaded', updateTotal);
     </script>
 </body>
 </html>

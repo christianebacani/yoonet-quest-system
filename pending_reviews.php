@@ -54,7 +54,8 @@ if ($is_admin) {
 
 // Build filter: prefer quest_id IN (...) for non-admins
 if ($is_admin) {
-  $total = (int)$pdo->query("SELECT COUNT(*) FROM quest_submissions WHERE status IN ('pending','under_review')")->fetchColumn();
+  // Show all statuses so reviewers can see both reviewed and unreviewed
+  $total = (int)$pdo->query("SELECT COUNT(*) FROM quest_submissions WHERE status IN ('pending','under_review','approved','rejected')")->fetchColumn();
   $total_pages = $total > 0 ? (int)ceil($total / $items_per_page) : 1;
   $stmt = $pdo->prepare("SELECT qs.id, qs.employee_id, qs.quest_id, qs.file_path, qs.submission_text, qs.status, qs.submitted_at,
                   q.title AS quest_title, q.description AS quest_description,
@@ -62,7 +63,7 @@ if ($is_admin) {
                FROM quest_submissions qs
                JOIN quests q ON qs.quest_id = q.id
                LEFT JOIN users e ON qs.employee_id = e.employee_id
-               WHERE qs.status IN ('pending','under_review')
+               WHERE qs.status IN ('pending','under_review','approved','rejected')
                ORDER BY qs.submitted_at DESC
                LIMIT ? OFFSET ?");
   $stmt->bindValue(1, $items_per_page, PDO::PARAM_INT);
@@ -72,7 +73,7 @@ if ($is_admin) {
 } else {
   if (!empty($createdQuestIds)) {
     $ph = implode(',', array_fill(0, count($createdQuestIds), '?'));
-    $countSql = "SELECT COUNT(*) FROM quest_submissions WHERE status IN ('pending','under_review') AND quest_id IN ($ph)";
+  $countSql = "SELECT COUNT(*) FROM quest_submissions WHERE status IN ('pending','under_review','approved','rejected') AND quest_id IN ($ph)";
     $stmt = $pdo->prepare($countSql);
     foreach ($createdQuestIds as $i => $qid) { $stmt->bindValue($i+1, $qid, PDO::PARAM_INT); }
     $stmt->execute();
@@ -85,7 +86,7 @@ if ($is_admin) {
           FROM quest_submissions qs
           JOIN quests q ON qs.quest_id = q.id
           LEFT JOIN users e ON qs.employee_id = e.employee_id
-          WHERE qs.status IN ('pending','under_review') AND qs.quest_id IN ($ph)
+          WHERE qs.status IN ('pending','under_review','approved','rejected') AND qs.quest_id IN ($ph)
           ORDER BY qs.submitted_at DESC
           LIMIT ? OFFSET ?";
     $stmt = $pdo->prepare($dataSql);
@@ -154,7 +155,7 @@ if (empty($rows)) {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Pending Reviews</title>
+  <title>Submitted Quest</title>
   <link rel="stylesheet" href="assets/css/style.css" />
   <style>
     .container { max-width: 1100px; margin: 28px auto; padding: 0 16px; }
@@ -174,7 +175,7 @@ if (empty($rows)) {
 <body>
   <div class="container">
     <div class="topbar">
-      <h2>Pending Reviews</h2>
+  <h2>Submitted Quest</h2>
       <div>
         <a class="btn" href="dashboard.php">Back to Dashboard</a>
       </div>
@@ -207,6 +208,10 @@ if (empty($rows)) {
                 <?php $st = strtolower($r['status'] ?? 'pending'); ?>
                 <?php if ($st === 'under_review'): ?>
                   <span class="badge badge-under">Under Review</span>
+                <?php elseif ($st === 'approved'): ?>
+                  <span class="badge" style="background:#D1FAE5;color:#065F46;border:1px solid #10B981;">Reviewed</span>
+                <?php elseif ($st === 'rejected'): ?>
+                  <span class="badge" style="background:#FEE2E2;color:#991B1B;border:1px solid #EF4444;">Declined</span>
                 <?php else: ?>
                   <span class="badge badge-pending">Pending</span>
                 <?php endif; ?>
@@ -214,7 +219,8 @@ if (empty($rows)) {
               <td><?php echo htmlspecialchars(date('Y-m-d H:i', strtotime($r['submitted_at'] ?? 'now'))); ?></td>
               <td>
                 <?php if (!empty($r['employee_user_id'])): ?>
-                  <a class="btn" href="quest_assessment.php?quest_id=<?php echo urlencode((string)$r['quest_id']); ?>&user_id=<?php echo urlencode((string)$r['employee_user_id']); ?>">Review</a>
+                  <?php $label = (in_array($st, ['approved','rejected'], true)) ? 'View' : 'Review'; ?>
+                  <a class="btn" href="quest_assessment.php?quest_id=<?php echo urlencode((string)$r['quest_id']); ?>&user_id=<?php echo urlencode((string)$r['employee_user_id']); ?>&employee_id=<?php echo urlencode((string)($r['employee_id'] ?? '')); ?>"><?php echo $label; ?></a>
                 <?php else: ?>
                   <span class="meta">No user link</span>
                 <?php endif; ?>
@@ -239,8 +245,8 @@ if (empty($rows)) {
 
     <?php else: ?>
       <div class="card empty">
-        <p>No pending submissions found right now.</p>
-        <p class="meta">They will appear here as soon as learners submit their work.</p>
+        <p>No submissions found.</p>
+        <p class="meta">Once learners submit, or as reviews are completed, they will appear here.</p>
       </div>
     <?php endif; ?>
   </div>

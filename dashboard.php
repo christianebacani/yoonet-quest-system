@@ -2820,14 +2820,14 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
                             </p>
                         </div>
                         
-                        <!-- Pending Reviews (Submissions to Review) -->
+                        <!-- My Quest Submissions (recent across statuses) -->
                         <div class="mb-8">
                             <div class="flex items-center justify-between mb-4">
-                                <h3 class="text-xl font-semibold text-gray-800">Pending Reviews</h3>
+                                <h3 class="text-xl font-semibold text-gray-800">My Quest Submissions</h3>
                                 <div class="flex items-center gap-3">
                                     <a href="pending_reviews.php" class="text-sm text-blue-600 hover:text-blue-800 underline">View all</a>
                                     <span class="bg-orange-100 text-orange-800 px-3 py-1 rounded-full text-sm font-medium">
-                                        <?php echo isset($total_pending) ? (int)$total_pending : count($pending_submissions); ?> pending
+                                        <?php echo isset($total_pending) ? (int)$total_pending : count($pending_submissions); ?> submissions
                                     </span>
                                 </div>
                             </div>
@@ -2855,21 +2855,29 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
                                                             </span>
                                                         </div>
                                                     </div>
-                                                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 border border-yellow-200">
-                                                        ⏳ Awaiting Review
+                                                    <?php 
+                                                        $st = strtolower(trim($submission['status'] ?? 'pending'));
+                                                        $badgeClass = 'bg-yellow-100 text-yellow-800 border border-yellow-200';
+                                                        $label = '⏳ Pending';
+                                                        if ($st === 'under_review') { $badgeClass = 'bg-blue-100 text-blue-800 border border-blue-200'; $label = '🔎 Under Review'; }
+                                                        elseif ($st === 'approved') { $badgeClass = 'bg-green-100 text-green-800 border border-green-200'; $label = '✅ Reviewed'; }
+                                                        elseif ($st === 'rejected') { $badgeClass = 'bg-red-100 text-red-800 border border-red-200'; $label = '🚫 Declined'; }
+                                                    ?>
+                                                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium <?php echo $badgeClass; ?>">
+                                                        <?php echo $label; ?>
                                                     </span>
                                                 </div>
                                                 
                                                 <!-- Quick Actions -->
                                                 <div class="flex justify-end space-x-2 mt-3">
                                                     <?php if (!empty($submission['employee_user_id'])): ?>
-                                                        <a href="quest_assessment.php?quest_id=<?php echo urlencode($submission['quest_id']); ?>&user_id=<?php echo urlencode($submission['employee_user_id']); ?>"
+                                                        <a href="quest_assessment.php?quest_id=<?php echo urlencode((string)$submission['quest_id']); ?>&user_id=<?php echo urlencode((string)$submission['employee_user_id']); ?>"
                                                            class="inline-flex items-center px-2 py-1 bg-indigo-600 text-white text-xs font-medium rounded hover:bg-indigo-700 transition-colors"
-                                                           title="Open skill-based assessment">
+                                                           title="Review full submission">
                                                             <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.598 1.05M12 4v1m0 14v1m8-9h-1M5 12H4m15.364 6.364l-.707-.707M6.343 7.757l-.707-.707m14.142 0l-.707.707M6.343 16.243l-.707.707"></path>
                                                             </svg>
-                                                            Skill Check
+                                                            Review
                                                         </a>
                                                     <?php endif; ?>
                                                     <form method="post" class="inline">

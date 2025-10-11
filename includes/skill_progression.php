@@ -4,7 +4,8 @@
  * Handles skill point allocation and level progression when users complete quests
  */
 
-require_once __DIR__ . '/includes/config.php';
+// Use path relative to this includes directory
+require_once __DIR__ . '/config.php';
 
 class SkillProgression {
     private $pdo;
