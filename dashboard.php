@@ -381,65 +381,185 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     // Handle quest submission (for takers)
     if ($is_taker && isset($_POST['submit_quest'])) {
-        $quest_id = $_POST['quest_id'] ?? 0;
+        $quest_id = isset($_POST['quest_id']) ? (int)$_POST['quest_id'] : 0;
         $submissionType = $_POST['submission_type'] ?? '';
-        
-        if ($submissionType === 'file' && isset($_FILES['quest_file'])) {
-            // File upload handling
-            $uploadDir = 'uploads/quest_submissions/';
-            if (!file_exists($uploadDir)) {
-                mkdir($uploadDir, 0777, true);
-            }
-            
-            $fileName = basename($_FILES['quest_file']['name']);
-            $fileTmp = $_FILES['quest_file']['tmp_name'];
-            $fileSize = $_FILES['quest_file']['size'];
-            $fileExt = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
-            
-            $allowedExtensions = ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png', 'txt', 'zip'];
-            $maxFileSize = 5 * 1024 * 1024; // 5MB
-            
-            if (!in_array($fileExt, $allowedExtensions)) {
-                $error = "Invalid file type. Allowed types: " . implode(', ', $allowedExtensions);
-            } elseif ($fileSize > $maxFileSize) {
-                $error = "File too large. Max size: 5MB";
+
+        if ($quest_id <= 0) {
+            $error = "Invalid quest selection. Please refresh and try again.";
+        } elseif ($submissionType === 'file' && isset($_FILES['quest_file'])) {
+            $fileData = $_FILES['quest_file'];
+            $uploadError = $fileData['error'] ?? UPLOAD_ERR_NO_FILE;
+
+            if ($uploadError === UPLOAD_ERR_NO_FILE) {
+                $error = "Please choose a file to upload.";
+            } elseif ($uploadError !== UPLOAD_ERR_OK) {
+                $uploadErrorMessages = [
+                    UPLOAD_ERR_INI_SIZE => "The uploaded file exceeds the server's size limit.",
+                    UPLOAD_ERR_FORM_SIZE => "The uploaded file exceeds the form size limit.",
+                    UPLOAD_ERR_PARTIAL => "The file was only partially uploaded. Please try again.",
+                    UPLOAD_ERR_NO_TMP_DIR => "Temporary folder is missing on the server.",
+                    UPLOAD_ERR_CANT_WRITE => "Failed to write the uploaded file to disk.",
+                    UPLOAD_ERR_EXTENSION => "A PHP extension stopped the file upload."
+                ];
+                $error = $uploadErrorMessages[$uploadError] ?? "File upload failed. Please try again.";
             } else {
-                $newFileName = $employee_id . '_' . time() . '.' . $fileExt;
-                $filePath = $uploadDir . $newFileName;
-                
-                if (move_uploaded_file($fileTmp, $filePath)) {
-                    try {
-                        $stmt = $pdo->prepare("INSERT INTO quest_submissions 
-                                            (employee_id, quest_id, submission_type, file_path, status, submitted_at)
-                                            VALUES (?, ?, 'file', ?, 'pending', NOW())");
-                        $stmt->execute([$employee_id, $quest_id, $filePath]);
-                        
-                        // Update quest status to submitted
-                        $stmt = $pdo->prepare("UPDATE user_quests SET status = 'submitted' 
-                                             WHERE employee_id = ? AND quest_id = ?");
-                        $stmt->execute([$employee_id, $quest_id]);
-                        
-                        // Get XP value from quests table
-                        $stmt = $pdo->prepare("SELECT xp FROM quests WHERE id = ?");
-                        $stmt->execute([$quest_id]);
-                        $quest_xp = $stmt->fetchColumn();
-                        if ($quest_xp === false) {
-                            $quest_xp = 0;
-                        }
-                        // Record XP gain for submitting quest
-                        $stmt = $pdo->prepare("INSERT INTO xp_history 
-                                             (employee_id, xp_change, source_type, source_id, description)
-                                             VALUES (?, ?, 'quest_submit', ?, 'Quest submission reward')");
-                        $stmt->execute([$employee_id, $quest_xp, $quest_id]);
-                        
-                        $success = "Quest submitted successfully! +" . $quest_xp . " XP";
-                    } catch (PDOException $e) {
-                        error_log("Database error submitting quest: " . $e->getMessage());
-                        $error = "Error submitting quest";
-                        unlink($filePath); // Remove uploaded file if DB insert failed
-                    }
+                $allowedExtensions = ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png', 'txt', 'zip'];
+                $maxFileSize = 5 * 1024 * 1024; // 5MB
+
+                $fileName = basename($fileData['name'] ?? '');
+                $fileTmp = $fileData['tmp_name'] ?? '';
+                $fileSize = $fileData['size'] ?? 0;
+                $fileExt = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
+
+                if (!in_array($fileExt, $allowedExtensions, true)) {
+                    $error = "Invalid file type. Allowed types: " . implode(', ', $allowedExtensions);
+                } elseif ($fileSize > $maxFileSize) {
+                    $error = "File too large. Max size: 5MB";
                 } else {
-                    $error = "Error uploading file";
+                    $uploadDirAbsolute = rtrim(__DIR__, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'quest_submissions' . DIRECTORY_SEPARATOR;
+                    if (!is_dir($uploadDirAbsolute) && !mkdir($uploadDirAbsolute, 0777, true) && !is_dir($uploadDirAbsolute)) {
+                        $error = "Unable to create upload directory.";
+                    } else {
+                        $newFileName = $employee_id . '_' . time() . '.' . $fileExt;
+                        $absoluteFilePath = $uploadDirAbsolute . $newFileName;
+                        $relativeFilePath = 'uploads/quest_submissions/' . $newFileName;
+
+                        if (move_uploaded_file($fileTmp, $absoluteFilePath)) {
+                            $quest_xp = 0;
+                            $isResubmission = false;
+                            $previousFileAbsolute = null;
+                            $startedTransaction = false;
+
+                            try {
+                                if (!$pdo->inTransaction()) {
+                                    $pdo->beginTransaction();
+                                    $startedTransaction = true;
+                                }
+
+                                $stmt = $pdo->prepare("SELECT file_path FROM quest_submissions WHERE employee_id = ? AND quest_id = ? ORDER BY submitted_at DESC LIMIT 1");
+                                $stmt->execute([$employee_id, $quest_id]);
+                                $existingSubmission = $stmt->fetch(PDO::FETCH_ASSOC);
+
+                                if ($existingSubmission && !empty($existingSubmission['file_path'])) {
+                                    $isResubmission = true;
+                                    $existingRelativePath = ltrim($existingSubmission['file_path'], '/\\');
+                                    $previousFileAbsolute = rtrim(__DIR__, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $existingRelativePath);
+                                }
+
+                                $stmt = $pdo->prepare("DELETE FROM quest_submissions WHERE employee_id = ? AND quest_id = ?");
+                                $stmt->execute([$employee_id, $quest_id]);
+
+                                static $questSubmissionColumnsCache = null;
+                                $questSubmissionColumns = [];
+                                try {
+                                    if ($questSubmissionColumnsCache === null) {
+                                        $schemaStmt = $pdo->query("SHOW COLUMNS FROM quest_submissions");
+                                        $questSubmissionColumnsCache = $schemaStmt->fetchAll(PDO::FETCH_COLUMN);
+                                    }
+                                    $questSubmissionColumns = $questSubmissionColumnsCache;
+                                } catch (PDOException $schemaException) {
+                                    error_log("Unable to inspect quest_submissions schema: " . $schemaException->getMessage());
+                                    $questSubmissionColumns = [];
+                                }
+
+                                $insertColumns = ['employee_id', 'quest_id'];
+                                $placeholders = ['?', '?'];
+                                $params = [$employee_id, $quest_id];
+
+                                if (in_array('submission_type', $questSubmissionColumns, true)) {
+                                    $insertColumns[] = 'submission_type';
+                                    $placeholders[] = '?';
+                                    $params[] = 'file';
+                                }
+
+                                if (in_array('file_path', $questSubmissionColumns, true)) {
+                                    $insertColumns[] = 'file_path';
+                                    $placeholders[] = '?';
+                                    $params[] = $relativeFilePath;
+                                } elseif (in_array('drive_link', $questSubmissionColumns, true)) {
+                                    $insertColumns[] = 'drive_link';
+                                    $placeholders[] = '?';
+                                    $params[] = $relativeFilePath;
+                                } elseif (in_array('text_content', $questSubmissionColumns, true)) {
+                                    $insertColumns[] = 'text_content';
+                                    $placeholders[] = '?';
+                                    $params[] = $relativeFilePath;
+                                } else {
+                                    throw new RuntimeException('quest_submissions table lacks a column to store file submissions.');
+                                }
+
+                                if (in_array('status', $questSubmissionColumns, true)) {
+                                    $insertColumns[] = 'status';
+                                    $placeholders[] = '?';
+                                    $params[] = 'pending';
+                                }
+
+                                if (in_array('submitted_at', $questSubmissionColumns, true)) {
+                                    $insertColumns[] = 'submitted_at';
+                                    $placeholders[] = 'NOW()';
+                                }
+
+                                $insertSql = sprintf(
+                                    "INSERT INTO quest_submissions (%s) VALUES (%s)",
+                                    implode(', ', $insertColumns),
+                                    implode(', ', $placeholders)
+                                );
+                                $stmt = $pdo->prepare($insertSql);
+                                $stmt->execute($params);
+
+                                $stmt = $pdo->prepare("UPDATE user_quests SET status = 'submitted' WHERE employee_id = ? AND quest_id = ?");
+                                $stmt->execute([$employee_id, $quest_id]);
+
+                                if ($startedTransaction && $pdo->inTransaction()) {
+                                    $pdo->commit();
+                                }
+
+                                try {
+                                    $stmt = $pdo->prepare("SELECT xp FROM quests WHERE id = ?");
+                                    $stmt->execute([$quest_id]);
+                                    $quest_xp = $stmt->fetchColumn();
+                                } catch (PDOException $xpFetchException) {
+                                    error_log("XP lookup failed for quest {$quest_id}: " . $xpFetchException->getMessage());
+                                    $quest_xp = 0;
+                                }
+
+                                if ($quest_xp === false) {
+                                    $quest_xp = 0;
+                                }
+
+                                if ($quest_xp > 0 && !$isResubmission) {
+                                    try {
+                                        $stmt = $pdo->prepare("INSERT INTO xp_history 
+                                                             (employee_id, xp_change, source_type, source_id, description)
+                                                             VALUES (?, ?, 'quest_submit', ?, 'Quest submission reward')");
+                                        $stmt->execute([$employee_id, $quest_xp, $quest_id]);
+                                    } catch (PDOException $xpException) {
+                                        error_log("XP history logging failed for employee {$employee_id} on quest {$quest_id}: " . $xpException->getMessage());
+                                    }
+                                }
+
+                                $success = $isResubmission ? "Quest resubmitted successfully!" : "Quest submitted successfully!";
+                                if ($quest_xp > 0 && !$isResubmission) {
+                                    $success .= " +" . $quest_xp . " XP";
+                                }
+
+                                if ($previousFileAbsolute && is_file($previousFileAbsolute)) {
+                                    @unlink($previousFileAbsolute);
+                                }
+                            } catch (Exception $e) {
+                                if ($startedTransaction && $pdo->inTransaction()) {
+                                    $pdo->rollBack();
+                                }
+                                error_log("Database error submitting quest for employee {$employee_id} on quest {$quest_id}: " . $e->getMessage());
+                                $error = "Error submitting quest: " . htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8');
+                                if (file_exists($absoluteFilePath)) {
+                                    unlink($absoluteFilePath);
+                                }
+                            }
+                        } else {
+                            $error = "Error uploading file";
+                        }
+                    }
                 }
             }
         } elseif ($submissionType === 'link') {
@@ -467,12 +587,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if ($quest_xp === false) {
                         $quest_xp = 0;
                     }
-                    // Record XP gain for submitting quest
-                    $stmt = $pdo->prepare("INSERT INTO xp_history 
-                                         (employee_id, xp_change, source_type, source_id, description)
-                                         VALUES (?, ?, 'quest_submit', ?, 'Quest submission reward')");
-                    $stmt->execute([$employee_id, $quest_xp, $quest_id]);
-                    
+                    // Record XP gain for submitting quest (log but don't fail submission if XP logging has an issue)
+                    try {
+                        $stmt = $pdo->prepare("INSERT INTO xp_history 
+                                             (employee_id, xp_change, source_type, source_id, description)
+                                             VALUES (?, ?, 'quest_submit', ?, 'Quest submission reward')");
+                        $stmt->execute([$employee_id, $quest_xp, $quest_id]);
+                    } catch (PDOException $xpException) {
+                        error_log("XP history logging failed for employee {$employee_id} on quest {$quest_id}: " . $xpException->getMessage());
+                    }
+
                     $success = "Quest submitted successfully! +" . $quest_xp . " XP";
                 } catch (PDOException $e) {
                     error_log("Database error submitting quest: " . $e->getMessage());
@@ -722,7 +846,6 @@ try {
         $status = strtolower(trim($quest_row['user_status'] ?? ''));
         if ($status === 'assigned') {
             $assigned_pending_quests[] = $quest_row;
-            $active_quest_rows[] = $quest_row;
         } elseif (in_array($status, ['in_progress', 'submitted'], true)) {
             $active_quest_rows[] = $quest_row;
         }
@@ -968,7 +1091,6 @@ if ($is_taker && empty($assigned_pending_quests)) {
 
         foreach ($fallback_rows as $row) {
             $assigned_pending_quests[] = $row;
-            $active_quest_rows[] = $row;
         }
 
         if (empty($active_quests) && !empty($active_quest_rows)) {
@@ -2236,9 +2358,6 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
                                                     <?php endif; ?>
                                                 </div>
                                             </div>
-                                            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800 border border-purple-200 ml-2">
-                                                🏆 +<?php echo isset($quest['xp']) ? (int)$quest['xp'] : 0; ?> XP
-                                            </span>
                                         </div>
                                         <div class="bg-white border border-purple-100 rounded-md p-3 mb-3">
                                             <p class="text-xs text-gray-600">
@@ -2375,9 +2494,6 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
                                                             ($status === 'submitted' ? '📤 Submitted' : 
                                                              ($status === 'assigned' ? '📌 Assigned' : '📝 ' . ucfirst(str_replace('_', ' ', $status)))); 
                                                         ?>
-                                                    </span>
-                                                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 border border-green-200">
-                                                        🏆 +<?php echo isset($quest['xp']) ? (int)$quest['xp'] : 0; ?> XP
                                                     </span>
                                                 </div>
                                             </div>
