@@ -196,8 +196,9 @@ if (!$profile_completed) {
 }
 
 // Set permissions based on role (keeping original logic)
+$is_admin = ($role === 'admin');
 $is_taker = in_array($role, ['skill_associate', 'quest_lead']); // skill_associate + quest_lead
-$is_giver = in_array($role, ['quest_lead']); // quest_lead only
+$is_giver = in_array($role, ['quest_lead', 'admin']); // quest_lead + admin have creator/reviewer tools
 
 // Pagination settings - Separate for each section to avoid conflicts
 $items_per_page = 8; // Increased from 5 to 8 for better content density
@@ -206,11 +207,17 @@ $items_per_page = 8; // Increased from 5 to 8 for better content density
 $available_page = isset($_GET['available_page']) ? (int)$_GET['available_page'] : 1;
 $active_page = isset($_GET['active_page']) ? (int)$_GET['active_page'] : 1;
 $created_page = isset($_GET['created_page']) ? (int)$_GET['created_page'] : 1;
+$submission_page = isset($_GET['submission_page']) ? (int)$_GET['submission_page'] : (isset($_GET['page']) ? (int)$_GET['page'] : 1);
+$pending_page = isset($_GET['pending_page']) ? (int)$_GET['pending_page'] : 1;
+$review_page = isset($_GET['review_page']) ? (int)$_GET['review_page'] : 1;
 
 // Ensure all page numbers are valid
 if ($available_page < 1) $available_page = 1;
 if ($active_page < 1) $active_page = 1;
 if ($created_page < 1) $created_page = 1;
+if ($submission_page < 1) $submission_page = 1;
+if ($pending_page < 1) $pending_page = 1;
+if ($review_page < 1) $review_page = 1;
 
 $error = '';
 $success = '';
@@ -696,9 +703,10 @@ if ($is_giver && isset($_POST['delete_quest'])) {
                     }
                 }
                 
-                $success = "Submission $new_status successfully!";
                 if ($action === 'approve') {
-                    $success .= " +15 XP for reviewing";
+                    $success = "Submission reviewed successfully! +15 XP for reviewing";
+                } else {
+                    $success = "Submission declined successfully.";
                 }
             } catch (PDOException $e) {
                 error_log("Database error reviewing submission: " . $e->getMessage());
@@ -752,39 +760,38 @@ try {
         $user_group = $stmt->fetch(PDO::FETCH_ASSOC);
     }
     
+    // Prepare normalized creator identifiers for giver-specific queries
+    $normalizedCreatorIds = [];
+    if ($is_giver && !$is_admin) {
+        $rawCreatorCandidates = [];
+
+        if (!empty($employee_id)) {
+            $rawCreatorCandidates[] = $employee_id;
+            $rawCreatorCandidates[] = trim((string) $employee_id);
+            $rawCreatorCandidates[] = strtolower(trim((string) $employee_id));
+            $rawCreatorCandidates[] = strtoupper(trim((string) $employee_id));
+        }
+
+        if (!empty($user_id)) {
+            $rawUser = (string) $user_id;
+            $rawCreatorCandidates[] = $rawUser;
+            $rawCreatorCandidates[] = 'user_' . $rawUser;
+            $rawCreatorCandidates[] = 'USER_' . $rawUser;
+        }
+
+        foreach ($rawCreatorCandidates as $candidate) {
+            $normalized = strtolower(trim((string) $candidate));
+            if ($normalized !== '') {
+                $normalizedCreatorIds[$normalized] = true;
+            }
+        }
+
+        $normalizedCreatorIds = array_keys($normalizedCreatorIds);
+    }
+
     // Always fetch pending submissions for quest creators
     if ($is_giver) {
-        $offset = ($current_page - 1) * $items_per_page;
-    $stmt = $pdo->prepare("SELECT qs.*, e.full_name as employee_name, q.title as quest_title, 
-                  q.xp as base_xp, q.description as quest_description
-                  FROM quest_submissions qs
-                  JOIN users e ON qs.employee_id = e.employee_id
-                  JOIN quests q ON qs.quest_id = q.id
-                  WHERE qs.status = 'pending'
-                  AND (q.created_by = ? OR q.created_by = ?)
-                  ORDER BY qs.submitted_at DESC
-                  LIMIT ? OFFSET ?");
-    $stmt->bindValue(1, $employee_id); // current user's employee_id
-    $stmt->bindValue(2, (string)$user_id); // also support legacy created_by stored as user id
-    $stmt->bindValue(3, $items_per_page, PDO::PARAM_INT);
-    $stmt->bindValue(4, $offset, PDO::PARAM_INT);
-        $stmt->execute();
         $pending_submissions = [];
-        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-            // Ensure file path is set for file submissions
-            if ($row['submission_type'] === 'file' && empty($row['file_path'])) {
-                $row['file_path'] = '';
-            }
-            // Fallback if employee_name is missing
-            if (empty($row['employee_name'])) {
-                $row['employee_name'] = 'Unknown User';
-            }
-            $pending_submissions[] = $row;
-        }
-        // If no pending submissions, show a message for quest creator
-        if (empty($pending_submissions)) {
-            $pending_submissions = [];
-        }
     }
     
     // Get quest counts for all users (moved outside conditional blocks)
@@ -896,9 +903,13 @@ try {
         $stmt->execute([$employee_id]);
         $total_submissions = $stmt->fetchColumn();
         $total_pages = ceil($total_submissions / $items_per_page);
-        
+
+        if ($submission_page > $total_pages && $total_pages > 0) {
+            $submission_page = $total_pages;
+        }
+
         // Then get paginated results
-        $offset = ($current_page - 1) * $items_per_page;
+    $offset = ($submission_page - 1) * $items_per_page;
     $stmt = $pdo->prepare("SELECT qs.*, q.title as quest_title, qs.status as submission_status, 
                   q.xp as quest_xp, qs.additional_xp, u.full_name as reviewer_name
                   FROM quest_submissions qs
@@ -948,62 +959,110 @@ try {
         $all_quests = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
         // Get pending submissions for quests created by this user with pagination
+        $pendingConditions = ["qs.status = 'pending'"];
+        $pendingParams = [];
+
+        if (!$is_admin) {
+            if (!empty($normalizedCreatorIds)) {
+                $pendingConditions[] = '(' . implode(' OR ', array_fill(0, count($normalizedCreatorIds), 'LOWER(TRIM(q.created_by)) = ?')) . ')';
+                $pendingParams = array_merge($pendingParams, $normalizedCreatorIds);
+            } else {
+                $normalizedEmployee = strtolower(trim((string) $employee_id));
+                if ($normalizedEmployee !== '') {
+                    $pendingConditions[] = 'LOWER(TRIM(q.created_by)) = ?';
+                    $pendingParams[] = $normalizedEmployee;
+                }
+            }
+        }
+
+        $pendingWhere = 'WHERE ' . implode(' AND ', $pendingConditions);
+
         // First get total count
-    $stmt = $pdo->prepare("SELECT COUNT(*) FROM quest_submissions qs
-                 JOIN users e ON qs.employee_id = e.employee_id
-                 JOIN quests q ON qs.quest_id = q.id
-                 WHERE qs.status = 'pending'
-                 AND (q.created_by = ? OR q.created_by = ?)
-    ");
-    $stmt->execute([$employee_id, (string)$user_id]);
-        $total_pending = $stmt->fetchColumn();
-        $total_pages_pending = ceil($total_pending / $items_per_page);
-        
+    $countSql = "SELECT COUNT(*) FROM quest_submissions qs
+         JOIN quests q ON qs.quest_id = q.id
+         $pendingWhere";
+    $stmt = $pdo->prepare($countSql);
+    $stmt->execute($pendingParams);
+        $total_pending = (int) $stmt->fetchColumn();
+        $total_pages_pending = $total_pending > 0 ? (int) ceil($total_pending / $items_per_page) : 0;
+
+        if ($total_pages_pending === 0) {
+            $pending_page = 1;
+        } elseif ($pending_page > $total_pages_pending) {
+            $pending_page = $total_pages_pending;
+        }
+
+        $offset = ($pending_page - 1) * $items_per_page;
+
         // Then get paginated results
-        $offset = ($current_page - 1) * $items_per_page;
-    $stmt = $pdo->prepare("SELECT qs.*, e.full_name as employee_name, q.title as quest_title, 
-                  q.xp as base_xp, q.description as quest_description
+        $dataSql = "SELECT qs.*, q.title as quest_title, q.xp as base_xp, q.description as quest_description,
+                  e.full_name as employee_name, e.id as employee_user_id
                   FROM quest_submissions qs
-                  JOIN users e ON qs.employee_id = e.employee_id
                   JOIN quests q ON qs.quest_id = q.id
-                  WHERE qs.status = 'pending'
-                  AND (q.created_by = ? OR q.created_by = ?)
+                  LEFT JOIN users e ON qs.employee_id = e.employee_id
+                  $pendingWhere
                   ORDER BY qs.submitted_at DESC
-                  LIMIT ? OFFSET ?");
-    $stmt->bindValue(1, $employee_id);
-    $stmt->bindValue(2, (string)$user_id);
-    $stmt->bindValue(3, $items_per_page, PDO::PARAM_INT);
-    $stmt->bindValue(4, $offset, PDO::PARAM_INT);
+                  LIMIT ? OFFSET ?";
+        $stmt = $pdo->prepare($dataSql);
+        $dataParams = array_merge($pendingParams, [$items_per_page, $offset]);
+        $totalFilterParams = count($pendingParams);
+        foreach ($dataParams as $index => $value) {
+            $paramType = ($index >= $totalFilterParams) ? PDO::PARAM_INT : PDO::PARAM_STR;
+            $stmt->bindValue($index + 1, $value, $paramType);
+        }
         $stmt->execute();
         $pending_submissions = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Ensure we always have a sensible name for display
+        foreach ($pending_submissions as &$pendingRow) {
+            if (empty($pendingRow['employee_name'])) {
+                $pendingRow['employee_name'] = 'Unknown User';
+            }
+            if ($pendingRow['submission_type'] === 'file' && empty($pendingRow['file_path'])) {
+                $pendingRow['file_path'] = '';
+            }
+        }
+        unset($pendingRow);
         
         // Get all submissions for quests created by this giver with pagination
         // First get total count
-    $stmt = $pdo->prepare("SELECT COUNT(*) FROM quest_submissions qs
+    $createdFilterAll = $is_admin ? '' : ' WHERE (q.created_by = ? OR q.created_by = ?)';
+    $sql = "SELECT COUNT(*) FROM quest_submissions qs
                  JOIN quests q ON qs.quest_id = q.id
                  JOIN users u ON qs.employee_id = u.employee_id
-                 LEFT JOIN users rev ON qs.reviewed_by = rev.employee_id
-                 WHERE (q.created_by = ? OR q.created_by = ?)
-    ");
-    $stmt->execute([$employee_id, (string)$user_id]);
+                 LEFT JOIN users rev ON qs.reviewed_by = rev.employee_id" . $createdFilterAll;
+    $stmt = $pdo->prepare($sql);
+    if ($is_admin) {
+        $stmt->execute();
+    } else {
+        $stmt->execute([$employee_id, (string)$user_id]);
+    }
         $total_all_submissions = $stmt->fetchColumn();
         $total_pages_all_submissions = ceil($total_all_submissions / $items_per_page);
-        
+
+        if ($review_page > $total_pages_all_submissions && $total_pages_all_submissions > 0) {
+            $review_page = $total_pages_all_submissions;
+        }
+
         // Then get paginated results
-        $offset = ($current_page - 1) * $items_per_page;
-    $stmt = $pdo->prepare("SELECT qs.*, q.title as quest_title, u.full_name as employee_name, 
+        $offset = ($review_page - 1) * $items_per_page;
+        $createdFilterAllData = $is_admin ? '' : ' WHERE (q.created_by = ? OR q.created_by = ?)';
+        $sql = "SELECT qs.*, q.title as quest_title, u.full_name as employee_name, 
                   q.xp as base_xp, qs.additional_xp, rev.full_name as reviewer_name
                   FROM quest_submissions qs
                   JOIN quests q ON qs.quest_id = q.id
                   JOIN users u ON qs.employee_id = u.employee_id
-                  LEFT JOIN users rev ON qs.reviewed_by = rev.employee_id
-                  WHERE (q.created_by = ? OR q.created_by = ?)
+                  LEFT JOIN users rev ON qs.reviewed_by = rev.employee_id" . $createdFilterAllData . "
                   ORDER BY qs.submitted_at DESC
-                  LIMIT ? OFFSET ?");
-    $stmt->bindValue(1, $employee_id);
-    $stmt->bindValue(2, (string)$user_id);
-    $stmt->bindValue(3, $items_per_page, PDO::PARAM_INT);
-    $stmt->bindValue(4, $offset, PDO::PARAM_INT);
+                  LIMIT ? OFFSET ?";
+        $stmt = $pdo->prepare($sql);
+        $bindIndex = 1;
+        if (!$is_admin) {
+            $stmt->bindValue($bindIndex++, $employee_id);
+            $stmt->bindValue($bindIndex++, (string)$user_id);
+        }
+        $stmt->bindValue($bindIndex++, $items_per_page, PDO::PARAM_INT);
+        $stmt->bindValue($bindIndex, $offset, PDO::PARAM_INT);
         $stmt->execute();
         $all_submissions = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
@@ -1107,17 +1166,23 @@ if ($is_taker && empty($assigned_pending_quests)) {
 // Dedicated retrieval for "My Created Quests" to guarantee visibility even if prior queries failed
 if ($is_giver) {
     try {
-        $createdIdentifiers = [$employee_id];
-        if (!empty($user_id) && (string)$user_id !== (string)$employee_id) {
-            $createdIdentifiers[] = (string)$user_id;
+        $questFilterClause = '1=1';
+        $questFilterParams = [];
+
+        if (!$is_admin) {
+            if (!empty($normalizedCreatorIds)) {
+                $questFilterClause = '(' . implode(' OR ', array_fill(0, count($normalizedCreatorIds), 'LOWER(TRIM(q.created_by)) = ?')) . ')';
+                $questFilterParams = $normalizedCreatorIds;
+            } else {
+                $normalizedEmployee = strtolower(trim((string) $employee_id));
+                $questFilterClause = 'LOWER(TRIM(q.created_by)) = ?';
+                $questFilterParams = [$normalizedEmployee];
+            }
         }
 
-        // Build dynamic condition placeholders (q.created_by = ? [OR ...])
-        $creatorConditions = implode(' OR ', array_fill(0, count($createdIdentifiers), 'q.created_by = ?'));
-
         // Recompute total quests for pagination using robust identifiers
-        $stmt = $pdo->prepare("SELECT COUNT(*) FROM quests q WHERE $creatorConditions");
-        $stmt->execute($createdIdentifiers);
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM quests q WHERE $questFilterClause");
+        $stmt->execute($questFilterParams);
         $total_quests = (int)$stmt->fetchColumn();
         $total_pages_quests = ($total_quests > 0) ? ceil($total_quests / $items_per_page) : 0;
 
@@ -1137,14 +1202,16 @@ if ($is_giver) {
                          (SELECT COUNT(*) FROM quest_submissions WHERE quest_id = q.id AND status = 'rejected') as rejected_count,
                          (SELECT COUNT(*) FROM user_quests WHERE quest_id = q.id) as assigned_count
                      FROM quests q
-                     WHERE $creatorConditions
+                     WHERE $questFilterClause
                      ORDER BY q.status, q.created_at DESC
                      LIMIT ? OFFSET ?";
 
         $stmt = $pdo->prepare($listSql);
-        $bindParams = array_merge($createdIdentifiers, [$items_per_page, $offset_created]);
+        $bindParams = array_merge($questFilterParams, [$items_per_page, $offset_created]);
+        $filterCount = count($questFilterParams);
         foreach ($bindParams as $idx => $value) {
-            $stmt->bindValue($idx + 1, $value, is_int($value) ? PDO::PARAM_INT : PDO::PARAM_STR);
+            $paramType = ($idx < $filterCount) ? PDO::PARAM_STR : PDO::PARAM_INT;
+            $stmt->bindValue($idx + 1, $value, $paramType);
         }
         $stmt->execute();
         $all_quests = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -2660,6 +2727,16 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
                                                 
                                                 <!-- Quick Actions -->
                                                 <div class="flex justify-end space-x-2 mt-3">
+                                                    <?php if (!empty($submission['employee_user_id'])): ?>
+                                                        <a href="quest_assessment.php?quest_id=<?php echo urlencode($submission['quest_id']); ?>&user_id=<?php echo urlencode($submission['employee_user_id']); ?>"
+                                                           class="inline-flex items-center px-2 py-1 bg-indigo-600 text-white text-xs font-medium rounded hover:bg-indigo-700 transition-colors"
+                                                           title="Open skill-based assessment">
+                                                            <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.598 1.05M12 4v1m0 14v1m8-9h-1M5 12H4m15.364 6.364l-.707-.707M6.343 7.757l-.707-.707m14.142 0l-.707.707M6.343 16.243l-.707.707"></path>
+                                                            </svg>
+                                                            Skill Check
+                                                        </a>
+                                                    <?php endif; ?>
                                                     <form method="post" class="inline">
                                                         <input type="hidden" name="submission_id" value="<?php echo $submission['id']; ?>">
                                                         <input type="hidden" name="review_submission" value="1">
@@ -2668,7 +2745,7 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
                                                             <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
                                                             </svg>
-                                                            Approve
+                                                            Mark Reviewed
                                                         </button>
                                                     </form>
                                                     <form method="post" class="inline">
@@ -2679,7 +2756,7 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
                                                             <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                                                             </svg>
-                                                            Reject
+                                                            Decline
                                                         </button>
                                                     </form>
                                                 </div>
@@ -2732,9 +2809,12 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
                                                             <?php echo $quest['status'] === 'active' ? '🟢 Active' : 
                                                                      ($quest['status'] === 'inactive' ? '⚪ Inactive' : '🔵 ' . ucfirst($quest['status'])); ?>
                                                         </span>
-                                                        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 border border-blue-200">
-                                                            🏆 <?php echo isset($quest['xp']) ? (int)$quest['xp'] : 0; ?> XP
-                                                        </span>
+                                                        <?php $questXp = isset($quest['xp']) ? (int) $quest['xp'] : 0; ?>
+                                                        <?php if ($questXp > 0): ?>
+                                                            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 border border-blue-200">
+                                                                🏆 <?php echo $questXp; ?> XP
+                                                            </span>
+                                                        <?php endif; ?>
                                                     </div>
                                                 </div>
                                                 
@@ -2742,7 +2822,7 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
                                                 <div class="grid grid-cols-3 gap-2 mb-3">
                                                     <div class="text-center p-2 bg-green-50 rounded border border-green-200">
                                                         <div class="text-sm font-bold text-green-800"><?php echo $quest['approved_count'] ?? 0; ?></div>
-                                                        <div class="text-xs text-green-700">✅ Approved</div>
+                                                        <div class="text-xs text-green-700">✅ Reviewed</div>
                                                     </div>
                                                     <div class="text-center p-2 bg-yellow-50 rounded border border-yellow-200">
                                                         <div class="text-sm font-bold text-yellow-800"><?php echo $quest['pending_count'] ?? 0; ?></div>
@@ -2750,7 +2830,7 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
                                                     </div>
                                                     <div class="text-center p-2 bg-red-50 rounded border border-red-200">
                                                         <div class="text-sm font-bold text-red-800"><?php echo $quest['rejected_count'] ?? 0; ?></div>
-                                                        <div class="text-xs text-red-700">❌ Rejected</div>
+                                                        <div class="text-xs text-red-700">🚫 Declined</div>
                                                     </div>
                                                 </div>
                                                 
