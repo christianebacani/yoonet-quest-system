@@ -487,6 +487,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     $insertColumns[] = 'drive_link';
                                     $placeholders[] = '?';
                                     $params[] = $relativeFilePath;
+                                } elseif (in_array('submission_text', $questSubmissionColumns, true)) {
+                                    $insertColumns[] = 'submission_text';
+                                    $placeholders[] = '?';
+                                    $params[] = $relativeFilePath;
                                 } elseif (in_array('text_content', $questSubmissionColumns, true)) {
                                     $insertColumns[] = 'text_content';
                                     $placeholders[] = '?';
@@ -570,43 +574,72 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
         } elseif ($submissionType === 'link') {
-            // Google Drive link handling
+            // Google Drive link handling (schema-adaptive)
             $drive_link = $_POST['drive_link'] ?? '';
             
             if (filter_var($drive_link, FILTER_VALIDATE_URL) === false) {
                 $error = "Invalid URL format";
             } else {
                 try {
-                    $stmt = $pdo->prepare("INSERT INTO quest_submissions 
-                                          (employee_id, quest_id, submission_type, drive_link, status, submitted_at)
-                                          VALUES (?, ?, 'link', ?, 'pending', NOW())");
-                    $stmt->execute([$employee_id, $quest_id, $drive_link]);
-                    
-                    // Update quest status to submitted
-                    $stmt = $pdo->prepare("UPDATE user_quests SET status = 'submitted' 
-                                         WHERE employee_id = ? AND quest_id = ?");
-                    $stmt->execute([$employee_id, $quest_id]);
-                    
-                    // Get XP value from quests table
-                    $stmt = $pdo->prepare("SELECT xp FROM quests WHERE id = ?");
-                    $stmt->execute([$quest_id]);
-                    $quest_xp = $stmt->fetchColumn();
-                    if ($quest_xp === false) {
-                        $quest_xp = 0;
+                    // Inspect available columns to choose a storage column for the link
+                    static $qsColsCache2 = null;
+                    if ($qsColsCache2 === null) {
+                        $schemaStmt = $pdo->query("SHOW COLUMNS FROM quest_submissions");
+                        $qsColsCache2 = $schemaStmt->fetchAll(PDO::FETCH_COLUMN);
                     }
-                    // Record XP gain for submitting quest (log but don't fail submission if XP logging has an issue)
-                    try {
-                        $stmt = $pdo->prepare("INSERT INTO xp_history 
-                                             (employee_id, xp_change, source_type, source_id, description)
-                                             VALUES (?, ?, 'quest_submit', ?, 'Quest submission reward')");
-                        $stmt->execute([$employee_id, $quest_xp, $quest_id]);
-                    } catch (PDOException $xpException) {
-                        error_log("XP history logging failed for employee {$employee_id} on quest {$quest_id}: " . $xpException->getMessage());
+                    $qsCols = $qsColsCache2 ?: [];
+
+                    $insertColumns = ['employee_id', 'quest_id'];
+                    $placeholders = ['?', '?'];
+                    $params = [$employee_id, $quest_id];
+
+                    if (in_array('submission_type', $qsCols, true)) {
+                        $insertColumns[] = 'submission_type';
+                        $placeholders[] = '?';
+                        $params[] = 'link';
                     }
 
-                    $success = "Quest submitted successfully! +" . $quest_xp . " XP";
-                } catch (PDOException $e) {
-                    error_log("Database error submitting quest: " . $e->getMessage());
+                    if (in_array('drive_link', $qsCols, true)) {
+                        $insertColumns[] = 'drive_link';
+                        $placeholders[] = '?';
+                        $params[] = $drive_link;
+                    } elseif (in_array('submission_text', $qsCols, true)) {
+                        $insertColumns[] = 'submission_text';
+                        $placeholders[] = '?';
+                        $params[] = $drive_link;
+                    } elseif (in_array('file_path', $qsCols, true)) {
+                        $insertColumns[] = 'file_path';
+                        $placeholders[] = '?';
+                        $params[] = $drive_link;
+                    } else {
+                        throw new RuntimeException('No suitable column to store link submission.');
+                    }
+
+                    if (in_array('status', $qsCols, true)) {
+                        $insertColumns[] = 'status';
+                        $placeholders[] = '?';
+                        $params[] = 'pending';
+                    }
+                    if (in_array('submitted_at', $qsCols, true)) {
+                        $insertColumns[] = 'submitted_at';
+                        $placeholders[] = 'NOW()';
+                    }
+
+                    $insertSql = sprintf(
+                        "INSERT INTO quest_submissions (%s) VALUES (%s)",
+                        implode(', ', $insertColumns),
+                        implode(', ', $placeholders)
+                    );
+                    $stmt = $pdo->prepare($insertSql);
+                    $stmt->execute($params);
+
+                    // Update quest status to submitted for this user
+                    $stmt = $pdo->prepare("UPDATE user_quests SET status = 'submitted' WHERE employee_id = ? AND quest_id = ?");
+                    $stmt->execute([$employee_id, $quest_id]);
+
+                    $success = "Quest submitted successfully!";
+                } catch (Throwable $e) {
+                    error_log("Database error submitting link quest: " . $e->getMessage());
                     $error = "Error submitting quest";
                 }
             }
@@ -790,9 +823,7 @@ try {
     }
 
     // Always fetch pending submissions for quest creators
-    if ($is_giver) {
-        $pending_submissions = [];
-    }
+    // (pending_submissions array already initialized above)
     
     // Get quest counts for all users (moved outside conditional blocks)
     // Get total count of available quests
@@ -911,7 +942,7 @@ try {
         // Then get paginated results
     $offset = ($submission_page - 1) * $items_per_page;
     $stmt = $pdo->prepare("SELECT qs.*, q.title as quest_title, qs.status as submission_status, 
-                  q.xp as quest_xp, qs.additional_xp, u.full_name as reviewer_name
+                  qs.additional_xp, u.full_name as reviewer_name
                   FROM quest_submissions qs
                   JOIN quests q ON qs.quest_id = q.id
                   LEFT JOIN users u ON qs.reviewed_by = u.employee_id
@@ -927,7 +958,7 @@ try {
     
     // For quest givers
     if ($is_giver) {
-        // Get all quests for management (created by this user) with pagination
+    // Get all quests for management (created by this user) with pagination
         // First get total count
     $stmt = $pdo->prepare("SELECT COUNT(*) FROM quests q
                  WHERE q.created_by = ? OR q.created_by = ?");
@@ -957,72 +988,173 @@ try {
     $stmt->bindValue(4, $offset, PDO::PARAM_INT);
         $stmt->execute();
         $all_quests = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        
-        // Get pending submissions for quests created by this user with pagination
-        $pendingConditions = ["qs.status = 'pending'"];
-        $pendingParams = [];
 
-        if (!$is_admin) {
-            if (!empty($normalizedCreatorIds)) {
-                $pendingConditions[] = '(' . implode(' OR ', array_fill(0, count($normalizedCreatorIds), 'LOWER(TRIM(q.created_by)) = ?')) . ')';
-                $pendingParams = array_merge($pendingParams, $normalizedCreatorIds);
-            } else {
-                $normalizedEmployee = strtolower(trim((string) $employee_id));
-                if ($normalizedEmployee !== '') {
-                    $pendingConditions[] = 'LOWER(TRIM(q.created_by)) = ?';
-                    $pendingParams[] = $normalizedEmployee;
+        // Build full list of quest IDs created by this user (not limited by pagination)
+        $createdQuestIds = [];
+        try {
+            $stmt = $pdo->prepare("SELECT id FROM quests WHERE (created_by = ? OR created_by = ? OR LOWER(TRIM(created_by)) = LOWER(?))");
+            $stmt->execute([$employee_id, (string)$user_id, 'user_' . (string)$user_id]);
+            $createdQuestIds = array_map(function($r){ return (int)$r['id']; }, $stmt->fetchAll(PDO::FETCH_ASSOC));
+        } catch (PDOException $e) {
+            error_log('Error fetching created quest IDs: ' . $e->getMessage());
+            $createdQuestIds = [];
+        }
+        
+        // Get pending submissions for quests created by this user with pagination (schema-safe)
+        // Include both 'pending' and 'under_review' statuses
+    // Use the actual IDs of quests created by this user to avoid any string mismatch in created_by
+
+        $total_pending = 0;
+        $pending_submissions = [];
+
+        if ($is_admin) {
+            // Admin: count and fetch all pending/under_review submissions
+            $stmt = $pdo->query("SELECT COUNT(*) FROM quest_submissions WHERE status IN ('pending','under_review')");
+            $total_pending = (int)$stmt->fetchColumn();
+
+            $total_pages_pending = $total_pending > 0 ? (int)ceil($total_pending / $items_per_page) : 0;
+            if ($total_pages_pending === 0) { $pending_page = 1; }
+            elseif ($pending_page > $total_pages_pending) { $pending_page = $total_pages_pending; }
+            $offset = ($pending_page - 1) * $items_per_page;
+
+            $stmt = $pdo->prepare("SELECT qs.id, qs.employee_id, qs.quest_id, qs.file_path, qs.submission_text, qs.status, qs.submitted_at,
+                                           q.title AS quest_title, q.description AS quest_description,
+                                           e.full_name AS employee_name, e.id AS employee_user_id
+                                    FROM quest_submissions qs
+                                    JOIN quests q ON qs.quest_id = q.id
+                                    LEFT JOIN users e ON qs.employee_id = e.employee_id
+                                    WHERE qs.status IN ('pending','under_review')
+                                    ORDER BY qs.submitted_at DESC
+                                    LIMIT ? OFFSET ?");
+            $stmt->bindValue(1, $items_per_page, PDO::PARAM_INT);
+            $stmt->bindValue(2, $offset, PDO::PARAM_INT);
+            $stmt->execute();
+            $pending_submissions = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } else {
+            if (!empty($createdQuestIds)) {
+                // Build dynamic IN clause
+                $placeholders = implode(',', array_fill(0, count($createdQuestIds), '?'));
+
+                // Count
+                $countSql = "SELECT COUNT(*) FROM quest_submissions WHERE status IN ('pending','under_review') AND quest_id IN ($placeholders)";
+                $stmt = $pdo->prepare($countSql);
+                foreach ($createdQuestIds as $i => $qid) {
+                    $stmt->bindValue($i + 1, $qid, PDO::PARAM_INT);
                 }
+                $stmt->execute();
+                $total_pending = (int)$stmt->fetchColumn();
+
+                $total_pages_pending = $total_pending > 0 ? (int)ceil($total_pending / $items_per_page) : 0;
+                if ($total_pages_pending === 0) { $pending_page = 1; }
+                elseif ($pending_page > $total_pages_pending) { $pending_page = $total_pages_pending; }
+                $offset = ($pending_page - 1) * $items_per_page;
+
+                // Data
+                $dataSql = "SELECT qs.id, qs.employee_id, qs.quest_id, qs.file_path, qs.submission_text, qs.status, qs.submitted_at,
+                                   q.title AS quest_title, q.description AS quest_description,
+                                   e.full_name AS employee_name, e.id AS employee_user_id
+                            FROM quest_submissions qs
+                            JOIN quests q ON qs.quest_id = q.id
+                            LEFT JOIN users e ON qs.employee_id = e.employee_id
+                            WHERE qs.status IN ('pending','under_review') AND qs.quest_id IN ($placeholders)
+                            ORDER BY qs.submitted_at DESC
+                            LIMIT ? OFFSET ?";
+                $stmt = $pdo->prepare($dataSql);
+                $bindIdx = 1;
+                foreach ($createdQuestIds as $qid) {
+                    $stmt->bindValue($bindIdx++, $qid, PDO::PARAM_INT);
+                }
+                $stmt->bindValue($bindIdx++, $items_per_page, PDO::PARAM_INT);
+                $stmt->bindValue($bindIdx, $offset, PDO::PARAM_INT);
+                $stmt->execute();
+                $pending_submissions = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            } else {
+                // Creator has no quests; nothing to review
+                $total_pages_pending = 0;
+                $pending_page = 1;
+                $pending_submissions = [];
             }
         }
-
-        $pendingWhere = 'WHERE ' . implode(' AND ', $pendingConditions);
-
-        // First get total count
-    $countSql = "SELECT COUNT(*) FROM quest_submissions qs
-         JOIN quests q ON qs.quest_id = q.id
-         $pendingWhere";
-    $stmt = $pdo->prepare($countSql);
-    $stmt->execute($pendingParams);
-        $total_pending = (int) $stmt->fetchColumn();
-        $total_pages_pending = $total_pending > 0 ? (int) ceil($total_pending / $items_per_page) : 0;
-
-        if ($total_pages_pending === 0) {
-            $pending_page = 1;
-        } elseif ($pending_page > $total_pages_pending) {
-            $pending_page = $total_pages_pending;
-        }
-
-        $offset = ($pending_page - 1) * $items_per_page;
-
-        // Then get paginated results
-        $dataSql = "SELECT qs.*, q.title as quest_title, q.xp as base_xp, q.description as quest_description,
-                  e.full_name as employee_name, e.id as employee_user_id
-                  FROM quest_submissions qs
-                  JOIN quests q ON qs.quest_id = q.id
-                  LEFT JOIN users e ON qs.employee_id = e.employee_id
-                  $pendingWhere
-                  ORDER BY qs.submitted_at DESC
-                  LIMIT ? OFFSET ?";
-        $stmt = $pdo->prepare($dataSql);
-        $dataParams = array_merge($pendingParams, [$items_per_page, $offset]);
-        $totalFilterParams = count($pendingParams);
-        foreach ($dataParams as $index => $value) {
-            $paramType = ($index >= $totalFilterParams) ? PDO::PARAM_INT : PDO::PARAM_STR;
-            $stmt->bindValue($index + 1, $value, $paramType);
-        }
-        $stmt->execute();
-        $pending_submissions = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         // Ensure we always have a sensible name for display
         foreach ($pending_submissions as &$pendingRow) {
             if (empty($pendingRow['employee_name'])) {
                 $pendingRow['employee_name'] = 'Unknown User';
             }
-            if ($pendingRow['submission_type'] === 'file' && empty($pendingRow['file_path'])) {
+            if (empty($pendingRow['file_path'])) {
                 $pendingRow['file_path'] = '';
+            }
+            if (!isset($pendingRow['submission_text'])) {
+                $pendingRow['submission_text'] = '';
             }
         }
         unset($pendingRow);
+
+        // Fallback: If no rows found, surface "submitted" items from user_quests so reviewers still see them
+        if (empty($pending_submissions)) {
+            $fallbackParams = [];
+            $fallbackWhere = "WHERE uq.status = 'submitted'";
+            if (!$is_admin) {
+                $fallbackWhere .= " AND (UPPER(TRIM(q.created_by)) = UPPER(?) OR UPPER(TRIM(q.created_by)) = UPPER(?) OR UPPER(TRIM(q.created_by)) = UPPER(?))";
+                $fallbackParams[] = (string)$employee_id;
+                $fallbackParams[] = (string)$user_id;
+                $fallbackParams[] = 'user_' . (string)$user_id;
+            }
+
+            // Count fallback
+            $fbCountSql = "SELECT COUNT(*)
+                           FROM user_quests uq
+                           JOIN quests q ON uq.quest_id = q.id
+                           $fallbackWhere";
+            $stmt = $pdo->prepare($fbCountSql);
+            $stmt->execute($fallbackParams);
+            $fb_total = (int)$stmt->fetchColumn();
+
+            if ($fb_total > 0) {
+                $total_pending = $fb_total;
+                $offset = ($pending_page - 1) * $items_per_page;
+                $fbSql = "SELECT 
+                              uq.employee_id,
+                              uq.quest_id,
+                              q.title AS quest_title,
+                              q.description AS quest_description,
+                              e.full_name AS employee_name,
+                              e.id AS employee_user_id,
+                              NOW() AS submitted_at,
+                              'pending' AS status,
+                              '' AS file_path,
+                              '' AS submission_text
+                          FROM user_quests uq
+                          JOIN quests q ON uq.quest_id = q.id
+                          LEFT JOIN users e ON uq.employee_id = e.employee_id
+                          $fallbackWhere
+                          ORDER BY q.id DESC
+                          LIMIT ? OFFSET ?";
+                $stmt = $pdo->prepare($fbSql);
+                $fbParams = array_merge($fallbackParams, [$items_per_page, $offset]);
+                $fbFilterParams = count($fallbackParams);
+                foreach ($fbParams as $i => $v) {
+                    $paramType = ($i >= $fbFilterParams) ? PDO::PARAM_INT : PDO::PARAM_STR;
+                    $stmt->bindValue($i + 1, $v, $paramType);
+                }
+                $stmt->execute();
+                $pending_submissions = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+                // Normalize display fields
+                foreach ($pending_submissions as &$row) {
+                    if (empty($row['employee_name'])) {
+                        $row['employee_name'] = 'Unknown User';
+                    }
+                    if (empty($row['file_path'])) {
+                        $row['file_path'] = '';
+                    }
+                    if (!isset($row['submission_text'])) {
+                        $row['submission_text'] = '';
+                    }
+                }
+                unset($row);
+            }
+        }
         
         // Get all submissions for quests created by this giver with pagination
         // First get total count
@@ -1048,7 +1180,7 @@ try {
         $offset = ($review_page - 1) * $items_per_page;
         $createdFilterAllData = $is_admin ? '' : ' WHERE (q.created_by = ? OR q.created_by = ?)';
         $sql = "SELECT qs.*, q.title as quest_title, u.full_name as employee_name, 
-                  q.xp as base_xp, qs.additional_xp, rev.full_name as reviewer_name
+                  qs.additional_xp, rev.full_name as reviewer_name
                   FROM quest_submissions qs
                   JOIN quests q ON qs.quest_id = q.id
                   JOIN users u ON qs.employee_id = u.employee_id
@@ -1170,11 +1302,11 @@ if ($is_giver) {
         $questFilterParams = [];
 
         if (!$is_admin) {
-            if (!empty($normalizedCreatorIds)) {
-                $questFilterClause = '(' . implode(' OR ', array_fill(0, count($normalizedCreatorIds), 'LOWER(TRIM(q.created_by)) = ?')) . ')';
-                $questFilterParams = $normalizedCreatorIds;
+            if (!empty($creatorFilterClause) && !empty($creatorFilterParams)) {
+                $questFilterClause = $creatorFilterClause;
+                $questFilterParams = $creatorFilterParams;
             } else {
-                $normalizedEmployee = strtolower(trim((string) $employee_id));
+                $normalizedEmployee = strtolower(trim((string)$employee_id));
                 $questFilterClause = 'LOWER(TRIM(q.created_by)) = ?';
                 $questFilterParams = [$normalizedEmployee];
             }
@@ -2692,9 +2824,12 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
                         <div class="mb-8">
                             <div class="flex items-center justify-between mb-4">
                                 <h3 class="text-xl font-semibold text-gray-800">Pending Reviews</h3>
-                                <span class="bg-orange-100 text-orange-800 px-3 py-1 rounded-full text-sm font-medium">
-                                    <?php echo count($pending_submissions); ?> pending
-                                </span>
+                                <div class="flex items-center gap-3">
+                                    <a href="pending_reviews.php" class="text-sm text-blue-600 hover:text-blue-800 underline">View all</a>
+                                    <span class="bg-orange-100 text-orange-800 px-3 py-1 rounded-full text-sm font-medium">
+                                        <?php echo isset($total_pending) ? (int)$total_pending : count($pending_submissions); ?> pending
+                                    </span>
+                                </div>
                             </div>
                             
                             <?php if (!empty($pending_submissions)): ?>
