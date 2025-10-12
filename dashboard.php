@@ -1076,10 +1076,20 @@ try {
             }
         }
 
-        // Ensure we always have a sensible name for display
+        // Ensure we always have a sensible name for display; try resolve by employee_id when missing
         foreach ($pending_submissions as &$pendingRow) {
             if (empty($pendingRow['employee_name'])) {
-                $pendingRow['employee_name'] = 'Unknown User';
+                $resolved = '';
+                if (!empty($pendingRow['employee_id'])) {
+                    try {
+                        $stmt = $pdo->prepare("SELECT full_name FROM users WHERE employee_id = ? LIMIT 1");
+                        $stmt->execute([$pendingRow['employee_id']]);
+                        $resolved = (string)($stmt->fetchColumn() ?: '');
+                    } catch (PDOException $e) {
+                        // ignore
+                    }
+                }
+                $pendingRow['employee_name'] = $resolved !== '' ? $resolved : 'Unknown User';
             }
             if (empty($pendingRow['file_path'])) {
                 $pendingRow['file_path'] = '';
@@ -1140,10 +1150,20 @@ try {
                 $stmt->execute();
                 $pending_submissions = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-                // Normalize display fields
+                // Normalize display fields and resolve missing names by employee_id
                 foreach ($pending_submissions as &$row) {
                     if (empty($row['employee_name'])) {
-                        $row['employee_name'] = 'Unknown User';
+                        $resolved = '';
+                        if (!empty($row['employee_id'])) {
+                            try {
+                                $stmt = $pdo->prepare("SELECT full_name FROM users WHERE employee_id = ? LIMIT 1");
+                                $stmt->execute([$row['employee_id']]);
+                                $resolved = (string)($stmt->fetchColumn() ?: '');
+                            } catch (PDOException $e) {
+                                // ignore
+                            }
+                        }
+                        $row['employee_name'] = $resolved !== '' ? $resolved : 'Unknown User';
                     }
                     if (empty($row['file_path'])) {
                         $row['file_path'] = '';
