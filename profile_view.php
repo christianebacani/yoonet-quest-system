@@ -6,7 +6,8 @@ if (!is_logged_in()) {
     redirect('login.php');
 }
 
-$user_id = $_SESSION['user_id'];
+$user_id = isset($_GET['user_id']) ? (int)$_GET['user_id'] : ($_SESSION['user_id'] ?? 0);
+if (!$user_id) { redirect('dashboard.php'); }
 
 try {
     $stmt = $pdo->prepare("SELECT full_name, bio, profile_photo, quest_interests, availability_status, job_position FROM users WHERE id = ?");
@@ -22,23 +23,26 @@ try {
 $user_skills = [];
 try {
     // Fetch skills that users have earned through quest completions
-    $stmt = $pdo->prepare("
-        SELECT 
-            cs.skill_name,
-            usp.total_points,
-            usp.skill_level as current_level,
-            usp.current_stage,
-            usp.last_activity as last_used,
-            usp.activity_status as status,
-            usp.updated_at,
-            sc.category_name
-        FROM user_skill_progress usp
-        JOIN comprehensive_skills cs ON usp.skill_id = cs.id
-        JOIN skill_categories sc ON cs.category_id = sc.id
-        WHERE usp.employee_id = ? 
-        ORDER BY usp.total_points DESC
-    ");
-    $stmt->execute([$_SESSION['employee_id']]);
+    // Prefer dynamic earned skills if available; fall back to legacy progress table if present
+    $skills = [];
+    try {
+        $stmt = $pdo->prepare("SELECT skill_name, total_points, current_level, current_stage, last_used, recent_points, status, updated_at FROM user_earned_skills WHERE user_id = ? ORDER BY total_points DESC");
+        $stmt->execute([$user_id]);
+        $skills = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) { /* table may not exist yet */ }
+
+    if (!empty($skills)) {
+        $user_skills = $skills;
+    } else {
+        // Legacy path (keep existing query if that table exists in your DB)
+        try {
+            $stmt = $pdo->prepare("SELECT cs.skill_name, usp.total_points, usp.skill_level as current_level, usp.current_stage, usp.last_activity as last_used, usp.activity_status as status, usp.updated_at, sc.category_name FROM user_skill_progress usp JOIN comprehensive_skills cs ON usp.skill_id = cs.id JOIN skill_categories sc ON cs.category_id = sc.id WHERE usp.employee_id = ? ORDER BY usp.total_points DESC");
+            $stmt->execute([$_SESSION['employee_id'] ?? '']);
+            $user_skills = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (PDOException $e2) {
+            $user_skills = [];
+        }
+    }
     $user_skills = $stmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (PDOException $e) {
     error_log("Error loading user earned skills: " . $e->getMessage());
