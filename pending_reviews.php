@@ -54,8 +54,7 @@ if ($is_admin) {
 
 // Build filter: prefer quest_id IN (...) for non-admins
 if ($is_admin) {
-  // Show all statuses so reviewers can see both reviewed and unreviewed
-  $total = (int)$pdo->query("SELECT COUNT(*) FROM quest_submissions WHERE status IN ('pending','under_review','approved','rejected')")->fetchColumn();
+  $total = (int)$pdo->query("SELECT COUNT(*) FROM quest_submissions WHERE status IN ('pending','under_review','approved','rejected','needs_revision')")->fetchColumn();
   $total_pages = $total > 0 ? (int)ceil($total / $items_per_page) : 1;
   $stmt = $pdo->prepare("SELECT qs.id, qs.employee_id, qs.quest_id, qs.file_path, qs.submission_text, qs.status, qs.submitted_at,
                   q.title AS quest_title, q.description AS quest_description,
@@ -63,7 +62,7 @@ if ($is_admin) {
                FROM quest_submissions qs
                JOIN quests q ON qs.quest_id = q.id
                LEFT JOIN users e ON qs.employee_id = e.employee_id
-               WHERE qs.status IN ('pending','under_review','approved','rejected')
+               WHERE qs.status IN ('pending','under_review','approved','rejected','needs_revision')
                ORDER BY qs.submitted_at DESC
                LIMIT ? OFFSET ?");
   $stmt->bindValue(1, $items_per_page, PDO::PARAM_INT);
@@ -73,7 +72,7 @@ if ($is_admin) {
 } else {
   if (!empty($createdQuestIds)) {
     $ph = implode(',', array_fill(0, count($createdQuestIds), '?'));
-  $countSql = "SELECT COUNT(*) FROM quest_submissions WHERE status IN ('pending','under_review','approved','rejected') AND quest_id IN ($ph)";
+  $countSql = "SELECT COUNT(*) FROM quest_submissions WHERE status IN ('pending','under_review','approved','rejected','needs_revision') AND quest_id IN ($ph)";
     $stmt = $pdo->prepare($countSql);
     foreach ($createdQuestIds as $i => $qid) { $stmt->bindValue($i+1, $qid, PDO::PARAM_INT); }
     $stmt->execute();
@@ -86,7 +85,7 @@ if ($is_admin) {
           FROM quest_submissions qs
           JOIN quests q ON qs.quest_id = q.id
           LEFT JOIN users e ON qs.employee_id = e.employee_id
-          WHERE qs.status IN ('pending','under_review','approved','rejected') AND qs.quest_id IN ($ph)
+      WHERE qs.status IN ('pending','under_review','approved','rejected','needs_revision') AND qs.quest_id IN ($ph)
           ORDER BY qs.submitted_at DESC
           LIMIT ? OFFSET ?";
     $stmt = $pdo->prepare($dataSql);
@@ -209,9 +208,11 @@ if (empty($rows)) {
                 <?php if ($st === 'under_review'): ?>
                   <span class="badge badge-under">Under Review</span>
                 <?php elseif ($st === 'approved'): ?>
-                  <span class="badge" style="background:#D1FAE5;color:#065F46;border:1px solid #10B981;">Reviewed</span>
+                  <span class="badge" style="background:#D1FAE5;color:#065F46;border:1px solid #10B981;">Graded</span>
                 <?php elseif ($st === 'rejected'): ?>
                   <span class="badge" style="background:#FEE2E2;color:#991B1B;border:1px solid #EF4444;">Declined</span>
+                <?php elseif ($st === 'needs_revision'): ?>
+                  <span class="badge" style="background:#FEF3C7;color:#92400E;border:1px solid #F59E0B;">Needs Revision</span>
                 <?php else: ?>
                   <span class="badge badge-pending">Pending</span>
                 <?php endif; ?>

@@ -198,7 +198,17 @@ if ((!is_array($user) || empty($user) || empty($user['full_name'])) && $latestSu
     }
 }
 
-// Handle form submission
+// Handle form submission (grading)
+if (empty($error) && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_assessment'])) {
+    // Prevent grading if already graded/declined
+    $currentStatus = strtolower(trim((string)($latestSubmission['status'] ?? '')));
+    if (in_array($currentStatus, ['approved','rejected'], true)) {
+        $error = 'This submission has already been graded.';
+    } elseif (!$latestSubmission || empty($latestSubmission['id'])) {
+        $error = 'No submission record found to grade.';
+    }
+}
+
 if (empty($error) && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_assessment'])) {
     $assessments = $_POST['assessments'] ?? [];
     $total_points = 0;
@@ -242,10 +252,31 @@ if (empty($error) && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['subm
             $stmt->execute([$quest_id, $user_id, $total_points, '']);
         }
         
+        // Mark the latest submission as graded/approved and stamp reviewer
+        try {
+            $reviewedBy = $_SESSION['employee_id'] ?? (string)($_SESSION['user_id'] ?? '');
+            $stmt = $pdo->prepare("UPDATE quest_submissions SET status = 'approved', reviewed_by = ?, reviewed_at = NOW() WHERE id = ?");
+            $stmt->execute([$reviewedBy, (int)$latestSubmission['id']]);
+        } catch (PDOException $e) {
+            error_log('Failed to update submission status to approved: ' . $e->getMessage());
+            throw new Exception('Failed to update submission status.');
+        }
+
+        // Best-effort: mark assignment record completed
+        try {
+            if (!empty($employeeIdForSubmission)) {
+                $stmt = $pdo->prepare("UPDATE user_quests SET status = 'completed', completed_at = NOW() WHERE employee_id = ? AND quest_id = ? AND (status <> 'completed' OR status IS NULL)");
+                $stmt->execute([$employeeIdForSubmission, $quest_id]);
+            }
+        } catch (PDOException $e) {
+            error_log('Failed to update user_quests to completed: ' . $e->getMessage());
+            // non-fatal
+        }
+
         $pdo->commit();
-    $success = "Grading completed! Total points awarded: {$total_points}";
-        
-        // Redirect to prevent resubmission
+        $success = "Grading completed! Total points awarded: {$total_points}";
+
+        // Redirect to prevent resubmission; keep context for view-only state
         header("Location: quest_assessment.php?quest_id={$quest_id}&user_id={$user_id}&success=1");
         exit;
         
@@ -511,7 +542,7 @@ function getTierLabel($tier) {
                     $badgeClass = 'badge badge-pending';
                     $badgeLabel = 'Pending';
                     if ($status === 'under_review') { $badgeClass = 'badge badge-under'; $badgeLabel = 'Under Review'; }
-                    elseif ($status === 'approved') { $badgeClass = 'badge badge-approved'; $badgeLabel = 'Reviewed'; }
+                    elseif ($status === 'approved') { $badgeClass = 'badge badge-approved'; $badgeLabel = 'Graded'; }
                     elseif ($status === 'rejected') { $badgeClass = 'badge badge-rejected'; $badgeLabel = 'Declined'; }
                 ?>
                 <div class="card">
@@ -717,8 +748,17 @@ function getTierLabel($tier) {
                 </div>
             <?php endif; ?>
             
-            <?php $safe_skills = is_array($quest_skills) ? $quest_skills : []; ?>
+            <?php 
+                $safe_skills = is_array($quest_skills) ? $quest_skills : []; 
+                $gradedAlready = in_array(strtolower(trim((string)($latestSubmission['status'] ?? ''))), ['approved','rejected'], true);
+            ?>
             <form method="post" id="assessmentForm">
+                <?php if ($gradedAlready): ?>
+                    <div class="card" style="border-left:4px solid #10B981;">
+                        <div style="font-weight:600; color:#065F46;">This submission is already graded.</div>
+                        <div class="meta">Reviewed by: <?= htmlspecialchars((string)($latestSubmission['reviewed_by'] ?? '')) ?><?= !empty($latestSubmission['reviewed_at']) ? ' • ' . htmlspecialchars(date('M d, Y g:i A', strtotime($latestSubmission['reviewed_at']))) : '' ?></div>
+                    </div>
+                <?php endif; ?>
                 <?php foreach ($safe_skills as $skill): ?>
                     <?php 
                     $skill_name = isset($skill['skill_name']) ? (string)$skill['skill_name'] : 'Skill';
@@ -738,7 +778,7 @@ function getTierLabel($tier) {
                         
                         <div class="performance-section">
                             <div class="performance-label">Performance:</div>
-                            <select class="performance-select" name="assessments[<?= $skill_name ?>][performance]" id="perf_<?= $safeId ?>" data-skill="<?= $safeId ?>" data-base="<?= $base_points ?>" onchange="onPerfChange(this)">
+                            <select class="performance-select" name="assessments[<?= $skill_name ?>][performance]" id="perf_<?= $safeId ?>" data-skill="<?= $safeId ?>" data-base="<?= $base_points ?>" onchange="onPerfChange(this)" <?= $gradedAlready ? 'disabled' : '' ?>>
                                 <option value="0.0">Not performed (0%) = 0 pts</option>
                                 <option value="0.8">Below Expectations (-20%) = <?= round($base_points*0.8) ?> pts</option>
                                 <option value="1.0" selected>Meets Expectations (+0%) = <?= $base_points ?> pts</option>
@@ -756,6 +796,7 @@ function getTierLabel($tier) {
                                 id="notes_<?= $safeId ?>"
                                 class="notes-textarea" 
                                 placeholder="Add assessment notes..."
+                                <?= $gradedAlready ? 'disabled' : '' ?>
                             ></textarea>
                         </div>
                         
@@ -765,11 +806,17 @@ function getTierLabel($tier) {
                 
                 <!-- Removed green Total Points box as requested -->
                 
-                <div class="form-actions form-actions-right">
-                    <button type="submit" name="submit_assessment" class="btn btn-primary" <?= (!$user_id || !$quest_id) ? 'disabled' : '' ?> >
-                        <i class="fas fa-trophy"></i> Grade &amp; Award XP
-                    </button>
-                </div>
+                <?php if (!$gradedAlready): ?>
+                    <div class="form-actions form-actions-right">
+                        <button type="submit" name="submit_assessment" class="btn btn-primary" <?= (!$user_id || !$quest_id) ? 'disabled' : '' ?> >
+                            <i class="fas fa-trophy"></i> Grade &amp; Award XP
+                        </button>
+                    </div>
+                <?php else: ?>
+                    <div class="form-actions form-actions-right">
+                        <a href="pending_reviews.php" class="btn btn-secondary"><i class="fas fa-eye"></i> Back to Submitted Quest</a>
+                    </div>
+                <?php endif; ?>
             </form>
                 </div><!-- /col-left -->
                 <div class="col-right">
@@ -805,7 +852,7 @@ function getTierLabel($tier) {
                         <div style="line-height:1.8;">
                             <div><strong>Status:</strong> 
                                 <?php if ($st === 'under_review'): ?>Under Review
-                                <?php elseif ($st === 'approved'): ?>Reviewed
+                                <?php elseif ($st === 'approved'): ?>Graded
                                 <?php elseif ($st === 'rejected'): ?>Declined
                                 <?php else: ?>Pending<?php endif; ?>
                             </div>
