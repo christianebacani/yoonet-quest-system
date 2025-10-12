@@ -19,7 +19,6 @@ $success = '';
 try {
     $pdo->exec("CREATE TABLE IF NOT EXISTS `user_earned_skills` (
         `id` int(11) NOT NULL AUTO_INCREMENT,
-        `user_id` int(11) NOT NULL,
         `skill_name` varchar(255) NOT NULL,
         `total_points` int(11) NOT NULL DEFAULT 0,
         `current_level` int(11) NOT NULL DEFAULT 1,
@@ -610,38 +609,39 @@ function getTierLabel($tier) {
                                               . '</div>';
                                 $rendered = true;
                             } else {
-                                          // For docx and other office files, create a lightbox container we can populate via JS using Mammoth (docx)
-                                          $inlineId = 'inline-'.md5($web);
-                                          $title = $fname;
-                                          // If public host (not localhost), offer Google Docs Viewer as a quick-view fallback
-                                          $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
-                                          $isLocal = (stripos($host, 'localhost') !== false) || (stripos($host, '127.0.0.1') !== false);
-                                          $gview = 'https://docs.google.com/gview?embedded=1&url=' . rawurlencode($abs);
-                                                                                    echo '<div class="preview-block">'
-                                                                                                                                                                                        . '<div class="btn-group" style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">'
-                                                                                            . (
-                                                                                                    // Use Google Viewer in modal for all non-DOCX Office files (even on localhost),
-                                                                                                    // and for DOCX on public hosts. Only DOCX on localhost uses Mammoth inline.
-                                                                                                    ((in_array($ext, ['doc','ppt','pptx','xls','xlsx'])) || ($ext === 'docx' && !$isLocal))
-                                                                                                    ? '<a class="btn btn-primary btn-sm glightbox" href="#' . $inlineId . '" data-type="inline">Open</a>'
-                                                                                                      : '<a class="btn btn-primary btn-sm glightbox office-open" href="#' . $inlineId . '" data-type="inline" role="button" tabindex="0" data-file="' . htmlspecialchars($abs) . '" data-inline="#' . $inlineId . '" data-title="' . $title . '">Open</a>'
-                                                                                                )
-                                                                                                                                                                                            . '<a class="btn btn-secondary btn-sm view-newtab" href="' . htmlspecialchars((!$isLocal ? $gview : $abs)) . '" data-abs="' . htmlspecialchars($abs) . '" data-gview="' . htmlspecialchars($gview) . '" data-ext="' . $ext . '" target="_blank" rel="noopener">View in new tab</a>'
-                                              . '<a class="btn btn-outline-primary btn-sm" href="' . htmlspecialchars($src) . '" download>Download</a>'
-                                              . '</div>'
-                                              . '<div class="file-caption"><i class="fas fa-paperclip"></i> ' . $title . '</div>'
-                                              . '<div class="glightbox-inline" id="' . $inlineId . '">'
-                                                  . '<div class="modal-header ' . (in_array($ext, ['xls','xlsx']) ? 'mh-xls' : (in_array($ext, ['ppt','pptx']) ? 'mh-ppt' : (in_array($ext, ['doc','docx']) ? 'mh-doc' : 'mh-office'))) . '"><div class="modal-title"><i class="' . (in_array($ext, ['xls','xlsx']) ? 'fas fa-file-excel' : (in_array($ext, ['ppt','pptx']) ? 'fas fa-file-powerpoint' : 'fas fa-file-word')) . '"></i><span class="file-name">' . $title . '</span></div></div>'
-                                                  . '<div class="modal-body" style="min-height:70vh; background:#fff;">'
-                                                                                                            . (
-                                                                                                                    // Show Google Viewer iframe for non-DOCX Office files always, and for DOCX on public hosts
-                                                                                                                    ((in_array($ext, ['doc','ppt','pptx','xls','xlsx'])) || ($ext === 'docx' && !$isLocal))
-                                                                                                                    ? '<iframe src="' . htmlspecialchars($gview) . '" width="100%" height="640" style="border:0;"></iframe>'
-                                                                                                                    : '<div class="docx-view"><div class="docx-html">Loading preview…</div></div>'
-                                                                                                                )
-                                                  . '</div>'
-                                              . '</div>'
-                                              . '</div>';
+                                // For Office files: DOCX uses Mammoth inline; others use Google Viewer when public
+                                $inlineId = 'inline-'.md5($web);
+                                $title = $fname;
+                                $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+                                $isLocal = (stripos($host, 'localhost') !== false) || (stripos($host, '127.0.0.1') !== false);
+                                $gview = 'https://docs.google.com/gview?embedded=1&url=' . rawurlencode($abs);
+
+                                echo '<div class="preview-block">'
+                                    . '<div class="btn-group" style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">'
+                                    . (
+                                        $ext === 'docx'
+                                        ? '<a class="btn btn-primary btn-sm glightbox office-open" href="#' . $inlineId . '" data-type="inline" role="button" tabindex="0" data-file="' . htmlspecialchars($abs) . '" data-inline="#' . $inlineId . '" data-title="' . $title . '">Open</a>'
+                                        : '<a class="btn btn-primary btn-sm glightbox" href="#' . $inlineId . '" data-type="inline">Open</a>'
+                                    )
+                                    . '<a class="btn btn-secondary btn-sm view-newtab" href="' . htmlspecialchars($abs) . '" data-abs="' . htmlspecialchars($abs) . '" data-gview="' . htmlspecialchars($gview) . '" data-ext="' . $ext . '" target="_blank" rel="noopener">View in new tab</a>'
+                                    . '<a class="btn btn-outline-primary btn-sm" href="' . htmlspecialchars($src) . '" download>Download</a>'
+                                    . '</div>'
+                                    . '<div class="file-caption"><i class="fas fa-paperclip"></i> ' . $title . '</div>'
+                                    . '<div class="glightbox-inline" id="' . $inlineId . '">'
+                                        . '<div class="modal-header ' . (in_array($ext, ['xls','xlsx']) ? 'mh-xls' : (in_array($ext, ['ppt','pptx']) ? 'mh-ppt' : (in_array($ext, ['doc','docx']) ? 'mh-doc' : 'mh-office'))) . '"><div class="modal-title"><i class="' . (in_array($ext, ['xls','xlsx']) ? 'fas fa-file-excel' : (in_array($ext, ['ppt','pptx']) ? 'fas fa-file-powerpoint' : 'fas fa-file-word')) . '"></i><span class="file-name">' . $title . '</span></div></div>'
+                                        . '<div class="modal-body" style="min-height:70vh; background:#fff;">'
+                                            . (
+                                                $ext === 'docx'
+                                                ? '<div class="docx-view"><div class="docx-html">Loading preview…</div></div>'
+                                                : (
+                                                    !$isLocal
+                                                    ? '<iframe src="' . htmlspecialchars($gview) . '" width="100%" height="640" style="border:0;"></iframe>'
+                                                    : '<div style="padding:16px;line-height:1.6;">Preview for this file type is not available on localhost.<br><a class="btn btn-secondary btn-sm" href="' . htmlspecialchars($abs) . '" target="_blank" rel="noopener">Open in new tab</a></div>'
+                                                )
+                                            )
+                                        . '</div>'
+                                    . '</div>'
+                                . '</div>';
                                 $rendered = true;
                             }
                         }
@@ -915,29 +915,38 @@ function getTierLabel($tier) {
                         return; // let the browser open it
                     }
 
-                    // For all Office types, force Google Viewer (works on localhost too)
+                    // Office types: DOCX uses Mammoth everywhere; others use Google Viewer (public) or raw (local)
                     if (['doc','docx','ppt','pptx','xls','xlsx'].includes(ext)) {
                         e.preventDefault();
-                        const url = gview || ('https://docs.google.com/gview?embedded=1&url=' + encodeURIComponent(abs));
-                        window.open(url, '_blank');
-                        return;
-                    }
-
-                    // For DOCX special case render via Mammoth as an alternative (not used when gview is preferred)
-                    if (ext === 'docx' && isLocal && window.mammoth && false) {
-                        e.preventDefault();
-                        try {
-                            const res = await fetch(abs);
-                            const buf = await res.arrayBuffer();
-                            const result = await window.mammoth.convertToHtml({ arrayBuffer: buf });
-                            const html = `<!doctype html><html><head><meta charset="utf-8"><title>${abs.split('/').pop()}</title><style>body{font-family:system-ui,Segoe UI,Arial,sans-serif;margin:16px;} img{max-width:100%;height:auto}</style></head><body>${result.value}</body></html>`;
-                            const blob = new Blob([html], { type: 'text/html' });
-                            const url = URL.createObjectURL(blob);
+                        if (ext === 'docx' && window.mammoth) {
+                            try {
+                                const res = await fetch(abs);
+                                const buf = await res.arrayBuffer();
+                                const result = await window.mammoth.convertToHtml({ arrayBuffer: buf });
+                                const title = abs.split('/').pop();
+                                const html = `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title><style>body{font-family:system-ui,Segoe UI,Arial,sans-serif;margin:16px;color:#111827;background:#fff;} img{max-width:100%;height:auto}</style></head><body>${result.value}</body></html>`;
+                                const blob = new Blob([html], { type: 'text/html' });
+                                const url = URL.createObjectURL(blob);
+                                window.open(url, '_blank');
+                                setTimeout(() => URL.revokeObjectURL(url), 30000);
+                            } catch (err) {
+                                console.error('DOCX new-tab render failed:', err);
+                                // Fallbacks: public -> Google Viewer; local -> raw URL
+                                if (!isLocal) {
+                                    const url = gview || ('https://docs.google.com/gview?embedded=1&url=' + encodeURIComponent(abs));
+                                    window.open(url, '_blank');
+                                } else {
+                                    window.open(abs, '_blank');
+                                }
+                            }
+                            return;
+                        }
+                        // Non-DOCX Office
+                        if (!isLocal) {
+                            const url = gview || ('https://docs.google.com/gview?embedded=1&url=' + encodeURIComponent(abs));
                             window.open(url, '_blank');
-                            setTimeout(() => URL.revokeObjectURL(url), 30000);
-                        } catch (err) {
-                            // fallback to download if fetch fails
-                            console.error('DOCX new-tab render failed:', err);
+                        } else {
+                            window.open(abs, '_blank');
                         }
                         return;
                     }
