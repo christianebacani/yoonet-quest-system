@@ -63,7 +63,8 @@ if (empty($error)) {
 // Get user details (non-fatal if missing; we'll still show submission + employee_id)
 if (empty($error)) {
     try {
-        $stmt = $pdo->prepare("SELECT id, full_name, username, employee_id, email FROM users WHERE id = ?");
+        // Note: users table does not have a `username` column; select existing fields only
+        $stmt = $pdo->prepare("SELECT id, full_name, employee_id, email FROM users WHERE id = ?");
         $stmt->execute([$user_id]);
         $user = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
     } catch (PDOException $e) {
@@ -149,7 +150,8 @@ if (!empty($employeeIdForSubmission)) {
 // If user record is missing or incomplete but we have a submission, try resolving by employee_id from the submission
 if ((!is_array($user) || empty($user) || empty($user['full_name'])) && $latestSubmission && !empty($latestSubmission['employee_id'])) {
     try {
-        $stmt = $pdo->prepare("SELECT id, full_name, username, email, employee_id FROM users WHERE employee_id = ? LIMIT 1");
+        // Select only existing columns from users table
+        $stmt = $pdo->prepare("SELECT id, full_name, email, employee_id FROM users WHERE employee_id = ? LIMIT 1");
         $stmt->execute([$latestSubmission['employee_id']]);
         $maybeUser = $stmt->fetch(PDO::FETCH_ASSOC);
         if ($maybeUser) {
@@ -705,9 +707,23 @@ function getTierLabel($tier) {
                     <div class="card">
                         <h3>Submitter Details</h3>
                         <div style="line-height:1.8;">
-                            <div><strong>Name:</strong> <?= htmlspecialchars($user['full_name'] ?? 'Unknown User') ?></div>
+                            <?php 
+                                $displayName = trim((string)($user['full_name'] ?? ''));
+                                if ($displayName === '' && !empty($latestSubmission['employee_id'])) {
+                                    // As an extra fallback, try to fetch name by employee_id right here
+                                    try {
+                                        $stmt = $pdo->prepare("SELECT full_name FROM users WHERE employee_id = ? LIMIT 1");
+                                        $stmt->execute([$latestSubmission['employee_id']]);
+                                        $displayName = (string)($stmt->fetchColumn() ?: '');
+                                    } catch (PDOException $e) {
+                                        // ignore
+                                    }
+                                }
+                                if ($displayName === '') { $displayName = 'Unknown User'; }
+                            ?>
+                            <div><strong>Name:</strong> <?= htmlspecialchars($displayName) ?></div>
                             <div><strong>Employee ID:</strong> <?= htmlspecialchars($user['employee_id'] ?? ($employee_id_param !== '' ? $employee_id_param : ($latestSubmission['employee_id'] ?? ''))) ?></div>
-                            <div><strong>Username:</strong> <?= htmlspecialchars($user['username'] ?? '') ?></div>
+                            <!-- Username column not present in users table; omit from UI to prevent confusion -->
                             <div><strong>Email:</strong> <?= htmlspecialchars($user['email'] ?? '') ?></div>
                         </div>
                     </div>
