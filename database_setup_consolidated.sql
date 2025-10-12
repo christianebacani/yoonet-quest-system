@@ -130,6 +130,42 @@ CREATE TABLE IF NOT EXISTS `user_skills` (
   CONSTRAINT `user_skills_ibfk_2` FOREIGN KEY (`skill_id`) REFERENCES `comprehensive_skills` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Earned skills from quests (dynamic XP per user/skill)
+CREATE TABLE IF NOT EXISTS `user_earned_skills` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `user_id` int(11) NOT NULL,
+  `skill_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `total_points` int(11) NOT NULL DEFAULT 0,
+  `current_level` int(11) NOT NULL DEFAULT 1,
+  `current_stage` enum('Learning','Applying','Mastering','Innovating') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Learning',
+  `last_used` timestamp NULL DEFAULT NULL,
+  `recent_points` int(11) NOT NULL DEFAULT 0,
+  `status` enum('ACTIVE','STALE','RUSTY') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'ACTIVE',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_user_skill_name` (`user_id`,`skill_name`),
+  KEY `idx_user` (`user_id`),
+  KEY `idx_skill_name` (`skill_name`),
+  CONSTRAINT `ues_user_fk` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Quest completions summary (per user per quest)
+CREATE TABLE IF NOT EXISTS `quest_completions` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `quest_id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL,
+  `completed_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `total_points_awarded` int(11) NOT NULL DEFAULT 0,
+  `notes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_user_quest` (`quest_id`,`user_id`),
+  KEY `idx_user` (`user_id`),
+  KEY `idx_quest` (`quest_id`),
+  CONSTRAINT `qc_user_fk` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `qc_quest_fk` FOREIGN KEY (`quest_id`) REFERENCES `quests` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- ====================================================================
 -- 4. GROUP MANAGEMENT SYSTEM
 -- ====================================================================
