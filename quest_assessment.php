@@ -229,6 +229,18 @@ function getTierPoints($tier) {
         default: return 25;
     }
 }
+
+// Human-friendly labels per tier
+function getTierLabel($tier) {
+    switch ($tier) {
+        case 'T1': return 'Beginner';
+        case 'T2': return 'Intermediate';
+        case 'T3': return 'Advanced';
+        case 'T4': return 'Expert';
+        case 'T5': return 'Master';
+        default: return '';
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -296,11 +308,18 @@ function getTierPoints($tier) {
             padding: 10px;
             background: white;
             border-radius: 8px;
-            border-left: 4px solid #6366f1;
+            border-left: 4px solid var(--tier-accent, #6366f1);
         }
         
-        .base-tier { font-weight: 700; color: #3730A3; }
+        .base-tier { font-weight: 700; color: var(--tier-text, #3730A3); }
         .base-points { font-weight: bold; color: #1e293b; }
+    /* Tier dynamic color tokens */
+    /* Green → Cyan → Blue → Indigo → Purple */
+    .tier-T1 { --tier-accent:#A7F3D0; --tier-text:#065F46; } /* Beginner */
+    .tier-T2 { --tier-accent:#67E8F9; --tier-text:#155E75; } /* Intermediate */
+    .tier-T3 { --tier-accent:#60A5FA; --tier-text:#1E3A8A; } /* Advanced */
+    .tier-T4 { --tier-accent:#818CF8; --tier-text:#312E81; } /* Expert */
+    .tier-T5 { --tier-accent:#C084FC; --tier-text:#4C1D95; } /* Master */
         
         .performance-section {
             margin: 15px 0;
@@ -568,8 +587,8 @@ function getTierPoints($tier) {
                             <span><?= htmlspecialchars($skill_name) ?></span>
                         </div>
                         
-                        <div class="tier-info">
-                            <span class="base-tier">Base Tier: <?= htmlspecialchars($tier_level) ?> (<?= $base_points ?> pts)</span>
+                        <div class="tier-info tier-<?= htmlspecialchars($tier_level) ?>">
+                            <span class="base-tier">Base Tier: <?= htmlspecialchars($tier_level) ?> - <?= htmlspecialchars(getTierLabel($tier_level)) ?> (<?= $base_points ?> pts)</span>
                         </div>
                         
                         <div class="performance-section">
