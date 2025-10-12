@@ -398,10 +398,20 @@ function getTierLabel($tier) {
     .chip-skill { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:9999px; background:#F1F5F9; color:#111827; border:1px solid #CBD5E1; font-size:0.85rem; }
     .chip-skill i { color:#4F46E5; }
 
-        /* Inline containers used by lightbox */
+    /* Inline containers used by lightbox */
         .glightbox-inline { display:none; }
         .docx-view { background:#ffffff; max-height:75vh; overflow:auto; padding:16px; border-radius:8px; }
         .docx-view .docx-html { color:#111827; }
+
+    /* Hide GLightbox bottom caption/description to avoid duplicate filenames */
+    .gdesc, .gdesc-inner, .gslide-desc { display:none !important; }
+
+        /* Lightbox modal header with filename */
+        .modal-header { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 12px; border-bottom:1px solid #e5e7eb; background:#ffffff; position:sticky; top:0; z-index:2; border-radius:8px 8px 0 0; }
+        .modal-title { display:flex; align-items:center; gap:8px; font-weight:600; color:#111827; min-width:0; }
+        .modal-title .file-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:70vw; }
+        .modal-actions a { text-decoration:none; }
+        .modal-body { background:#ffffff; max-height:75vh; overflow:auto; padding:10px 0; border-radius:0 0 8px 8px; }
     </style>
 </head>
 <body>
@@ -482,24 +492,33 @@ function getTierLabel($tier) {
                             $abs = $absUrl($src);
                             $fname = htmlspecialchars(basename($web));
                                      if (in_array($ext, ['jpg','jpeg','png','gif','webp'])) {
-                                          $title = 'Image Preview';
+                                          $title = $fname; // already escaped
+                                          $inlineId = 'inline-'.md5($web);
                                           echo '<div class="preview-block">'
-                                              . '<a class="glightbox" href="' . htmlspecialchars($src) . '" data-type="image" data-title="' . htmlspecialchars($title) . '">' 
+                                              . '<a class="glightbox" href="#' . $inlineId . '" data-type="inline">' 
                                               . '<img class="preview-media" src="' . htmlspecialchars($src) . '" alt="submission image" />'
                                               . '</a>'
                                               . '<div class="btn-group" style="margin-top:8px;">'
-                                              . '<a class="btn btn-primary btn-sm glightbox" href="' . htmlspecialchars($src) . '" data-type="image" data-title="' . htmlspecialchars($title) . '">Open</a>'
+                                              . '<a class="btn btn-primary btn-sm glightbox" href="#' . $inlineId . '" data-type="inline">Open</a>'
                                               . '<a class="btn btn-outline-primary btn-sm" href="' . htmlspecialchars($src) . '" download>Download</a>'
+                                              . '</div>'
+                                              . '<div class="glightbox-inline" id="' . $inlineId . '">'
+                                                  . '<div class="modal-header"><div class="modal-title"><i class="fas fa-image"></i><span class="file-name">' . $title . '</span></div></div>'
+                                                  . '<div class="modal-body"><img style="max-width:100%;height:auto;display:block;margin:0 auto;" src="' . htmlspecialchars($src) . '" alt="' . $title . '"/></div>'
                                               . '</div>'
                                               . '</div>';
                                 $rendered = true;
                             } elseif ($ext === 'pdf') {
-                                          $title = 'PDF Preview';
-                                          // Use lightbox iframe for PDFs
+                                          $title = $fname;
+                                          $inlineId = 'inline-'.md5($web);
                                           echo '<div class="preview-block">'
                                               . '<div class="btn-group" style="margin-top:8px;">'
-                                              . '<a class="btn btn-primary btn-sm glightbox" href="' . htmlspecialchars($abs) . '" data-type="iframe" data-title="' . htmlspecialchars($title) . '">Open</a>'
+                                              . '<a class="btn btn-primary btn-sm glightbox" href="#' . $inlineId . '" data-type="inline">Open</a>'
                                               . '<a class="btn btn-outline-primary btn-sm" href="' . htmlspecialchars($src) . '" download>Download</a>'
+                                              . '</div>'
+                                              . '<div class="glightbox-inline" id="' . $inlineId . '">'
+                                                  . '<div class="modal-header"><div class="modal-title"><i class="fas fa-file-pdf"></i><span class="file-name">' . $title . '</span></div></div>'
+                                                  . '<div class="modal-body"><iframe src="' . htmlspecialchars($abs) . '" width="100%" height="640" style="border:0;"></iframe></div>'
                                               . '</div>'
                                               . '</div>';
                                 $rendered = true;
@@ -507,9 +526,12 @@ function getTierLabel($tier) {
                                           $inlineId = 'inline-'.md5($web);
                                           $title = $fname;
                                           echo '<div class="preview-block">'
-                                              . '<div class="glightbox-inline" id="' . $inlineId . '"><div class="docx-view"><div class="docx-html">' . htmlspecialchars(@file_get_contents($web)) . '</div></div></div>'
+                                              . '<div class="glightbox-inline" id="' . $inlineId . '">'
+                                                  . '<div class="modal-header"><div class="modal-title"><i class="fas fa-file-alt"></i><span class="file-name">' . $title . '</span></div></div>'
+                                                  . '<div class="modal-body"><div class="docx-view"><div class="docx-html">' . htmlspecialchars(@file_get_contents($web)) . '</div></div></div>'
+                                              . '</div>'
                                               . '<div class="btn-group" style="margin-top:8px;">'
-                                              . '<a class="btn btn-primary btn-sm glightbox" href="#' . $inlineId . '" data-gallery="submission" data-title="' . htmlspecialchars($title) . '">Open</a>'
+                                              . '<a class="btn btn-primary btn-sm glightbox" href="#' . $inlineId . '" data-gallery="submission" data-type="inline">Open</a>'
                                               . '<a class="btn btn-outline-primary btn-sm" href="' . htmlspecialchars($src) . '" download>Download</a>'
                                               . '</div>'
                                               . '</div>';
@@ -518,21 +540,30 @@ function getTierLabel($tier) {
                                           // For docx and other office files, create a lightbox container we can populate via JS using Mammoth (docx)
                                           $inlineId = 'inline-'.md5($web);
                                           $title = $fname;
-                                                                                    // If public host (not localhost), offer Google Docs Viewer as a quick-view fallback
-                                                                                    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
-                                                                                    $isLocal = (stripos($host, 'localhost') !== false) || (stripos($host, '127.0.0.1') !== false);
-                                                                                    $gview = 'https://docs.google.com/gview?embedded=1&url=' . rawurlencode($abs);
-                                                                                    echo '<div class="preview-block">'
-                                                                                            . '<div class="btn-group" style="margin-top:8px;">'
-                                                                                            . (
-                                                                                                    (in_array($ext, ['doc','docx','ppt','pptx','xls','xlsx']) && !$isLocal)
-                                                                                                    ? '<a class="btn btn-primary btn-sm glightbox" href="' . htmlspecialchars($gview) . '" data-type="iframe" data-title="' . htmlspecialchars($title) . '">Open</a>'
-                                                                                                    : '<a class="btn btn-primary btn-sm glightbox office-open" data-file="' . htmlspecialchars($src) . '" data-inline="#' . $inlineId . '" data-title="' . htmlspecialchars($title) . '">Open</a>'
-                                                                                                )
-                                                                                            . '<a class="btn btn-outline-primary btn-sm" href="' . htmlspecialchars($src) . '" download>Download</a>'
-                                                                                            . '</div>'
-                                                                                            . '<div class="glightbox-inline" id="' . $inlineId . '"><div class="docx-view"><div class="docx-html">Loading preview…</div></div></div>'
-                                                                                            . '</div>';
+                                          // If public host (not localhost), offer Google Docs Viewer as a quick-view fallback
+                                          $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+                                          $isLocal = (stripos($host, 'localhost') !== false) || (stripos($host, '127.0.0.1') !== false);
+                                          $gview = 'https://docs.google.com/gview?embedded=1&url=' . rawurlencode($abs);
+                                          echo '<div class="preview-block">'
+                                              . '<div class="btn-group" style="margin-top:8px;">'
+                                              . (
+                                                  (in_array($ext, ['doc','docx','ppt','pptx','xls','xlsx']) && !$isLocal)
+                                                  ? '<a class="btn btn-primary btn-sm glightbox" href="#' . $inlineId . '" data-type="inline">Open</a>'
+                                                  : '<a class="btn btn-primary btn-sm glightbox office-open" data-file="' . htmlspecialchars($src) . '" data-inline="#' . $inlineId . '" data-title="' . $title . '">Open</a>'
+                                                )
+                                              . '<a class="btn btn-outline-primary btn-sm" href="' . htmlspecialchars($src) . '" download>Download</a>'
+                                              . '</div>'
+                                              . '<div class="glightbox-inline" id="' . $inlineId . '">'
+                                                  . '<div class="modal-header"><div class="modal-title"><i class="fas fa-file-word"></i><span class="file-name">' . $title . '</span></div></div>'
+                                                  . '<div class="modal-body">'
+                                                      . (
+                                                          (in_array($ext, ['doc','docx','ppt','pptx','xls','xlsx']) && !$isLocal)
+                                                          ? '<iframe src="' . htmlspecialchars($gview) . '" width="100%" height="640" style="border:0;"></iframe>'
+                                                          : '<div class="docx-view"><div class="docx-html">Loading preview…</div></div>'
+                                                        )
+                                                  . '</div>'
+                                              . '</div>'
+                                              . '</div>';
                                 $rendered = true;
                             }
                         }
