@@ -251,6 +251,8 @@ function getTierLabel($tier) {
     <link rel="stylesheet" href="assets/css/style.css">
     <link rel="stylesheet" href="assets/css/buttons.css">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
+    <!-- Modern lightbox for previews -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/glightbox/dist/css/glightbox.min.css">
     <style>
         body { background: #f3f4f6; min-height: 100vh; font-family: 'Segoe UI', Arial, sans-serif; margin:0; }
         .assessment-container { max-width: 1200px; margin: 24px auto; padding: 0 16px; }
@@ -395,6 +397,11 @@ function getTierLabel($tier) {
     /* Skill chips */
     .chip-skill { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:9999px; background:#F1F5F9; color:#111827; border:1px solid #CBD5E1; font-size:0.85rem; }
     .chip-skill i { color:#4F46E5; }
+
+        /* Inline containers used by lightbox */
+        .glightbox-inline { display:none; }
+        .docx-view { background:#ffffff; max-height:75vh; overflow:auto; padding:16px; border-radius:8px; }
+        .docx-view .docx-html { color:#111827; }
     </style>
 </head>
 <body>
@@ -460,45 +467,72 @@ function getTierLabel($tier) {
 
                         $path = is_string($filePath) ? trim($filePath) : '';
                         $web = $toWeb($path);
+                        // Helper to produce absolute URLs for embedding when available
+                        $absUrl = function($rel) {
+                            if (preg_match('~^https?://~i', $rel)) return $rel;
+                            $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+                            $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+                            $base = rtrim(dirname($_SERVER['SCRIPT_NAME'] ?? ''), '/\\');
+                            $rel = ltrim($rel, '/');
+                            return $scheme . '://' . $host . '/' . $rel;
+                        };
                         if ($web !== '') {
                             $ext = strtolower(pathinfo($web, PATHINFO_EXTENSION));
                             $src = preg_match('~^https?://~i', $web) ? $web : $web;
+                            $abs = $absUrl($src);
                             $fname = htmlspecialchars(basename($web));
-                            if (in_array($ext, ['jpg','jpeg','png','gif','webp'])) {
-                                echo '<div class="preview-block">'
-                                   . '<img class="preview-media" src="' . htmlspecialchars($src) . '" alt="submission image" />'
-                                   . '<div class="btn-group" style="margin-top:8px;">'
-                                   . '<a class="btn btn-primary btn-sm" href="' . htmlspecialchars($src) . '" target="_blank">Open Image</a>'
-                                   . '<a class="btn btn-outline-primary btn-sm" href="' . htmlspecialchars($src) . '" download>Download</a>'
-                                   . '</div>'
-                                   . '</div>';
+                                     if (in_array($ext, ['jpg','jpeg','png','gif','webp'])) {
+                                          $title = 'Image Preview';
+                                          echo '<div class="preview-block">'
+                                              . '<a class="glightbox" href="' . htmlspecialchars($src) . '" data-type="image" data-title="' . htmlspecialchars($title) . '">' 
+                                              . '<img class="preview-media" src="' . htmlspecialchars($src) . '" alt="submission image" />'
+                                              . '</a>'
+                                              . '<div class="btn-group" style="margin-top:8px;">'
+                                              . '<a class="btn btn-primary btn-sm glightbox" href="' . htmlspecialchars($src) . '" data-type="image" data-title="' . htmlspecialchars($title) . '">Open</a>'
+                                              . '<a class="btn btn-outline-primary btn-sm" href="' . htmlspecialchars($src) . '" download>Download</a>'
+                                              . '</div>'
+                                              . '</div>';
                                 $rendered = true;
                             } elseif ($ext === 'pdf') {
-                                echo '<div class="preview-block">'
-                                   . '<object data="' . htmlspecialchars($src) . '" type="application/pdf" width="100%" height="480"></object>'
-                                   . '<div class="btn-group" style="margin-top:8px;">'
-                                   . '<a class="btn btn-primary btn-sm" href="' . htmlspecialchars($src) . '" target="_blank">Open PDF</a>'
-                                   . '<a class="btn btn-outline-primary btn-sm" href="' . htmlspecialchars($src) . '" download>Download</a>'
-                                   . '</div>'
-                                   . '</div>';
+                                          $title = 'PDF Preview';
+                                          // Use lightbox iframe for PDFs
+                                          echo '<div class="preview-block">'
+                                              . '<div class="btn-group" style="margin-top:8px;">'
+                                              . '<a class="btn btn-primary btn-sm glightbox" href="' . htmlspecialchars($abs) . '" data-type="iframe" data-title="' . htmlspecialchars($title) . '">Open</a>'
+                                              . '<a class="btn btn-outline-primary btn-sm" href="' . htmlspecialchars($src) . '" download>Download</a>'
+                                              . '</div>'
+                                              . '</div>';
                                 $rendered = true;
-                            } elseif (in_array($ext, ['txt','md','csv'])) {
-                                echo '<div class="preview-block">'
-                                   . '<div>File: ' . $fname . '</div>'
-                                   . '<div class="btn-group" style="margin-top:8px;">'
-                                   . '<a class="btn btn-primary btn-sm" href="' . htmlspecialchars($src) . '" target="_blank">Open</a>'
-                                   . '<a class="btn btn-outline-primary btn-sm" href="' . htmlspecialchars($src) . '" download>Download</a>'
-                                   . '</div>'
-                                   . '</div>';
+                                     } elseif (in_array($ext, ['txt','md','csv'])) {
+                                          $inlineId = 'inline-'.md5($web);
+                                          $title = $fname;
+                                          echo '<div class="preview-block">'
+                                              . '<div class="glightbox-inline" id="' . $inlineId . '"><div class="docx-view"><div class="docx-html">' . htmlspecialchars(@file_get_contents($web)) . '</div></div></div>'
+                                              . '<div class="btn-group" style="margin-top:8px;">'
+                                              . '<a class="btn btn-primary btn-sm glightbox" href="#' . $inlineId . '" data-gallery="submission" data-title="' . htmlspecialchars($title) . '">Open</a>'
+                                              . '<a class="btn btn-outline-primary btn-sm" href="' . htmlspecialchars($src) . '" download>Download</a>'
+                                              . '</div>'
+                                              . '</div>';
                                 $rendered = true;
                             } else {
-                                echo '<div class="preview-block">'
-                                   . '<div>File: ' . $fname . '</div>'
-                                   . '<div class="btn-group" style="margin-top:8px;">'
-                                   . '<a class="btn btn-primary btn-sm" href="' . htmlspecialchars($src) . '" target="_blank">Open</a>'
-                                   . '<a class="btn btn-outline-primary btn-sm" href="' . htmlspecialchars($src) . '" download>Download</a>'
-                                   . '</div>'
-                                   . '</div>';
+                                          // For docx and other office files, create a lightbox container we can populate via JS using Mammoth (docx)
+                                          $inlineId = 'inline-'.md5($web);
+                                          $title = $fname;
+                                                                                    // If public host (not localhost), offer Google Docs Viewer as a quick-view fallback
+                                                                                    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+                                                                                    $isLocal = (stripos($host, 'localhost') !== false) || (stripos($host, '127.0.0.1') !== false);
+                                                                                    $gview = 'https://docs.google.com/gview?embedded=1&url=' . rawurlencode($abs);
+                                                                                    echo '<div class="preview-block">'
+                                                                                            . '<div class="btn-group" style="margin-top:8px;">'
+                                                                                            . (
+                                                                                                    (in_array($ext, ['doc','docx','ppt','pptx','xls','xlsx']) && !$isLocal)
+                                                                                                    ? '<a class="btn btn-primary btn-sm glightbox" href="' . htmlspecialchars($gview) . '" data-type="iframe" data-title="' . htmlspecialchars($title) . '">Open</a>'
+                                                                                                    : '<a class="btn btn-primary btn-sm glightbox office-open" data-file="' . htmlspecialchars($src) . '" data-inline="#' . $inlineId . '" data-title="' . htmlspecialchars($title) . '">Open</a>'
+                                                                                                )
+                                                                                            . '<a class="btn btn-outline-primary btn-sm" href="' . htmlspecialchars($src) . '" download>Download</a>'
+                                                                                            . '</div>'
+                                                                                            . '<div class="glightbox-inline" id="' . $inlineId . '"><div class="docx-view"><div class="docx-html">Loading preview…</div></div></div>'
+                                                                                            . '</div>';
                                 $rendered = true;
                             }
                         }
@@ -658,6 +692,8 @@ function getTierLabel($tier) {
         </div>
     </div>
     
+    <script src="https://cdn.jsdelivr.net/npm/glightbox/dist/js/glightbox.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.5.1/mammoth.browser.min.js"></script>
     <script>
         function onPerfChange(sel){
             const base = parseFloat(sel.getAttribute('data-base')) || 0;
@@ -683,7 +719,39 @@ function getTierLabel($tier) {
         }
 
         // Initialize once DOM is ready
-        document.addEventListener('DOMContentLoaded', updateTotal);
+        document.addEventListener('DOMContentLoaded', function(){
+            updateTotal();
+            const lightbox = GLightbox({
+                selector: '.glightbox',
+                touchNavigation: true,
+                openEffect: 'zoom',
+                closeEffect: 'fade',
+                plyr: { css: '' }
+            });
+
+            // Handle Office (docx) previews via Mammoth in an inline lightbox
+            document.querySelectorAll('a.office-open').forEach((a) => {
+                a.addEventListener('click', async (e) => {
+                    e.preventDefault();
+                    const fileUrl = a.getAttribute('data-file');
+                    const inlineSel = a.getAttribute('data-inline');
+                    const title = a.getAttribute('data-title') || 'Document';
+                    try {
+                        const res = await fetch(fileUrl);
+                        const buf = await res.arrayBuffer();
+                        const result = await window.mammoth.convertToHtml({ arrayBuffer: buf });
+                        const container = document.querySelector(inlineSel + ' .docx-html');
+                        if (container) container.innerHTML = result.value || '<em>Empty document</em>';
+                    } catch (err) {
+                        const container = document.querySelector(inlineSel + ' .docx-html');
+                        if (container) container.innerHTML = '<em>Preview failed. Please download the file.</em>';
+                        console.error('DOCX preview error:', err);
+                    }
+                    // Open inline lightbox
+                    lightbox.open({ href: inlineSel, type: 'inline', title: title });
+                });
+            });
+        });
     </script>
 </body>
 </html>
