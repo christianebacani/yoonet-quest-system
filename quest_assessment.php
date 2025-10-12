@@ -871,9 +871,12 @@ function getTierLabel($tier) {
             });
 
             // Handle Office (docx) previews via Mammoth in an inline lightbox
+            // Use capture so this handler runs BEFORE GLightbox's own click listener,
+            // preventing the lightbox from opening without our rendered content.
             document.querySelectorAll('a.office-open').forEach((a) => {
                 const activate = async (e) => {
                     e.preventDefault();
+                    if (e.stopImmediatePropagation) e.stopImmediatePropagation();
                     const fileUrl = a.getAttribute('data-file');
                     const inlineSel = a.getAttribute('data-inline');
                     const title = a.getAttribute('data-title') || 'Document';
@@ -897,10 +900,10 @@ function getTierLabel($tier) {
                         console.error('DOCX preview error:', err);
                     }
                 };
-                a.addEventListener('click', activate);
+                a.addEventListener('click', activate, { capture: true });
                 a.addEventListener('keydown', (ke) => {
                     if (ke.key === 'Enter' || ke.key === ' ') { activate(ke); }
-                });
+                }, { capture: true });
             });
 
             // Smarter 'View in new tab' handling to avoid forced downloads
@@ -943,7 +946,7 @@ function getTierLabel($tier) {
                             }
                             return;
                         }
-                        // Non-DOCX Office
+                        // Non-DOCX Officegi
                         if (!isLocal) {
                             const url = gview || ('https://docs.google.com/gview?embedded=1&url=' + encodeURIComponent(abs));
                             window.open(url, '_blank');
