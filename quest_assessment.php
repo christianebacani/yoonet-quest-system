@@ -15,6 +15,41 @@ $submission_id = isset($_GET['submission_id']) ? (int)$_GET['submission_id'] : 0
 $error = '';
 $success = '';
 
+// Ensure required tables exist to prevent submission errors on fresh databases
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS `user_earned_skills` (
+        `id` int(11) NOT NULL AUTO_INCREMENT,
+        `user_id` int(11) NOT NULL,
+        `skill_name` varchar(255) NOT NULL,
+        `total_points` int(11) NOT NULL DEFAULT 0,
+        `current_level` int(11) NOT NULL DEFAULT 1,
+        `current_stage` enum('Learning','Applying','Mastering','Innovating') NOT NULL DEFAULT 'Learning',
+        `last_used` timestamp NULL DEFAULT NULL,
+        `recent_points` int(11) NOT NULL DEFAULT 0,
+        `status` enum('ACTIVE','STALE','RUSTY') NOT NULL DEFAULT 'ACTIVE',
+        `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (`id`),
+        UNIQUE KEY `uniq_user_skill_name` (`user_id`,`skill_name`),
+        KEY `idx_user` (`user_id`),
+        KEY `idx_skill_name` (`skill_name`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS `quest_completions` (
+        `id` int(11) NOT NULL AUTO_INCREMENT,
+        `quest_id` int(11) NOT NULL,
+        `user_id` int(11) NOT NULL,
+        `completed_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        `total_points_awarded` int(11) NOT NULL DEFAULT 0,
+        `notes` text,
+        PRIMARY KEY (`id`),
+        UNIQUE KEY `uniq_user_quest` (`quest_id`,`user_id`),
+        KEY `idx_user` (`user_id`),
+        KEY `idx_quest` (`quest_id`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+} catch (Throwable $e) {
+    // Continue; if permissions prevent DDL, later operations may still succeed if tables already exist
+}
+
 // Try to resolve missing identifiers gracefully before redirecting
 if ($quest_id && !$user_id) {
     try {
@@ -174,35 +209,42 @@ if (empty($error) && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['subm
         $pdo->beginTransaction();
         
         foreach ($assessments as $skill_name => $assessment) {
-            $performance = (float)$assessment['performance'];
-            $base_points = (int)$assessment['base_points'];
+            $performance = (float)($assessment['performance'] ?? 1.0);
+            $base_points = (int)($assessment['base_points'] ?? 0);
             $notes = sanitize_input($assessment['notes'] ?? '');
-            
+
+            // Skip zero-point awards (e.g., Not performed)
+            if ($base_points <= 0 || $performance <= 0) { continue; }
+
             // Award skill points
             $result = $skillManager->awardSkillPoints($user_id, $skill_name, $base_points, $performance);
-            
-            if ($result['success']) {
-                $awarded_skills[] = [
-                    'skill' => $skill_name,
-                    'points' => $result['points_awarded'],
-                    'level' => $result['new_level'],
-                    'stage' => $result['new_stage']
-                ];
-                $total_points += $result['points_awarded'];
+            if (!($result['success'] ?? false)) {
+                throw new Exception('Failed to award points for ' . $skill_name . ': ' . ($result['error'] ?? 'unknown error'));
             }
+
+            $awarded_skills[] = [
+                'skill' => $skill_name,
+                'points' => $result['points_awarded'],
+                'level' => $result['new_level'],
+                'stage' => $result['new_stage']
+            ];
+            $total_points += $result['points_awarded'];
         }
         
-        // Mark quest as completed for this user
-        $stmt = $pdo->prepare("
-            INSERT INTO quest_completions (quest_id, user_id, completed_at, total_points_awarded, notes) 
-            VALUES (?, ?, NOW(), ?, ?) 
-            ON DUPLICATE KEY UPDATE 
-            completed_at = NOW(), total_points_awarded = ?, notes = ?
-        ");
-        $stmt->execute([$quest_id, $user_id, $total_points, '', $total_points, '']);
+        // Mark quest as completed for this user (robust upsert without requiring unique index)
+        $stmt = $pdo->prepare("SELECT id FROM quest_completions WHERE quest_id = ? AND user_id = ? LIMIT 1");
+        $stmt->execute([$quest_id, $user_id]);
+        $existingId = $stmt->fetchColumn();
+        if ($existingId) {
+            $stmt = $pdo->prepare("UPDATE quest_completions SET completed_at = NOW(), total_points_awarded = ?, notes = ? WHERE id = ?");
+            $stmt->execute([$total_points, '', $existingId]);
+        } else {
+            $stmt = $pdo->prepare("INSERT INTO quest_completions (quest_id, user_id, completed_at, total_points_awarded, notes) VALUES (?, ?, NOW(), ?, ?)");
+            $stmt->execute([$quest_id, $user_id, $total_points, '']);
+        }
         
         $pdo->commit();
-        $success = "Quest assessment completed! Total points awarded: {$total_points}";
+    $success = "Grading completed! Total points awarded: {$total_points}";
         
         // Redirect to prevent resubmission
         header("Location: quest_assessment.php?quest_id={$quest_id}&user_id={$user_id}&success=1");
@@ -211,7 +253,7 @@ if (empty($error) && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['subm
     } catch (Exception $e) {
         $pdo->rollBack();
         error_log("Error submitting assessment: " . $e->getMessage());
-        $error = "Failed to submit assessment. Please try again.";
+    $error = "Failed to grade submission. Please try again.";
     }
 }
 
@@ -414,6 +456,11 @@ function getTierLabel($tier) {
     /* Hide GLightbox bottom caption/description to avoid duplicate filenames */
     .gdesc, .gdesc-inner, .gslide-desc { display:none !important; }
 
+    /* Ensure inline slides have a white canvas so content isn't perceived as black */
+    .glightbox-container .gslide-inline .ginner { background:#ffffff; border-radius:8px; }
+    .glightbox-container .gslide iframe { background:#ffffff; }
+    .file-caption { color:#374151; font-size:0.9rem; margin:6px 0 0 0; word-break: break-all; }
+
         /* Lightbox modal header with filename */
     .modal-header { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 12px; border-bottom:1px solid var(--mh-border, #e5e7eb); background:var(--mh-bg, #ffffff); position:sticky; top:0; z-index:2; border-radius:8px 8px 0 0; }
     .modal-title { display:flex; align-items:center; gap:8px; font-weight:600; color:var(--mh-text, #111827); min-width:0; }
@@ -501,8 +548,10 @@ function getTierLabel($tier) {
                             $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
                             $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
                             $base = rtrim(dirname($_SERVER['SCRIPT_NAME'] ?? ''), '/\\');
-                            $rel = ltrim($rel, '/');
-                            return $scheme . '://' . $host . '/' . $rel;
+                            $rel = ltrim((string)$rel, '/');
+                            $prefix = trim($base, '/');
+                            $path = $prefix !== '' ? ($prefix . '/' . $rel) : $rel;
+                            return $scheme . '://' . $host . '/' . $path;
                         };
                         if ($web !== '') {
                             $ext = strtolower(pathinfo($web, PATHINFO_EXTENSION));
@@ -514,15 +563,17 @@ function getTierLabel($tier) {
                                           $inlineId = 'inline-'.md5($web);
                                           echo '<div class="preview-block">'
                                               . '<a class="glightbox" href="#' . $inlineId . '" data-type="inline">' 
-                                              . '<img class="preview-media" src="' . htmlspecialchars($src) . '" alt="submission image" />'
+                                              . '<img class="preview-media" src="' . htmlspecialchars($abs) . '" alt="submission image" />'
                                               . '</a>'
-                                              . '<div class="btn-group" style="margin-top:8px;">'
+                                              . '<div class="btn-group" style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">'
                                               . '<a class="btn btn-primary btn-sm glightbox" href="#' . $inlineId . '" data-type="inline">Open</a>'
+                                              . '<a class="btn btn-secondary btn-sm view-newtab" href="' . htmlspecialchars($abs) . '" data-abs="' . htmlspecialchars($abs) . '" data-ext="' . $ext . '" target="_blank" rel="noopener">View in new tab</a>'
                                               . '<a class="btn btn-outline-primary btn-sm" href="' . htmlspecialchars($src) . '" download>Download</a>'
                                               . '</div>'
+                                              . '<div class="file-caption"><i class="fas fa-paperclip"></i> ' . $title . '</div>'
                                               . '<div class="glightbox-inline" id="' . $inlineId . '">'
                                                   . '<div class="modal-header mh-image"><div class="modal-title"><i class="fas fa-image"></i><span class="file-name">' . $title . '</span></div></div>'
-                                                  . '<div class="modal-body"><img style="max-width:100%;height:auto;display:block;margin:0 auto;" src="' . htmlspecialchars($src) . '" alt="' . $title . '"/></div>'
+                                                  . '<div class="modal-body"><img style="max-width:100%;max-height:75vh;height:auto;display:block;margin:0 auto;background:#fff;" src="' . htmlspecialchars($abs) . '" alt="' . $title . '"/></div>'
                                               . '</div>'
                                               . '</div>';
                                 $rendered = true;
@@ -530,13 +581,15 @@ function getTierLabel($tier) {
                                           $title = $fname;
                                           $inlineId = 'inline-'.md5($web);
                                           echo '<div class="preview-block">'
-                                              . '<div class="btn-group" style="margin-top:8px;">'
+                                              . '<div class="btn-group" style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">'
                                               . '<a class="btn btn-primary btn-sm glightbox" href="#' . $inlineId . '" data-type="inline">Open</a>'
+                                              . '<a class="btn btn-secondary btn-sm view-newtab" href="' . htmlspecialchars($abs) . '" data-abs="' . htmlspecialchars($abs) . '" data-ext="' . $ext . '" target="_blank" rel="noopener">View in new tab</a>'
                                               . '<a class="btn btn-outline-primary btn-sm" href="' . htmlspecialchars($src) . '" download>Download</a>'
                                               . '</div>'
+                                              . '<div class="file-caption"><i class="fas fa-paperclip"></i> ' . $title . '</div>'
                                               . '<div class="glightbox-inline" id="' . $inlineId . '">'
                                                   . '<div class="modal-header mh-pdf"><div class="modal-title"><i class="fas fa-file-pdf"></i><span class="file-name">' . $title . '</span></div></div>'
-                                                  . '<div class="modal-body"><iframe src="' . htmlspecialchars($abs) . '" width="100%" height="640" style="border:0;"></iframe></div>'
+                                                  . '<div class="modal-body"><iframe src="' . htmlspecialchars($abs) . '" width="100%" style="border:0; min-height:70vh;"></iframe></div>'
                                               . '</div>'
                                               . '</div>';
                                 $rendered = true;
@@ -548,10 +601,12 @@ function getTierLabel($tier) {
                                                   . '<div class="modal-header mh-text"><div class="modal-title"><i class="fas fa-file-alt"></i><span class="file-name">' . $title . '</span></div></div>'
                                                   . '<div class="modal-body"><div class="docx-view"><div class="docx-html">' . htmlspecialchars(@file_get_contents($web)) . '</div></div></div>'
                                               . '</div>'
-                                              . '<div class="btn-group" style="margin-top:8px;">'
+                                              . '<div class="btn-group" style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">'
                                               . '<a class="btn btn-primary btn-sm glightbox" href="#' . $inlineId . '" data-gallery="submission" data-type="inline">Open</a>'
+                                              . '<a class="btn btn-secondary btn-sm view-newtab" href="' . htmlspecialchars($abs) . '" data-abs="' . htmlspecialchars($abs) . '" data-ext="' . $ext . '" target="_blank" rel="noopener">View in new tab</a>'
                                               . '<a class="btn btn-outline-primary btn-sm" href="' . htmlspecialchars($src) . '" download>Download</a>'
                                               . '</div>'
+                                              . '<div class="file-caption"><i class="fas fa-paperclip"></i> ' . $title . '</div>'
                                               . '</div>';
                                 $rendered = true;
                             } else {
@@ -562,23 +617,28 @@ function getTierLabel($tier) {
                                           $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
                                           $isLocal = (stripos($host, 'localhost') !== false) || (stripos($host, '127.0.0.1') !== false);
                                           $gview = 'https://docs.google.com/gview?embedded=1&url=' . rawurlencode($abs);
-                                          echo '<div class="preview-block">'
-                                              . '<div class="btn-group" style="margin-top:8px;">'
-                                              . (
-                                                  (in_array($ext, ['doc','docx','ppt','pptx','xls','xlsx']) && !$isLocal)
-                                                  ? '<a class="btn btn-primary btn-sm glightbox" href="#' . $inlineId . '" data-type="inline">Open</a>'
-                                                  : '<a class="btn btn-primary btn-sm glightbox office-open" data-file="' . htmlspecialchars($src) . '" data-inline="#' . $inlineId . '" data-title="' . $title . '">Open</a>'
-                                                )
+                                                                                    echo '<div class="preview-block">'
+                                                                                                                                                                                        . '<div class="btn-group" style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">'
+                                                                                            . (
+                                                                                                    // Use Google Viewer in modal for all non-DOCX Office files (even on localhost),
+                                                                                                    // and for DOCX on public hosts. Only DOCX on localhost uses Mammoth inline.
+                                                                                                    ((in_array($ext, ['doc','ppt','pptx','xls','xlsx'])) || ($ext === 'docx' && !$isLocal))
+                                                                                                    ? '<a class="btn btn-primary btn-sm glightbox" href="#' . $inlineId . '" data-type="inline">Open</a>'
+                                                                                                      : '<a class="btn btn-primary btn-sm glightbox office-open" href="#' . $inlineId . '" data-type="inline" role="button" tabindex="0" data-file="' . htmlspecialchars($abs) . '" data-inline="#' . $inlineId . '" data-title="' . $title . '">Open</a>'
+                                                                                                )
+                                                                                                                                                                                            . '<a class="btn btn-secondary btn-sm view-newtab" href="' . htmlspecialchars((!$isLocal ? $gview : $abs)) . '" data-abs="' . htmlspecialchars($abs) . '" data-gview="' . htmlspecialchars($gview) . '" data-ext="' . $ext . '" target="_blank" rel="noopener">View in new tab</a>'
                                               . '<a class="btn btn-outline-primary btn-sm" href="' . htmlspecialchars($src) . '" download>Download</a>'
                                               . '</div>'
+                                              . '<div class="file-caption"><i class="fas fa-paperclip"></i> ' . $title . '</div>'
                                               . '<div class="glightbox-inline" id="' . $inlineId . '">'
                                                   . '<div class="modal-header ' . (in_array($ext, ['xls','xlsx']) ? 'mh-xls' : (in_array($ext, ['ppt','pptx']) ? 'mh-ppt' : (in_array($ext, ['doc','docx']) ? 'mh-doc' : 'mh-office'))) . '"><div class="modal-title"><i class="' . (in_array($ext, ['xls','xlsx']) ? 'fas fa-file-excel' : (in_array($ext, ['ppt','pptx']) ? 'fas fa-file-powerpoint' : 'fas fa-file-word')) . '"></i><span class="file-name">' . $title . '</span></div></div>'
-                                                  . '<div class="modal-body">'
-                                                      . (
-                                                          (in_array($ext, ['doc','docx','ppt','pptx','xls','xlsx']) && !$isLocal)
-                                                          ? '<iframe src="' . htmlspecialchars($gview) . '" width="100%" height="640" style="border:0;"></iframe>'
-                                                          : '<div class="docx-view"><div class="docx-html">Loading preview…</div></div>'
-                                                        )
+                                                  . '<div class="modal-body" style="min-height:70vh; background:#fff;">'
+                                                                                                            . (
+                                                                                                                    // Show Google Viewer iframe for non-DOCX Office files always, and for DOCX on public hosts
+                                                                                                                    ((in_array($ext, ['doc','ppt','pptx','xls','xlsx'])) || ($ext === 'docx' && !$isLocal))
+                                                                                                                    ? '<iframe src="' . htmlspecialchars($gview) . '" width="100%" height="640" style="border:0;"></iframe>'
+                                                                                                                    : '<div class="docx-view"><div class="docx-html">Loading preview…</div></div>'
+                                                                                                                )
                                                   . '</div>'
                                               . '</div>'
                                               . '</div>';
@@ -705,7 +765,7 @@ function getTierLabel($tier) {
                 
                 <div class="form-actions form-actions-right">
                     <button type="submit" name="submit_assessment" class="btn btn-primary" <?= (!$user_id || !$quest_id) ? 'disabled' : '' ?> >
-                        <i class="fas fa-trophy"></i> Assessment &amp; XP Points
+                        <i class="fas fa-trophy"></i> Grade &amp; Award XP
                     </button>
                 </div>
             </form>
@@ -810,24 +870,78 @@ function getTierLabel($tier) {
 
             // Handle Office (docx) previews via Mammoth in an inline lightbox
             document.querySelectorAll('a.office-open').forEach((a) => {
-                a.addEventListener('click', async (e) => {
+                const activate = async (e) => {
                     e.preventDefault();
                     const fileUrl = a.getAttribute('data-file');
                     const inlineSel = a.getAttribute('data-inline');
                     const title = a.getAttribute('data-title') || 'Document';
+                    const container = document.querySelector(inlineSel + ' .docx-html');
+                    if (container) container.innerHTML = 'Loading preview…';
+                    // Open immediately so the user always sees something, then render in place
+                    lightbox.open({ href: inlineSel, type: 'inline', title: title });
                     try {
                         const res = await fetch(fileUrl);
                         const buf = await res.arrayBuffer();
                         const result = await window.mammoth.convertToHtml({ arrayBuffer: buf });
-                        const container = document.querySelector(inlineSel + ' .docx-html');
                         if (container) container.innerHTML = result.value || '<em>Empty document</em>';
                     } catch (err) {
-                        const container = document.querySelector(inlineSel + ' .docx-html');
-                        if (container) container.innerHTML = '<em>Preview failed. Please download the file.</em>';
+                        if (container) {
+                            container.innerHTML = '<em>Preview failed. </em><a href="' + fileUrl + '" target="_blank" rel="noopener">Open in new tab</a>';
+                        } else {
+                            // If we somehow don't have a container, open via Google Viewer as a hard fallback
+                            const url = 'https://docs.google.com/gview?embedded=1&url=' + encodeURIComponent(fileUrl);
+                            lightbox.open({ href: url, type: 'external', title: title });
+                        }
                         console.error('DOCX preview error:', err);
                     }
-                    // Open inline lightbox
-                    lightbox.open({ href: inlineSel, type: 'inline', title: title });
+                };
+                a.addEventListener('click', activate);
+                a.addEventListener('keydown', (ke) => {
+                    if (ke.key === 'Enter' || ke.key === ' ') { activate(ke); }
+                });
+            });
+
+            // Smarter 'View in new tab' handling to avoid forced downloads
+            document.querySelectorAll('a.view-newtab').forEach((a) => {
+                a.addEventListener('click', async (e) => {
+                    const ext = (a.getAttribute('data-ext') || '').toLowerCase();
+                    const abs = a.getAttribute('data-abs') || a.href;
+                    const gview = a.getAttribute('data-gview');
+                    const host = location.host;
+                    const isLocal = host.includes('localhost') || host.includes('127.0.0.1');
+
+                    // Default behavior for images and PDFs is fine
+                    if (['jpg','jpeg','png','gif','webp','svg','pdf','txt','md','csv'].includes(ext)) {
+                        return; // let the browser open it
+                    }
+
+                    // For all Office types, force Google Viewer (works on localhost too)
+                    if (['doc','docx','ppt','pptx','xls','xlsx'].includes(ext)) {
+                        e.preventDefault();
+                        const url = gview || ('https://docs.google.com/gview?embedded=1&url=' + encodeURIComponent(abs));
+                        window.open(url, '_blank');
+                        return;
+                    }
+
+                    // For DOCX special case render via Mammoth as an alternative (not used when gview is preferred)
+                    if (ext === 'docx' && isLocal && window.mammoth && false) {
+                        e.preventDefault();
+                        try {
+                            const res = await fetch(abs);
+                            const buf = await res.arrayBuffer();
+                            const result = await window.mammoth.convertToHtml({ arrayBuffer: buf });
+                            const html = `<!doctype html><html><head><meta charset="utf-8"><title>${abs.split('/').pop()}</title><style>body{font-family:system-ui,Segoe UI,Arial,sans-serif;margin:16px;} img{max-width:100%;height:auto}</style></head><body>${result.value}</body></html>`;
+                            const blob = new Blob([html], { type: 'text/html' });
+                            const url = URL.createObjectURL(blob);
+                            window.open(url, '_blank');
+                            setTimeout(() => URL.revokeObjectURL(url), 30000);
+                        } catch (err) {
+                            // fallback to download if fetch fails
+                            console.error('DOCX new-tab render failed:', err);
+                        }
+                        return;
+                    }
+                    // Otherwise, allow default (may download if browser can't preview)
                 });
             });
         });
