@@ -449,8 +449,10 @@ function getTierLabel($tier) {
 
     /* Inline containers used by lightbox */
         .glightbox-inline { display:none; }
-        .docx-view { background:#ffffff; max-height:75vh; overflow:auto; padding:16px; border-radius:8px; }
-        .docx-view .docx-html { color:#111827; }
+    /* Let modal-body be the only scroll container to avoid double scrollbars */
+    .docx-view { background:#ffffff; max-height:none; overflow:visible; padding:16px; border-radius:8px; }
+    .docx-view .docx-html { color:#111827; }
+    .docx-view .docx-html img { max-width:100%; height:auto; }
 
     /* Hide GLightbox bottom caption/description to avoid duplicate filenames */
     .gdesc, .gdesc-inner, .gslide-desc { display:none !important; }
