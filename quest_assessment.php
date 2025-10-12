@@ -76,6 +76,61 @@ if (empty($error)) {
 $skillManager = new SkillProgression($pdo);
 $quest_skills = $skillManager->getQuestSkills($quest_id);
 
+// Normalize quest skills to always include readable skill_name and tier_level (T1..T5)
+$normalized_skills = [];
+if (is_array($quest_skills) && !empty($quest_skills)) {
+    // Build id -> name map if we only have skill_id
+    $ids = [];
+    foreach ($quest_skills as $row) {
+        if (!isset($row['skill_name']) && isset($row['skill_id'])) {
+            $ids[] = (int)$row['skill_id'];
+        }
+    }
+    $nameMap = [];
+    if (!empty($ids)) {
+        $ids = array_values(array_unique(array_filter($ids)));
+        if (!empty($ids)) {
+            try {
+                $placeholders = implode(',', array_fill(0, count($ids), '?'));
+                $stmt = $pdo->prepare("SELECT id, skill_name FROM comprehensive_skills WHERE id IN ($placeholders)");
+                $stmt->execute($ids);
+                while ($r = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                    $nameMap[(int)$r['id']] = (string)$r['skill_name'];
+                }
+            } catch (PDOException $e) {
+                error_log('assessment: failed to map skill ids -> names: ' . $e->getMessage());
+            }
+        }
+    }
+
+    foreach ($quest_skills as $row) {
+        $name = '';
+        if (isset($row['skill_name']) && $row['skill_name'] !== '') {
+            $name = (string)$row['skill_name'];
+        } elseif (isset($row['skill_id']) && isset($nameMap[(int)$row['skill_id']])) {
+            $name = $nameMap[(int)$row['skill_id']];
+        } else {
+            $name = 'Skill';
+        }
+
+        // Normalize tier_level to T1..T5
+        $tier_level = 'T2';
+        if (isset($row['tier_level']) && preg_match('~^T[1-5]$~', (string)$row['tier_level'])) {
+            $tier_level = (string)$row['tier_level'];
+        } elseif (isset($row['tier'])) {
+            $t = (int)$row['tier'];
+            if ($t < 1) $t = 1; if ($t > 5) $t = 5;
+            $tier_level = 'T' . $t;
+        }
+
+        $normalized_skills[] = [
+            'skill_name' => $name,
+            'tier_level' => $tier_level,
+        ];
+    }
+}
+$quest_skills = $normalized_skills ?: (is_array($quest_skills) ? $quest_skills : []);
+
 // Fetch latest submission by this user for this quest (schema-adaptive)
 $latestSubmission = null;
 // Prefer employee_id from user; fallback to explicit employee_id param
@@ -201,13 +256,11 @@ function getTierPoints($tier) {
         .assessment-content { padding: 0; }
         
         .section-title {
-            font-size: 1.3rem;
-            font-weight: bold;
-            color: #1e293b;
-            margin: 30px 0 20px 0;
-            text-align: center;
-            text-transform: uppercase;
-            letter-spacing: 1px;
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: #111827;
+            margin: 16px 0 12px 0;
+            text-align: left;
         }
         
         .skill-assessment {
@@ -225,25 +278,15 @@ function getTierPoints($tier) {
         }
         
         .skill-name {
-            font-size: 1.2rem;
-            font-weight: bold;
-            color: #1e293b;
-            margin-bottom: 15px;
+            font-size: 1.05rem;
+            font-weight: 700;
+            color: #111827;
+            margin-bottom: 12px;
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 8px;
         }
-        
-        .skill-checkbox {
-            width: 20px;
-            height: 20px;
-            border: 2px solid #64748b;
-            border-radius: 4px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: white;
-        }
+        .skill-name .skill-icon { color:#4F46E5; }
         
         .tier-info {
             display: flex;
@@ -253,10 +296,10 @@ function getTierPoints($tier) {
             padding: 10px;
             background: white;
             border-radius: 8px;
-            border-left: 4px solid #10b981;
+            border-left: 4px solid #6366f1;
         }
         
-        .base-tier { font-weight: bold; color: #059669; }
+        .base-tier { font-weight: 700; color: #3730A3; }
         .base-points { font-weight: bold; color: #1e293b; }
         
         .performance-section {
@@ -292,25 +335,7 @@ function getTierPoints($tier) {
             outline: none;
         }
         
-        .total-section {
-            background: linear-gradient(135deg, #10b981, #059669);
-            color: white;
-            padding: 20px;
-            border-radius: 12px;
-            margin: 30px 0;
-            text-align: center;
-        }
-        
-        .total-points {
-            font-size: 2rem;
-            font-weight: bold;
-            margin-bottom: 10px;
-        }
-        
-        .points-breakdown {
-            font-size: 1.1rem;
-            opacity: 0.9;
-        }
+        /* removed total-section styles (no longer used) */
         
         .submit-section {
             text-align: center;
@@ -346,7 +371,11 @@ function getTierPoints($tier) {
         .badge-rejected{ background:#FEE2E2; color:#991B1B; border:1px solid #EF4444; }
         .preview-block { margin-top: 12px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px; padding:12px; }
         .preview-media { max-width:100%; max-height:480px; border-radius:8px; border:1px solid #e5e7eb; }
-        .preview-text { white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; background:#111827; color:#e5e7eb; padding:12px; border-radius:8px; overflow:auto; }
+    .preview-text { white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; background:#111827; color:#e5e7eb; padding:12px; border-radius:8px; overflow:auto; }
+
+    /* Skill chips */
+    .chip-skill { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:9999px; background:#F1F5F9; color:#111827; border:1px solid #CBD5E1; font-size:0.85rem; }
+    .chip-skill i { color:#4F46E5; }
     </style>
 </head>
 <body>
@@ -509,6 +538,20 @@ function getTierPoints($tier) {
             <?php endif; ?>
             
             <div class="section-title">SKILL ASSESSMENT:</div>
+            <?php 
+                // Display a compact list of involved skills for clarity
+                $display_skills = is_array($quest_skills) ? array_map(fn($s) => $s['skill_name'] ?? 'Skill', $quest_skills) : [];
+            ?>
+            <?php if (!empty($display_skills)): ?>
+                <div class="card" style="border-left:4px solid #6366f1;" aria-label="Skills involved in this quest">
+                    <div style="font-weight:600;color:#111827;margin-bottom:6px;">Skills involved</div>
+                    <div style="display:flex;flex-wrap:wrap;gap:8px;">
+                        <?php foreach ($display_skills as $sn): ?>
+                            <span class="chip-skill"><i class="fas fa-lightbulb" aria-hidden="true"></i><?= htmlspecialchars($sn) ?></span>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+            <?php endif; ?>
             
             <?php $safe_skills = is_array($quest_skills) ? $quest_skills : []; ?>
             <form method="post" id="assessmentForm">
@@ -519,10 +562,10 @@ function getTierPoints($tier) {
                     $base_points = getTierPoints($tier_level);
                     $safeId = preg_replace('/[^a-zA-Z0-9_\-]/', '_', strtolower($skill_name));
                     ?>
-                    <div class="skill-assessment">
+                    <div class="skill-assessment" aria-label="Assessment for skill <?= htmlspecialchars($skill_name) ?>">
                         <div class="skill-name">
-                            <div class="skill-checkbox">[ ]</div>
-                            <?= htmlspecialchars($skill_name) ?>
+                            <i class="fas fa-award skill-icon" aria-hidden="true"></i>
+                            <span><?= htmlspecialchars($skill_name) ?></span>
                         </div>
                         
                         <div class="tier-info">
@@ -555,17 +598,11 @@ function getTierPoints($tier) {
                     </div>
                 <?php endforeach; ?>
                 
-                <div class="total-section">
-                    <?php $total_default = is_array($safe_skills) ? array_sum(array_map(fn($s) => getTierPoints($s['tier_level'] ?? 'T2'), $safe_skills)) : 0; ?>
-                    <div class="total-points">TOTAL POINTS: <span id="totalPoints"><?= $total_default ?></span></div>
-                    <div class="points-breakdown" id="pointsBreakdown">
-                        (<?= implode(' + ', array_map(fn($s) => (string)getTierPoints($s['tier_level'] ?? 'T2'), $safe_skills)) ?>)
-                    </div>
-                </div>
+                <!-- Removed green Total Points box as requested -->
                 
                 <div class="form-actions form-actions-right">
                     <button type="submit" name="submit_assessment" class="btn btn-primary" <?= (!$user_id || !$quest_id) ? 'disabled' : '' ?> >
-                        <i class="fas fa-trophy"></i> Submit Assessment & Award Points
+                        <i class="fas fa-trophy"></i> Assessment &amp; XP Points
                     </button>
                 </div>
             </form>
@@ -614,6 +651,7 @@ function getTierPoints($tier) {
         }
 
         function updateTotal(){
+            // Kept for future use; gracefully no-op if total display is removed
             let total = 0; const breakdown = [];
             document.querySelectorAll('.adjusted-points').forEach(span => {
                 const val = parseInt(span.textContent) || 0;
