@@ -335,7 +335,13 @@ function getTierLabel($tier) {
             margin-bottom: 10px;
         }
         
-        .performance-select { width: 100%; max-width: 380px; padding: 10px 12px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 0.95rem; }
+    .performance-select { width: 100%; max-width: 380px; padding: 10px 12px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 0.95rem; transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease; }
+    /* Color themes per performance level */
+    .performance-select.pf-none { background: #FEE2E2; border-color: #EF4444; color: #991B1B; }
+    .performance-select.pf-below { background: #FEF3C7; border-color: #F59E0B; color: #92400E; }
+    .performance-select.pf-meets { background: #E5E7EB; border-color: #9CA3AF; color: #111827; }
+    .performance-select.pf-exceeds { background: #DBEAFE; border-color: #3B82F6; color: #1E40AF; }
+    .performance-select.pf-exceptional { background: #EDE9FE; border-color: #8B5CF6; color: #5B21B6; }
         .line { color:#374151; margin-top:8px; }
         .line small { color:#6b7280; }
         
@@ -671,10 +677,11 @@ function getTierLabel($tier) {
                         <div class="performance-section">
                             <div class="performance-label">Performance:</div>
                             <select class="performance-select" name="assessments[<?= $skill_name ?>][performance]" id="perf_<?= $safeId ?>" data-skill="<?= $safeId ?>" data-base="<?= $base_points ?>" onchange="onPerfChange(this)">
-                                <option value="0.7">Below Expectations (-30%) = <?= round($base_points*0.7) ?> pts</option>
+                                <option value="0.0">Not performed (0%) = 0 pts</option>
+                                <option value="0.8">Below Expectations (-20%) = <?= round($base_points*0.8) ?> pts</option>
                                 <option value="1.0" selected>Meets Expectations (+0%) = <?= $base_points ?> pts</option>
-                                <option value="1.25">Exceeds Expectations (+25%) = <?= round($base_points*1.25) ?> pts</option>
-                                <option value="1.5">Exceptional (+50%) = <?= round($base_points*1.5) ?> pts</option>
+                                <option value="1.2">Exceeds Expectations (+20%) = <?= round($base_points*1.2) ?> pts</option>
+                                <option value="1.4">Exceptional (+40%) = <?= round($base_points*1.4) ?> pts</option>
                             </select>
 
                             <div class="line">Adjusted: <strong><span class="adjusted-points" id="adj_<?= $safeId ?>"><?= $base_points ?></span> pts</strong></div>
@@ -784,6 +791,21 @@ function getTierLabel($tier) {
                 openEffect: 'zoom',
                 closeEffect: 'fade',
                 plyr: { css: '' }
+            });
+
+            // Apply color coding to performance selects
+            function applyPerfColor(sel){
+                sel.classList.remove('pf-none','pf-below','pf-meets','pf-exceeds','pf-exceptional');
+                const v = parseFloat(sel.value);
+                if (v === 0) sel.classList.add('pf-none');
+                else if (v < 1) sel.classList.add('pf-below');
+                else if (v === 1) sel.classList.add('pf-meets');
+                else if (v > 1 && v <= 1.2) sel.classList.add('pf-exceeds');
+                else sel.classList.add('pf-exceptional');
+            }
+            document.querySelectorAll('.performance-select').forEach(sel => {
+                applyPerfColor(sel);
+                sel.addEventListener('change', () => applyPerfColor(sel));
             });
 
             // Handle Office (docx) previews via Mammoth in an inline lightbox
