@@ -407,11 +407,21 @@ function getTierLabel($tier) {
     .gdesc, .gdesc-inner, .gslide-desc { display:none !important; }
 
         /* Lightbox modal header with filename */
-        .modal-header { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 12px; border-bottom:1px solid #e5e7eb; background:#ffffff; position:sticky; top:0; z-index:2; border-radius:8px 8px 0 0; }
-        .modal-title { display:flex; align-items:center; gap:8px; font-weight:600; color:#111827; min-width:0; }
+    .modal-header { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 12px; border-bottom:1px solid var(--mh-border, #e5e7eb); background:var(--mh-bg, #ffffff); position:sticky; top:0; z-index:2; border-radius:8px 8px 0 0; }
+    .modal-title { display:flex; align-items:center; gap:8px; font-weight:600; color:var(--mh-text, #111827); min-width:0; }
+    .modal-title i { color: inherit; }
         .modal-title .file-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:70vw; }
         .modal-actions a { text-decoration:none; }
         .modal-body { background:#ffffff; max-height:75vh; overflow:auto; padding:10px 0; border-radius:0 0 8px 8px; }
+
+    /* Header color themes per file type */
+    .mh-image { --mh-bg:#EEF2FF; --mh-text:#3730A3; --mh-border:#C7D2FE; }
+    .mh-pdf   { --mh-bg:#FEE2E2; --mh-text:#991B1B; --mh-border:#FCA5A5; }
+    .mh-text  { --mh-bg:#F1F5F9; --mh-text:#0F172A; --mh-border:#CBD5E1; }
+    .mh-doc   { --mh-bg:#DBEAFE; --mh-text:#1E40AF; --mh-border:#93C5FD; }
+    .mh-xls   { --mh-bg:#DCFCE7; --mh-text:#065F46; --mh-border:#86EFAC; }
+    .mh-ppt   { --mh-bg:#FFEDD5; --mh-text:#9A3412; --mh-border:#FDBA74; }
+    .mh-office{ --mh-bg:#EDE9FE; --mh-text:#5B21B6; --mh-border:#C4B5FD; }
     </style>
 </head>
 <body>
@@ -503,7 +513,7 @@ function getTierLabel($tier) {
                                               . '<a class="btn btn-outline-primary btn-sm" href="' . htmlspecialchars($src) . '" download>Download</a>'
                                               . '</div>'
                                               . '<div class="glightbox-inline" id="' . $inlineId . '">'
-                                                  . '<div class="modal-header"><div class="modal-title"><i class="fas fa-image"></i><span class="file-name">' . $title . '</span></div></div>'
+                                                  . '<div class="modal-header mh-image"><div class="modal-title"><i class="fas fa-image"></i><span class="file-name">' . $title . '</span></div></div>'
                                                   . '<div class="modal-body"><img style="max-width:100%;height:auto;display:block;margin:0 auto;" src="' . htmlspecialchars($src) . '" alt="' . $title . '"/></div>'
                                               . '</div>'
                                               . '</div>';
@@ -517,7 +527,7 @@ function getTierLabel($tier) {
                                               . '<a class="btn btn-outline-primary btn-sm" href="' . htmlspecialchars($src) . '" download>Download</a>'
                                               . '</div>'
                                               . '<div class="glightbox-inline" id="' . $inlineId . '">'
-                                                  . '<div class="modal-header"><div class="modal-title"><i class="fas fa-file-pdf"></i><span class="file-name">' . $title . '</span></div></div>'
+                                                  . '<div class="modal-header mh-pdf"><div class="modal-title"><i class="fas fa-file-pdf"></i><span class="file-name">' . $title . '</span></div></div>'
                                                   . '<div class="modal-body"><iframe src="' . htmlspecialchars($abs) . '" width="100%" height="640" style="border:0;"></iframe></div>'
                                               . '</div>'
                                               . '</div>';
@@ -527,7 +537,7 @@ function getTierLabel($tier) {
                                           $title = $fname;
                                           echo '<div class="preview-block">'
                                               . '<div class="glightbox-inline" id="' . $inlineId . '">'
-                                                  . '<div class="modal-header"><div class="modal-title"><i class="fas fa-file-alt"></i><span class="file-name">' . $title . '</span></div></div>'
+                                                  . '<div class="modal-header mh-text"><div class="modal-title"><i class="fas fa-file-alt"></i><span class="file-name">' . $title . '</span></div></div>'
                                                   . '<div class="modal-body"><div class="docx-view"><div class="docx-html">' . htmlspecialchars(@file_get_contents($web)) . '</div></div></div>'
                                               . '</div>'
                                               . '<div class="btn-group" style="margin-top:8px;">'
@@ -554,7 +564,7 @@ function getTierLabel($tier) {
                                               . '<a class="btn btn-outline-primary btn-sm" href="' . htmlspecialchars($src) . '" download>Download</a>'
                                               . '</div>'
                                               . '<div class="glightbox-inline" id="' . $inlineId . '">'
-                                                  . '<div class="modal-header"><div class="modal-title"><i class="fas fa-file-word"></i><span class="file-name">' . $title . '</span></div></div>'
+                                                  . '<div class="modal-header ' . (in_array($ext, ['xls','xlsx']) ? 'mh-xls' : (in_array($ext, ['ppt','pptx']) ? 'mh-ppt' : (in_array($ext, ['doc','docx']) ? 'mh-doc' : 'mh-office'))) . '"><div class="modal-title"><i class="' . (in_array($ext, ['xls','xlsx']) ? 'fas fa-file-excel' : (in_array($ext, ['ppt','pptx']) ? 'fas fa-file-powerpoint' : 'fas fa-file-word')) . '"></i><span class="file-name">' . $title . '</span></div></div>'
                                                   . '<div class="modal-body">'
                                                       . (
                                                           (in_array($ext, ['doc','docx','ppt','pptx','xls','xlsx']) && !$isLocal)
