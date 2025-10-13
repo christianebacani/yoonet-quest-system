@@ -69,6 +69,10 @@ function abs_url($rel) {
         .preview { margin-top:12px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px; padding:12px; }
         .preview img { max-width:100%; height:auto; border-radius:6px; }
         .btn { display:inline-block; padding:8px 12px; border-radius:8px; background:#111827; color:#fff; text-decoration:none; font-weight:600; }
+        .btn-gray { background:#4B5563; }
+        .btn-green { background:#059669; }
+        .file-pill { display:inline-flex; align-items:center; gap:8px; padding:6px 10px; border-radius:9999px; background:#EEF2FF; color:#3730A3; border:1px solid #C7D2FE; font-size:12px; font-weight:600; }
+        .row { display:flex; flex-wrap:wrap; align-items:center; gap:10px; justify-content:space-between; }
     </style>
 </head>
 <body>
@@ -98,7 +102,29 @@ function abs_url($rel) {
             $rendered = false;
         ?>
         <div class="card">
-            <div class="preview">
+            <?php
+                $fileName = '';
+                if (!empty($filePath)) {
+                    $fileName = basename($filePath);
+                } elseif (!empty($driveLink)) {
+                    $u = parse_url($driveLink);
+                    $path = $u['path'] ?? '';
+                    $bn = $path !== '' ? basename($path) : '';
+                    $fileName = $bn !== '' ? $bn : ($u['host'] ?? 'external link');
+                }
+            ?>
+            <?php if (!empty($filePath) || (!empty($driveLink) && filter_var($driveLink, FILTER_VALIDATE_URL))): ?>
+                <?php $absFile = !empty($filePath) ? abs_url($filePath) : $driveLink; ?>
+                <div class="row" style="margin-bottom:8px;">
+                    <div class="file-pill">📄 <?php echo htmlspecialchars($fileName ?: 'Submission'); ?></div>
+                    <div style="display:flex; gap:8px;">
+                        <a href="#submission-inline-preview" class="btn">Open</a>
+                        <a href="<?php echo htmlspecialchars($absFile); ?>" target="_blank" rel="noopener" class="btn btn-gray">View in new tab</a>
+                        <a href="<?php echo htmlspecialchars($absFile); ?>" download class="btn btn-green">Download</a>
+                    </div>
+                </div>
+            <?php endif; ?>
+            <div class="preview" id="submission-inline-preview">
                 <?php if (!empty($filePath)): ?>
                     <?php $web = abs_url($filePath); $ext = strtolower(pathinfo($web, PATHINFO_EXTENSION)); ?>
                     <?php if (in_array($ext, ['jpg','jpeg','png','gif','webp'])): ?>
@@ -111,7 +137,7 @@ function abs_url($rel) {
                         <pre style="white-space:pre-wrap; background:#111827; color:#e5e7eb; padding:12px; border-radius:8px;"><?php echo htmlspecialchars(@file_get_contents($filePath)); ?></pre>
                         <?php $rendered = true; ?>
                     <?php else: ?>
-                        <p>No inline preview for this file type. <a href="<?php echo htmlspecialchars($web); ?>" target="_blank" rel="noopener" class="btn" style="background:#4F46E5;">Open</a></p>
+                        <p>No inline preview for this file type.</p>
                         <?php $rendered = true; ?>
                     <?php endif; ?>
                 <?php endif; ?>
