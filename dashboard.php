@@ -2,6 +2,23 @@
 require_once 'includes/config.php';
 require_once 'includes/functions.php';
 
+// Simple flash + redirect helper for PRG pattern
+if (!function_exists('redirect_with_message')) {
+    function redirect_with_message(string $url, ?string $success = null, ?string $error = null): void {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        if ($success !== null && $success !== '') {
+            $_SESSION['success'] = $success;
+        }
+        if ($error !== null && $error !== '') {
+            $_SESSION['error'] = $error;
+        }
+        header('Location: ' . $url);
+        exit();
+    }
+}
+
 // Start session if not already started
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
@@ -118,6 +135,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_theme_settings
         error_log("Error updating theme settings: " . $e->getMessage());
         $error = "Error updating theme settings";
     }
+    // PRG: Redirect after POST to avoid form resubmission prompts on back navigation
+    redirect_with_message('dashboard.php', $success ?? null, $error ?? null);
 }
 
 $full_name = $_SESSION['full_name'] ?? 'User';
@@ -207,6 +226,9 @@ $pending_page = isset($_GET['pending_page']) ? (int)$_GET['pending_page'] : 1;
 $review_page = isset($_GET['review_page']) ? (int)$_GET['review_page'] : 1;
 $error = '';
 $success = '';
+// Read and clear flash messages (if any)
+if (isset($_SESSION['success'])) { $success = $_SESSION['success']; unset($_SESSION['success']); }
+if (isset($_SESSION['error'])) { $error = $_SESSION['error']; unset($_SESSION['error']); }
 
 // Handle form submissions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -273,6 +295,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             error_log("Database error processing quest action: " . $e->getMessage());
             $error = "We're unable to update this quest right now.";
         }
+        // PRG redirect
+        redirect_with_message('dashboard.php', $success ?? null, $error ?? null);
     }
     
     // Handle group creation
@@ -316,6 +340,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $error = "Error creating group";
             }
         }
+        // PRG redirect
+        redirect_with_message('dashboard.php', $success ?? null, $error ?? null);
     }
     
     // Handle joining a group
@@ -343,6 +369,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             error_log("Database error joining group: " . $e->getMessage());
             $error = "Error joining group";
         }
+        // PRG redirect
+        redirect_with_message('dashboard.php', $success ?? null, $error ?? null);
     }
     
     // Handle leaving a group
@@ -370,6 +398,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             error_log("Database error leaving group: " . $e->getMessage());
             $error = "Error leaving group";
         }
+        // PRG redirect
+        redirect_with_message('dashboard.php', $success ?? null, $error ?? null);
     }
     
     // Handle quest submission (for takers)
@@ -630,6 +660,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
         }
+        // PRG redirect after any submission attempt (success or error)
+        redirect_with_message('dashboard.php', $success ?? null, $error ?? null);
     }
     
     // Handle quest deletion
@@ -669,6 +701,8 @@ if ($is_giver && isset($_POST['delete_quest'])) {
         error_log("Database error deleting quest: " . $e->getMessage());
         $error = "Error deleting quest";
     }
+    // PRG redirect
+    redirect_with_message('dashboard.php', $success ?? null, $error ?? null);
 }
     // Handle quest approval/rejection (for givers)
     if ($is_giver && isset($_POST['review_submission'])) {
@@ -732,6 +766,8 @@ if ($is_giver && isset($_POST['delete_quest'])) {
                 $error = "Error processing submission";
             }
         }
+        // PRG redirect
+        redirect_with_message('dashboard.php', $success ?? null, $error ?? null);
     }
 }
 
