@@ -575,6 +575,20 @@ function getTierLabel($tier) {
     .glightbox-container .gslide iframe { background:#ffffff; }
     .file-caption { color:#374151; font-size:0.9rem; margin:6px 0 0 0; word-break: break-all; }
 
+    /* Preview container styles to align with view_submission */
+    .preview-container { background:#fff; border-radius:10px; overflow:hidden; }
+    .preview-header { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; border-bottom:1px solid #e5e7eb; background:#f9fafb; }
+    .preview-title { display:flex; align-items:center; gap:8px; font-weight:700; color:#111827; }
+    .badge-file { display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:9999px; font-size:12px; font-weight:700; border:1px solid transparent; }
+    .badge-docx { background:#DBEAFE; color:#1E40AF; border-color:#93C5FD; }
+    .badge-pdf  { background:#FEE2E2; color:#991B1B; border-color:#FCA5A5; }
+    .badge-img  { background:#DCFCE7; color:#065F46; border-color:#86EFAC; }
+    .badge-text { background:#E5E7EB; color:#111827; border-color:#D1D5DB; }
+    .badge-link { background:#EDE9FE; color:#5B21B6; border-color:#C4B5FD; }
+    .badge-other{ background:#E0E7FF; color:#3730A3; border-color:#C7D2FE; }
+    .preview-body { padding:12px; }
+    .preview-body iframe { width:100%; border:0; min-height:70vh; }
+
         /* Lightbox modal header with filename */
     .modal-header { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 12px; border-bottom:1px solid var(--mh-border, #e5e7eb); background:var(--mh-bg, #ffffff); position:sticky; top:0; z-index:2; border-radius:8px 8px 0 0; }
     .modal-title { display:flex; align-items:center; gap:8px; font-weight:600; color:var(--mh-text, #111827); min-width:0; }
@@ -676,18 +690,16 @@ function getTierLabel($tier) {
                                           $title = $fname; // already escaped
                                           $inlineId = 'inline-'.md5($web);
                                           echo '<div class="preview-block">'
-                                              . '<a class="glightbox" href="#' . $inlineId . '" data-type="inline">' 
-                                              . '<img class="preview-media" src="' . htmlspecialchars($abs) . '" alt="submission image" />'
-                                              . '</a>'
-                                              . '<div class="btn-group" style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">'
+                                              . '<div class="btn-group" style="display:flex; gap:8px; flex-wrap:wrap;">'
                                               . '<a class="btn btn-primary btn-sm glightbox" href="#' . $inlineId . '" data-type="inline">Open</a>'
                                               . '<a class="btn btn-secondary btn-sm view-newtab" href="' . htmlspecialchars($abs) . '" data-abs="' . htmlspecialchars($abs) . '" data-ext="' . $ext . '" target="_blank" rel="noopener">View in new tab</a>'
                                               . '<a class="btn btn-outline-primary btn-sm" href="' . htmlspecialchars($src) . '" download>Download</a>'
                                               . '</div>'
-                                              . '<div class="file-caption"><i class="fas fa-paperclip"></i> ' . $title . '</div>'
                                               . '<div class="glightbox-inline" id="' . $inlineId . '">'
-                                                  . '<div class="modal-header mh-image"><div class="modal-title"><i class="fas fa-image"></i><span class="file-name">' . $title . '</span></div></div>'
-                                                  . '<div class="modal-body"><img style="max-width:100%;max-height:75vh;height:auto;display:block;margin:0 auto;background:#fff;" src="' . htmlspecialchars($abs) . '" alt="' . $title . '"/></div>'
+                                                  . '<div class="preview-container">'
+                                                      . '<div class="preview-header"><div class="preview-title"><span class="badge-file badge-img">IMG</span><span>' . $title . '</span></div></div>'
+                                                      . '<div class="preview-body"><img style="max-width:100%;max-height:75vh;height:auto;display:block;margin:0 auto;background:#fff;" src="' . htmlspecialchars($abs) . '" alt="' . $title . '"/></div>'
+                                                  . '</div>'
                                               . '</div>'
                                               . '</div>';
                                 $rendered = true;
@@ -695,15 +707,16 @@ function getTierLabel($tier) {
                                           $title = $fname;
                                           $inlineId = 'inline-'.md5($web);
                                           echo '<div class="preview-block">'
-                                              . '<div class="btn-group" style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">'
+                                              . '<div class="btn-group" style="display:flex; gap:8px; flex-wrap:wrap;">'
                                               . '<a class="btn btn-primary btn-sm glightbox" href="#' . $inlineId . '" data-type="inline">Open</a>'
                                               . '<a class="btn btn-secondary btn-sm view-newtab" href="' . htmlspecialchars($abs) . '" data-abs="' . htmlspecialchars($abs) . '" data-ext="' . $ext . '" target="_blank" rel="noopener">View in new tab</a>'
                                               . '<a class="btn btn-outline-primary btn-sm" href="' . htmlspecialchars($src) . '" download>Download</a>'
                                               . '</div>'
-                                              . '<div class="file-caption"><i class="fas fa-paperclip"></i> ' . $title . '</div>'
                                               . '<div class="glightbox-inline" id="' . $inlineId . '">'
-                                                  . '<div class="modal-header mh-pdf"><div class="modal-title"><i class="fas fa-file-pdf"></i><span class="file-name">' . $title . '</span></div></div>'
-                                                  . '<div class="modal-body"><iframe src="' . htmlspecialchars($abs) . '" width="100%" style="border:0; min-height:70vh;"></iframe></div>'
+                                                  . '<div class="preview-container">'
+                                                      . '<div class="preview-header"><div class="preview-title"><span class="badge-file badge-pdf">PDF</span><span>' . $title . '</span></div></div>'
+                                                      . '<div class="preview-body"><iframe src="' . htmlspecialchars($abs) . '"></iframe></div>'
+                                                  . '</div>'
                                               . '</div>'
                                               . '</div>';
                                 $rendered = true;
@@ -712,15 +725,16 @@ function getTierLabel($tier) {
                                           $title = $fname;
                                           echo '<div class="preview-block">'
                                               . '<div class="glightbox-inline" id="' . $inlineId . '">'
-                                                  . '<div class="modal-header mh-text"><div class="modal-title"><i class="fas fa-file-alt"></i><span class="file-name">' . $title . '</span></div></div>'
-                                                  . '<div class="modal-body"><div class="docx-view"><div class="docx-html">' . htmlspecialchars(@file_get_contents($web)) . '</div></div></div>'
+                                                  . '<div class="preview-container">'
+                                                      . '<div class="preview-header"><div class="preview-title"><span class="badge-file badge-text">TEXT</span><span>' . $title . '</span></div></div>'
+                                                      . '<div class="preview-body"><div class="docx-view"><div class="docx-html">' . htmlspecialchars(@file_get_contents($web)) . '</div></div></div>'
+                                                  . '</div>'
                                               . '</div>'
-                                              . '<div class="btn-group" style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">'
+                                              . '<div class="btn-group" style="display:flex; gap:8px; flex-wrap:wrap;">'
                                               . '<a class="btn btn-primary btn-sm glightbox" href="#' . $inlineId . '" data-gallery="submission" data-type="inline">Open</a>'
                                               . '<a class="btn btn-secondary btn-sm view-newtab" href="' . htmlspecialchars($abs) . '" data-abs="' . htmlspecialchars($abs) . '" data-ext="' . $ext . '" target="_blank" rel="noopener">View in new tab</a>'
                                               . '<a class="btn btn-outline-primary btn-sm" href="' . htmlspecialchars($src) . '" download>Download</a>'
                                               . '</div>'
-                                              . '<div class="file-caption"><i class="fas fa-paperclip"></i> ' . $title . '</div>'
                                               . '</div>';
                                 $rendered = true;
                             } else {
@@ -732,7 +746,7 @@ function getTierLabel($tier) {
                                 $gview = 'https://docs.google.com/gview?embedded=1&url=' . rawurlencode($abs);
 
                                 echo '<div class="preview-block">'
-                                    . '<div class="btn-group" style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">'
+                                    . '<div class="btn-group" style="display:flex; gap:8px; flex-wrap:wrap;">'
                                     . (
                                         $ext === 'docx'
                                         ? '<a class="btn btn-primary btn-sm glightbox office-open" href="#' . $inlineId . '" data-type="inline" role="button" tabindex="0" data-file="' . htmlspecialchars($abs) . '" data-inline="#' . $inlineId . '" data-title="' . $title . '">Open</a>'
@@ -741,19 +755,20 @@ function getTierLabel($tier) {
                                     . '<a class="btn btn-secondary btn-sm view-newtab" href="' . htmlspecialchars($abs) . '" data-abs="' . htmlspecialchars($abs) . '" data-gview="' . htmlspecialchars($gview) . '" data-ext="' . $ext . '" target="_blank" rel="noopener">View in new tab</a>'
                                     . '<a class="btn btn-outline-primary btn-sm" href="' . htmlspecialchars($src) . '" download>Download</a>'
                                     . '</div>'
-                                    . '<div class="file-caption"><i class="fas fa-paperclip"></i> ' . $title . '</div>'
                                     . '<div class="glightbox-inline" id="' . $inlineId . '">'
-                                        . '<div class="modal-header ' . (in_array($ext, ['xls','xlsx']) ? 'mh-xls' : (in_array($ext, ['ppt','pptx']) ? 'mh-ppt' : (in_array($ext, ['doc','docx']) ? 'mh-doc' : 'mh-office'))) . '"><div class="modal-title"><i class="' . (in_array($ext, ['xls','xlsx']) ? 'fas fa-file-excel' : (in_array($ext, ['ppt','pptx']) ? 'fas fa-file-powerpoint' : 'fas fa-file-word')) . '"></i><span class="file-name">' . $title . '</span></div></div>'
-                                        . '<div class="modal-body" style="min-height:70vh; background:#fff;">'
-                                            . (
-                                                $ext === 'docx'
-                                                ? '<div class="docx-view"><div class="docx-html">Loading preview…</div></div>'
-                                                : (
-                                                    !$isLocal
-                                                    ? '<iframe src="' . htmlspecialchars($gview) . '" width="100%" height="640" style="border:0;"></iframe>'
-                                                    : '<div style="padding:16px;line-height:1.6;">Preview for this file type is not available on localhost.<br><a class="btn btn-secondary btn-sm" href="' . htmlspecialchars($abs) . '" target="_blank" rel="noopener">Open in new tab</a></div>'
+                                        . '<div class="preview-container">'
+                                            . '<div class="preview-header"><div class="preview-title"><span class="badge-file ' . (in_array($ext, ['xls','xlsx']) ? 'badge-other' : (in_array($ext, ['ppt','pptx']) ? 'badge-other' : 'badge-docx')) . '">' . strtoupper($ext) . '</span><span>' . $title . '</span></div></div>'
+                                            . '<div class="preview-body" style="min-height:70vh; background:#fff;">'
+                                                . (
+                                                    $ext === 'docx'
+                                                    ? '<div class="docx-view"><div class="docx-html">Loading preview…</div></div>'
+                                                    : (
+                                                        !$isLocal
+                                                        ? '<iframe src="' . htmlspecialchars($gview) . '" height="640"></iframe>'
+                                                        : '<div style="padding:16px;line-height:1.6;">Preview for this file type is not available on localhost.<br><a class="btn btn-secondary btn-sm" href="' . htmlspecialchars($abs) . '" target="_blank" rel="noopener">Open in new tab</a></div>'
+                                                    )
                                                 )
-                                            )
+                                            . '</div>'
                                         . '</div>'
                                     . '</div>'
                                 . '</div>';
@@ -1024,8 +1039,7 @@ function getTierLabel($tier) {
             });
 
             // Handle Office (docx) previews via Mammoth in an inline lightbox
-            // Use capture so this handler runs BEFORE GLightbox's own click listener,
-            // preventing the lightbox from opening without our rendered content.
+            // Prefetch and convert before opening to avoid any lingering "Loading preview…" in the modal
             document.querySelectorAll('a.office-open').forEach((a) => {
                 const activate = async (e) => {
                     e.preventDefault();
@@ -1034,14 +1048,15 @@ function getTierLabel($tier) {
                     const inlineSel = a.getAttribute('data-inline');
                     const title = a.getAttribute('data-title') || 'Document';
                     const container = document.querySelector(inlineSel + ' .docx-html');
-                    if (container) container.innerHTML = 'Loading preview…';
-                    // Open immediately so the user always sees something, then render in place
-                    lightbox.open({ href: inlineSel, type: 'inline', title: title });
+                    // Optional: reflect busy state on the button
+                    const prevText = a.textContent; a.textContent = 'Opening…'; a.setAttribute('aria-busy', 'true'); a.disabled = true;
                     try {
                         const res = await fetch(fileUrl);
                         const buf = await res.arrayBuffer();
                         const result = await window.mammoth.convertToHtml({ arrayBuffer: buf });
                         if (container) container.innerHTML = result.value || '<em>Empty document</em>';
+                        // Open after content is ready so there is no visible loading placeholder
+                        lightbox.open({ href: inlineSel, type: 'inline', title: title });
                     } catch (err) {
                         if (container) {
                             container.innerHTML = '<em>Preview failed. </em><a href="' + fileUrl + '" target="_blank" rel="noopener">Open in new tab</a>';
@@ -1051,6 +1066,8 @@ function getTierLabel($tier) {
                             lightbox.open({ href: url, type: 'external', title: title });
                         }
                         console.error('DOCX preview error:', err);
+                    } finally {
+                        a.textContent = prevText; a.removeAttribute('aria-busy'); a.disabled = false;
                     }
                 };
                 a.addEventListener('click', activate, { capture: true });
