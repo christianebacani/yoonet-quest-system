@@ -357,6 +357,57 @@ try {
                 }
             }, true);
 
+            // Smarter 'View in new tab' handling to avoid forced downloads
+            document.querySelectorAll('a.view-newtab').forEach((a) => {
+                a.addEventListener('click', async (e) => {
+                    const ext = (a.getAttribute('data-ext') || '').toLowerCase();
+                    const abs = a.getAttribute('data-abs') || a.href;
+                    const gview = a.getAttribute('data-gview');
+                    const host = location.host;
+                    const isLocal = host.includes('localhost') || host.includes('127.0.0.1');
+
+                    // Let the browser handle image/PDF/text normally
+                    if (['jpg','jpeg','png','gif','webp','svg','pdf','txt','md','csv'].includes(ext)) {
+                        return;
+                    }
+
+                    // Office types: DOCX -> render to HTML; others -> Google Viewer (public) or raw (local)
+                    if (['doc','docx','ppt','pptx','xls','xlsx'].includes(ext)) {
+                        e.preventDefault();
+                        if (ext === 'docx' && window.mammoth) {
+                            try {
+                                const res = await fetch(abs);
+                                const buf = await res.arrayBuffer();
+                                const result = await window.mammoth.convertToHtml({ arrayBuffer: buf });
+                                const title = abs.split('/').pop();
+                                const html = `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title><style>body{font-family:system-ui,Segoe UI,Arial,sans-serif;margin:16px;color:#111827;background:#fff;} img{max-width:100%;height:auto}</style></head><body>${result.value}</body></html>`;
+                                const blob = new Blob([html], { type: 'text/html' });
+                                const url = URL.createObjectURL(blob);
+                                window.open(url, '_blank');
+                                setTimeout(() => URL.revokeObjectURL(url), 30000);
+                            } catch (err) {
+                                console.error('DOCX new-tab render failed:', err);
+                                if (!isLocal) {
+                                    const url = gview || ('https://docs.google.com/gview?embedded=1&url=' + encodeURIComponent(abs));
+                                    window.open(url, '_blank');
+                                } else {
+                                    window.open(abs, '_blank');
+                                }
+                            }
+                            return;
+                        }
+                        if (!isLocal) {
+                            const url = gview || ('https://docs.google.com/gview?embedded=1&url=' + encodeURIComponent(abs));
+                            window.open(url, '_blank');
+                        } else {
+                            window.open(abs, '_blank');
+                        }
+                        return;
+                    }
+                    // Otherwise, allow default behavior
+                });
+            });
+
             // Removed custom 'view-newtab' handler to avoid duplicate behaviors; rely on default anchor behavior
         })();
     </script>
