@@ -260,7 +260,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if ($current_status === 'assigned' && !$is_mandatory) {
                         $stmt = $pdo->prepare("DELETE FROM user_quests WHERE employee_id = ? AND quest_id = ?");
                         $stmt->execute([$employee_id, $quest_id]);
-                        $success = "Quest declined. You can pick it up again later from Available Quests.";
+                        $success = "Quest declined. You can pick it up again later from Open Quests.";
                     } elseif ($is_mandatory) {
                         $error = "Mandatory quests can't be declined.";
                     } else {
@@ -2581,7 +2581,7 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
                                         </div>
                                         <div class="bg-white border border-purple-100 rounded-md p-3 mb-3">
                                             <p class="text-xs text-gray-600">
-                                                This quest has been assigned to you and is waiting for your acceptance. Once you accept, it will move to <strong>My Active Quests</strong> so you can submit your work.
+                                                This quest has been assigned to you and is waiting for your acceptance. Once you accept, it will move to <strong>My Quests</strong> so you can submit your work.
                                             </p>
                                         </div>
                                         <div class="flex justify-end flex-wrap gap-2">
@@ -2615,12 +2615,12 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
                     </div>
                     <?php endif; ?>
                     
-                    <!-- Available Quests to Accept -->
+                    <!-- Open Quests to Accept -->
                     <div class="mb-8">
                         <div class="flex items-center justify-between mb-4">
-                            <h3 class="text-xl font-semibold text-gray-800">Available Quests</h3>
+                            <h3 class="text-xl font-semibold text-gray-800">Open Quests</h3>
                             <span class="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-medium">
-                                <?php echo count($available_quests); ?> available
+                                <?php echo count($available_quests); ?> open
                             </span>
                         </div>
                         <?php if (!empty($available_quests)): ?>
@@ -2662,17 +2662,17 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
                                 <svg class="w-12 h-12 mx-auto text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
                                     </svg>
-                                    <p class="text-gray-500">No available quests at the moment.</p>
+                                    <p class="text-gray-500">No open quests at the moment.</p>
                                     <p class="text-sm text-gray-400 mt-1">Check back later for new learning opportunities!</p>
                                 </div>
                         <?php else: ?>
                             <div class="text-center py-6">
-                                <p class="text-gray-500">No available quests found on this page.</p>
+                                <p class="text-gray-500">No open quests found on this page.</p>
                                 <p class="text-sm text-gray-400 mt-1">Try navigating to a different page.</p>
                             </div>
                         <?php endif; ?>
                         
-                        <!-- Pagination for available quests - Show if there are any quests OR user is on page > 1 -->
+                        <!-- Pagination for open quests - Show if there are any quests OR user is on page > 1 -->
                         <?php if ($total_available_quests > 0 || $available_page > 1): ?>
                             <div class="mt-4">
                                 <?php echo generatePagination($total_pages_available_quests, $available_page, 'available', $total_available_quests, count($available_quests)); ?>
@@ -2680,10 +2680,10 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
                         <?php endif; ?>
                     </div>
 
-                    <!-- Active Quests to Submit -->
+                    <!-- My Quests (in progress, submitted, graded) -->
                     <div class="mb-8">
                         <div class="flex items-center justify-between mb-4">
-                            <h3 class="text-xl font-semibold text-gray-800">My Active Quests</h3>
+                            <h3 class="text-xl font-semibold text-gray-800">My Quests</h3>
                             <span class="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm font-medium">
                                 <?php echo count($active_quests); ?> active / assigned
                             </span>
@@ -2845,34 +2845,6 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
                                                         <?php endif; ?>
                                                     </div>
                                                 </div>
-                                            <?php elseif ($status === 'completed'): ?>
-                                                <?php
-                                                    // Completed means graded; still show the latest submission actions
-                                                    $latestSubmission = null;
-                                                    try {
-                                                        $stmt = $pdo->prepare("SELECT id, status, submitted_at FROM quest_submissions WHERE employee_id = ? AND quest_id = ? ORDER BY submitted_at DESC LIMIT 1");
-                                                        $stmt->execute([$employee_id, $quest['id']]);
-                                                        $latestSubmission = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
-                                                    } catch (PDOException $e) {
-                                                        $latestSubmission = null;
-                                                    }
-                                                    $st2 = $latestSubmission ? strtolower(trim($latestSubmission['status'] ?? 'approved')) : 'approved';
-                                                ?>
-                                                <div class="bg-white rounded-md p-3 border border-green-200 mt-3">
-                                                    <h5 class="font-medium text-gray-800 mb-2 text-sm">✅ Graded</h5>
-                                                    <p class="text-xs text-gray-600 mb-3">This quest has been graded. You can review your per-skill performance and notes.</p>
-                                                    <div class="flex flex-wrap gap-2">
-                                                        <?php if ($latestSubmission && !empty($latestSubmission['id'])): ?>
-                                                            <?php $__sid = urlencode((string)$latestSubmission['id']); ?>
-                                                            <a href="view_submission.php?submission_id=<?php echo $__sid; ?>"
-                                                               class="inline-flex items-center px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium rounded-md focus:ring-2 focus:ring-indigo-500 transition-colors">View Submission</a>
-                                                            <a href="view_grade.php?submission_id=<?php echo $__sid; ?>"
-                                                               class="inline-flex items-center px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-xs font-medium rounded-md focus:ring-2 focus:ring-green-500 transition-colors">View Grade</a>
-                                                        <?php else: ?>
-                                                            <span class="inline-flex items-center px-3 py-2 bg-gray-200 text-gray-700 text-xs font-medium rounded-md">No submission found</span>
-                                                        <?php endif; ?>
-                                                    </div>
-                                                </div>
                                             <?php elseif ($status === 'assigned'): ?>
                                                 <div class="bg-white rounded-md p-3 border border-purple-200 mt-3">
                                                     <h5 class="font-medium text-gray-800 mb-2 text-sm">✅ Accept or Decline</h5>
@@ -2917,7 +2889,7 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
                                 </svg>
                                 <p class="text-gray-500">You don't have any active quests.</p>
-                                <p class="text-sm text-gray-400 mt-1">Start by accepting some available quests above!</p>
+                                <p class="text-sm text-gray-400 mt-1">Start by accepting some open quests above!</p>
                             </div>
                         <?php else: ?>
                             <div class="text-center py-6">
