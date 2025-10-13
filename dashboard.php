@@ -161,8 +161,6 @@ $role = $_SESSION['role'] ?? 'skill_associate';
 // Simple role renaming (keeping all functionality the same)
 if ($role === 'quest_taker') {
     $role = 'skill_associate';
-} elseif ($role === 'hybrid') {
-    $role = 'quest_lead';
 } elseif ($role === 'quest_giver') {
     $role = 'quest_lead'; // Quest givers become quest leads
 } elseif ($role === 'participant') {
@@ -175,9 +173,6 @@ if ($role === 'quest_taker') {
 }
 $email = $_SESSION['email'] ?? '';
 $current_theme = $_SESSION['theme'] ?? 'default';
-$dark_mode = $_SESSION['dark_mode'] ?? false;
-$font_size = $_SESSION['font_size'] ?? 'medium';
-
 // Check whether this user's profile is marked completed in the database
 $profile_completed = false;
 try {
@@ -207,18 +202,9 @@ $items_per_page = 8; // Increased from 5 to 8 for better content density
 $available_page = isset($_GET['available_page']) ? (int)$_GET['available_page'] : 1;
 $active_page = isset($_GET['active_page']) ? (int)$_GET['active_page'] : 1;
 $created_page = isset($_GET['created_page']) ? (int)$_GET['created_page'] : 1;
-$submission_page = isset($_GET['submission_page']) ? (int)$_GET['submission_page'] : (isset($_GET['page']) ? (int)$_GET['page'] : 1);
+$submission_page = isset($_GET['submission_page']) ? (int)$_GET['submission_page'] : 1;
 $pending_page = isset($_GET['pending_page']) ? (int)$_GET['pending_page'] : 1;
 $review_page = isset($_GET['review_page']) ? (int)$_GET['review_page'] : 1;
-
-// Ensure all page numbers are valid
-if ($available_page < 1) $available_page = 1;
-if ($active_page < 1) $active_page = 1;
-if ($created_page < 1) $created_page = 1;
-if ($submission_page < 1) $submission_page = 1;
-if ($pending_page < 1) $pending_page = 1;
-if ($review_page < 1) $review_page = 1;
-
 $error = '';
 $success = '';
 
@@ -2736,6 +2722,9 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
                                                                 $statusBadgeClass = 'bg-yellow-100 text-yellow-800 border border-yellow-200';
                                                                 $statusLabel = '📤 Submitted';
                                                             }
+                                                        } elseif ($status === 'completed') {
+                                                            $statusBadgeClass = 'bg-green-100 text-green-800 border border-green-200';
+                                                            $statusLabel = '✅ Graded';
                                                         }
                                                     ?>
                                                     <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium <?php echo $statusBadgeClass; ?>">
@@ -2787,11 +2776,12 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
                                                         </div>
                                                     </form>
                                                 </div>
-                                            <?php elseif ($status === 'submitted'): ?>
+                                            <?php elseif ($status === 'submitted' || $status === 'completed'): ?>
                                                 <?php
                                                     // Fetch latest submission for this quest by current user
                                                     $latestSubmission = null;
                                                     $submission_status_display = '📤 Submitted';
+                                                    $isGraded = ($status === 'completed');
                                                     try {
                                                         $stmt = $pdo->prepare("SELECT id, status, submitted_at FROM quest_submissions WHERE employee_id = ? AND quest_id = ? ORDER BY submitted_at DESC LIMIT 1");
                                                         $stmt->execute([$employee_id, $quest['id']]);
@@ -2802,7 +2792,7 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
                                                     if ($latestSubmission) {
                                                         $st2 = strtolower(trim($latestSubmission['status'] ?? 'pending'));
                                                         if ($st2 === 'under_review') { $submission_status_display = '🔎 Under Review'; }
-                                                        elseif ($st2 === 'approved') { $submission_status_display = '✅ Graded'; }
+                                                        elseif ($st2 === 'approved') { $submission_status_display = '✅ Graded'; $isGraded = true; }
                                                         elseif ($st2 === 'rejected') { $submission_status_display = '🚫 Declined'; }
                                                     }
                                                 ?>
@@ -2823,15 +2813,24 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
 
                                                             <!-- View Grade -->
                                                             <a href="view_grade.php?submission_id=<?php echo $__sid; ?>"
-                                                               class="inline-flex items-center px-3 py-2 <?php echo (isset($st2) && $st2 === 'approved') ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-600 hover:bg-gray-700'; ?> text-white text-xs font-medium rounded-md focus:ring-2 focus:ring-green-500 transition-colors">
+                                                               class="inline-flex items-center px-3 py-2 <?php echo ($isGraded ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-600 hover:bg-gray-700'); ?> text-white text-xs font-medium rounded-md focus:ring-2 focus:ring-green-500 transition-colors">
                                                                 <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                                                                 </svg>
                                                                 View Grade
                                                             </a>
 
-                                                            <!-- Edit Submission: allowed only if not graded -->
-                                                            <?php if (!isset($st2) || ($st2 !== 'approved' && $st2 !== 'rejected')): ?>
+                                                            <!-- Edit Submission: show locked if graded; allow edit if pending/under_review; hide if declined -->
+                                                            <?php if ($isGraded): ?>
+                                                                <button type="button"
+                                                                        class="inline-flex items-center px-3 py-2 bg-yellow-500 text-white text-xs font-medium rounded-md opacity-70 cursor-not-allowed edit-locked"
+                                                                        data-reason="graded">
+                                                                    <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5h2m2 0h2m-6 0H9m10 0v2m0 2v2m0-6h-2m-2 0H9m0 0V3m0 2H7m0 0H5"></path>
+                                                                    </svg>
+                                                                    Edit Submission
+                                                                </button>
+                                                            <?php elseif (!isset($st2) || ($st2 !== 'rejected')): ?>
                                                                 <a href="edit_submission.php?submission_id=<?php echo $__sid; ?>"
                                                                    class="inline-flex items-center px-3 py-2 bg-yellow-600 hover:bg-yellow-700 text-white text-xs font-medium rounded-md focus:ring-2 focus:ring-yellow-500 transition-colors">
                                                                     <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -3347,6 +3346,18 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
                     console.error('Error:', error);
                     alert('An error occurred while accepting the quest');
                 });
+            });
+        });
+
+        // Show message for locked edit buttons
+        document.querySelectorAll('.edit-locked').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const reason = btn.getAttribute('data-reason') || 'locked';
+                if (reason === 'graded') {
+                    alert("You can’t edit the submitted file because it’s already been graded.");
+                } else {
+                    alert("Editing is currently locked.");
+                }
             });
         });
          // Delete Confirmation Modal
