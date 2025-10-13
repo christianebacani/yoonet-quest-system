@@ -221,7 +221,7 @@ if (empty($rows)) {
               <td>
                 <?php if (!empty($r['employee_user_id'])): ?>
                   <?php $label = (in_array($st, ['approved','rejected'], true)) ? 'View' : 'Review'; ?>
-                  <a class="btn" href="quest_assessment.php?quest_id=<?php echo urlencode((string)$r['quest_id']); ?>&user_id=<?php echo urlencode((string)$r['employee_user_id']); ?>&employee_id=<?php echo urlencode((string)($r['employee_id'] ?? '')); ?>"><?php echo $label; ?></a>
+                  <a class="btn" href="quest_assessment.php?quest_id=<?php echo urlencode((string)$r['quest_id']); ?>&user_id=<?php echo urlencode((string)$r['employee_user_id']); ?>&employee_id=<?php echo urlencode((string)($r['employee_id'] ?? '')); ?><?php echo !empty($r['id']) ? '&submission_id=' . urlencode((string)$r['id']) : ''; ?>"><?php echo $label; ?></a>
                 <?php else: ?>
                   <span class="meta">No user link</span>
                 <?php endif; ?>

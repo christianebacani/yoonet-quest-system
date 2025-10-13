@@ -45,6 +45,24 @@ try {
         KEY `idx_user` (`user_id`),
         KEY `idx_quest` (`quest_id`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+    // Store per-skill assessment results for each submission
+    $pdo->exec("CREATE TABLE IF NOT EXISTS `quest_assessment_details` (
+        `id` int(11) NOT NULL AUTO_INCREMENT,
+        `quest_id` int(11) NOT NULL,
+        `user_id` int(11) NOT NULL,
+        `submission_id` int(11) NOT NULL,
+        `skill_name` varchar(255) NOT NULL,
+        `base_points` int(11) NOT NULL DEFAULT 0,
+        `performance_multiplier` decimal(4,2) NOT NULL DEFAULT 1.00,
+        `performance_label` varchar(50) DEFAULT NULL,
+        `adjusted_points` int(11) NOT NULL DEFAULT 0,
+        `notes` text,
+        `reviewed_by` varchar(50) DEFAULT NULL,
+        `reviewed_at` timestamp NULL DEFAULT NULL,
+        `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (`id`),
+        UNIQUE KEY `uniq_submission_skill` (`submission_id`, `skill_name`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
 } catch (Throwable $e) {
     // Continue; if permissions prevent DDL, later operations may still succeed if tables already exist
 }
@@ -111,7 +129,7 @@ if (empty($error)) {
 $skillManager = new SkillProgression($pdo);
 $quest_skills = $skillManager->getQuestSkills($quest_id);
 
-// Normalize quest skills to always include readable skill_name and tier_level (T1..T5)
+// Normalize quest skills to always include readable skill_name and tier_level (T1..T5), preserving skill_id
 $normalized_skills = [];
 if (is_array($quest_skills) && !empty($quest_skills)) {
     // Build id -> name map if we only have skill_id
@@ -148,19 +166,33 @@ if (is_array($quest_skills) && !empty($quest_skills)) {
             $name = 'Skill';
         }
 
-        // Normalize tier_level to T1..T5
+        // Normalize tier_level to T1..T5 (support numeric tier_level, numeric tier, or required_level enum)
         $tier_level = 'T2';
-        if (isset($row['tier_level']) && preg_match('~^T[1-5]$~', (string)$row['tier_level'])) {
-            $tier_level = (string)$row['tier_level'];
+        if (isset($row['tier_level'])) {
+            $tv = $row['tier_level'];
+            if (is_numeric($tv)) {
+                $t = (int)$tv; if ($t < 1) $t = 1; if ($t > 5) $t = 5; $tier_level = 'T' . $t;
+            } elseif (is_string($tv) && preg_match('~^T[1-5]$~', $tv)) {
+                $tier_level = $tv;
+            }
         } elseif (isset($row['tier'])) {
-            $t = (int)$row['tier'];
-            if ($t < 1) $t = 1; if ($t > 5) $t = 5;
-            $tier_level = 'T' . $t;
+            $t = (int)$row['tier']; if ($t < 1) $t = 1; if ($t > 5) $t = 5; $tier_level = 'T' . $t;
+        } elseif (isset($row['required_level'])) {
+            // Map legacy required_level to tiers
+            $map = [
+                'beginner' => 'T1',
+                'intermediate' => 'T2',
+                'advanced' => 'T3',
+                'expert' => 'T4',
+            ];
+            $rl = strtolower((string)$row['required_level']);
+            if (isset($map[$rl])) { $tier_level = $map[$rl]; }
         }
 
         $normalized_skills[] = [
             'skill_name' => $name,
             'tier_level' => $tier_level,
+            'skill_id' => isset($row['skill_id']) ? (int)$row['skill_id'] : null,
         ];
     }
 }
@@ -168,17 +200,28 @@ $quest_skills = $normalized_skills ?: (is_array($quest_skills) ? $quest_skills :
 
 // Fetch latest submission by this user for this quest (schema-adaptive)
 $latestSubmission = null;
+// Prefer an explicit submission_id when provided; otherwise, use last by employee+quest
 // Prefer employee_id from user; fallback to explicit employee_id param
 $employeeIdForSubmission = $user['employee_id'] ?? ($employee_id_param !== '' ? $employee_id_param : null);
-if (!empty($employeeIdForSubmission)) {
-    try {
+try {
+    if ($submission_id > 0) {
+        $stmt = $pdo->prepare("SELECT * FROM quest_submissions WHERE id = ? LIMIT 1");
+        $stmt->execute([$submission_id]);
+        $latestSubmission = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        // If submission provided resolves quest/user, keep consistency
+        if ($latestSubmission) {
+            if (!$quest_id && !empty($latestSubmission['quest_id'])) { $quest_id = (int)$latestSubmission['quest_id']; }
+            if (!$employeeIdForSubmission && !empty($latestSubmission['employee_id'])) { $employeeIdForSubmission = (string)$latestSubmission['employee_id']; }
+        }
+    }
+    if (!$latestSubmission && !empty($employeeIdForSubmission)) {
         $stmt = $pdo->prepare("SELECT * FROM quest_submissions WHERE employee_id = ? AND quest_id = ? ORDER BY submitted_at DESC LIMIT 1");
         $stmt->execute([$employeeIdForSubmission, $quest_id]);
         $latestSubmission = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
-    } catch (PDOException $e) {
-        error_log('Error fetching latest submission: ' . $e->getMessage());
-        $latestSubmission = null;
     }
+} catch (PDOException $e) {
+    error_log('Error fetching submission: ' . $e->getMessage());
+    $latestSubmission = null;
 }
 
 // If user record is missing or incomplete but we have a submission, try resolving by employee_id from the submission
@@ -213,6 +256,7 @@ if (empty($error) && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['subm
     $assessments = $_POST['assessments'] ?? [];
     $total_points = 0;
     $awarded_skills = [];
+    $currentSubmissionId = (int)($latestSubmission['id'] ?? 0);
     
     try {
         $pdo->beginTransaction();
@@ -238,6 +282,42 @@ if (empty($error) && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['subm
                 'stage' => $result['new_stage']
             ];
             $total_points += $result['points_awarded'];
+
+            // Save detailed assessment row for this skill
+            try {
+                $label = 'Meets Expectations';
+                if ($performance == 0.0) $label = 'Not performed';
+                elseif ($performance < 1.0) $label = 'Below Expectations';
+                elseif ($performance > 1.0 && $performance <= 1.2) $label = 'Exceeds Expectations';
+                elseif ($performance > 1.2) $label = 'Exceptional';
+
+                $reviewedBy = $_SESSION['employee_id'] ?? (string)($_SESSION['user_id'] ?? '');
+                $stmt = $pdo->prepare("INSERT INTO quest_assessment_details 
+                    (quest_id, user_id, submission_id, skill_name, base_points, performance_multiplier, performance_label, adjusted_points, notes, reviewed_by, reviewed_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+                    ON DUPLICATE KEY UPDATE 
+                        base_points = VALUES(base_points),
+                        performance_multiplier = VALUES(performance_multiplier),
+                        performance_label = VALUES(performance_label),
+                        adjusted_points = VALUES(adjusted_points),
+                        notes = VALUES(notes),
+                        reviewed_by = VALUES(reviewed_by),
+                        reviewed_at = VALUES(reviewed_at)");
+                $stmt->execute([
+                    $quest_id,
+                    $user_id,
+                    $currentSubmissionId,
+                    $skill_name,
+                    $base_points,
+                    $performance,
+                    $label,
+                    (int)round($base_points * $performance),
+                    $notes,
+                    $reviewedBy,
+                ]);
+            } catch (PDOException $e) {
+                error_log('Failed to save assessment detail: ' . $e->getMessage());
+            }
         }
         
         // Mark quest as completed for this user (robust upsert without requiring unique index)
@@ -273,11 +353,13 @@ if (empty($error) && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['subm
             // non-fatal
         }
 
-        $pdo->commit();
+    $pdo->commit();
         $success = "Grading completed! Total points awarded: {$total_points}";
 
         // Redirect to prevent resubmission; keep context for view-only state
-        header("Location: quest_assessment.php?quest_id={$quest_id}&user_id={$user_id}&success=1");
+    $redir = "quest_assessment.php?quest_id={$quest_id}&user_id={$user_id}&success=1";
+    if (!empty($currentSubmissionId)) { $redir .= "&submission_id=" . (int)$currentSubmissionId; }
+    header("Location: $redir");
         exit;
         
     } catch (Exception $e) {
@@ -751,6 +833,19 @@ function getTierLabel($tier) {
             <?php 
                 $safe_skills = is_array($quest_skills) ? $quest_skills : []; 
                 $gradedAlready = in_array(strtolower(trim((string)($latestSubmission['status'] ?? ''))), ['approved','rejected'], true);
+                // Load existing assessment details per skill if graded
+                $existingAssessments = [];
+                if ($gradedAlready && !empty($latestSubmission['id'])) {
+                    try {
+                        $stmt = $pdo->prepare("SELECT * FROM quest_assessment_details WHERE submission_id = ?");
+                        $stmt->execute([(int)$latestSubmission['id']]);
+                        while ($r = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                            $existingAssessments[(string)$r['skill_name']] = $r;
+                        }
+                    } catch (PDOException $e) {
+                        error_log('fetch assessment details failed: ' . $e->getMessage());
+                    }
+                }
             ?>
             <form method="post" id="assessmentForm">
                 <?php if ($gradedAlready): ?>
@@ -765,6 +860,10 @@ function getTierLabel($tier) {
                     $tier_level = isset($skill['tier_level']) ? (string)$skill['tier_level'] : 'T2';
                     $base_points = getTierPoints($tier_level);
                     $safeId = preg_replace('/[^a-zA-Z0-9_\-]/', '_', strtolower($skill_name));
+                    $existing = $existingAssessments[$skill_name] ?? null;
+                    $selectedMultiplier = $existing ? (float)$existing['performance_multiplier'] : 1.0;
+                    $existingNotes = $existing ? (string)($existing['notes'] ?? '') : '';
+                    $adjustedPoints = $existing ? (int)$existing['adjusted_points'] : $base_points;
                     ?>
                     <div class="skill-assessment" aria-label="Assessment for skill <?= htmlspecialchars($skill_name) ?>">
                         <div class="skill-name">
@@ -779,14 +878,14 @@ function getTierLabel($tier) {
                         <div class="performance-section">
                             <div class="performance-label">Performance:</div>
                             <select class="performance-select" name="assessments[<?= $skill_name ?>][performance]" id="perf_<?= $safeId ?>" data-skill="<?= $safeId ?>" data-base="<?= $base_points ?>" onchange="onPerfChange(this)" <?= $gradedAlready ? 'disabled' : '' ?>>
-                                <option value="0.0">Not performed (0%) = 0 pts</option>
-                                <option value="0.8">Below Expectations (-20%) = <?= round($base_points*0.8) ?> pts</option>
-                                <option value="1.0" selected>Meets Expectations (+0%) = <?= $base_points ?> pts</option>
-                                <option value="1.2">Exceeds Expectations (+20%) = <?= round($base_points*1.2) ?> pts</option>
-                                <option value="1.4">Exceptional (+40%) = <?= round($base_points*1.4) ?> pts</option>
+                                <option value="0.0" <?= ($selectedMultiplier==0.0?'selected':'') ?>>Not performed (0%) = 0 pts</option>
+                                <option value="0.8" <?= ($selectedMultiplier==0.8?'selected':'') ?>>Below Expectations (-20%) = <?= round($base_points*0.8) ?> pts</option>
+                                <option value="1.0" <?= ($selectedMultiplier==1.0?'selected':'') ?>>Meets Expectations (+0%) = <?= $base_points ?> pts</option>
+                                <option value="1.2" <?= ($selectedMultiplier==1.2?'selected':'') ?>>Exceeds Expectations (+20%) = <?= round($base_points*1.2) ?> pts</option>
+                                <option value="1.4" <?= ($selectedMultiplier==1.4?'selected':'') ?>>Exceptional (+40%) = <?= round($base_points*1.4) ?> pts</option>
                             </select>
 
-                            <div class="line">Adjusted: <strong><span class="adjusted-points" id="adj_<?= $safeId ?>"><?= $base_points ?></span> pts</strong></div>
+                            <div class="line">Adjusted: <strong><span class="adjusted-points" id="adj_<?= $safeId ?>"><?= (int)$adjustedPoints ?></span> pts</strong></div>
                         </div>
                         
                         <div class="notes-section">
@@ -797,10 +896,17 @@ function getTierLabel($tier) {
                                 class="notes-textarea" 
                                 placeholder="Add assessment notes..."
                                 <?= $gradedAlready ? 'disabled' : '' ?>
-                            ></textarea>
+                            ><?= $existingNotes ?></textarea>
                         </div>
                         
                         <input type="hidden" name="assessments[<?= $skill_name ?>][base_points]" value="<?= $base_points ?>">
+
+                        <?php if ($gradedAlready && $existing): ?>
+                            <div class="line"><small>Graded: <strong><?= htmlspecialchars($existing['performance_label'] ?? '') ?></strong> • Awarded <strong><?= (int)$adjustedPoints ?></strong> pts</small></div>
+                            <?php if (trim($existingNotes) !== ''): ?>
+                                <div class="line"><small>Note: <?= nl2br($existingNotes) ?></small></div>
+                            <?php endif; ?>
+                        <?php endif; ?>
                     </div>
                 <?php endforeach; ?>
                 
