@@ -2702,17 +2702,43 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
                                                     </p>
                                                 </div>
                                                 <div class="ml-2 flex flex-col items-end space-y-1">
-                                                    <?php $status = strtolower(trim($quest['user_status'] ?? '')); ?>
-                                                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium <?php 
-                                                        echo $status === 'in_progress' ? 'bg-blue-100 text-blue-800 border border-blue-200' : 
-                                                            ($status === 'submitted' ? 'bg-yellow-100 text-yellow-800 border border-yellow-200' : 
-                                                             ($status === 'assigned' ? 'bg-purple-100 text-purple-800 border border-purple-200' : 'bg-gray-100 text-gray-800 border border-gray-200'));
-                                                    ?>">
-                                                        <?php 
-                                                        echo $status === 'in_progress' ? '🔄 In Progress' : 
-                                                            ($status === 'submitted' ? '📤 Submitted' : 
-                                                             ($status === 'assigned' ? '📌 Assigned' : '📝 ' . ucfirst(str_replace('_', ' ', $status)))); 
-                                                        ?>
+                                                    <?php 
+                                                        $status = strtolower(trim($quest['user_status'] ?? ''));
+                                                        $statusBadgeClass = 'bg-gray-100 text-gray-800 border border-gray-200';
+                                                        $statusLabel = '📝 ' . ucfirst(str_replace('_', ' ', $status));
+                                                        if ($status === 'in_progress') {
+                                                            $statusBadgeClass = 'bg-blue-100 text-blue-800 border border-blue-200';
+                                                            $statusLabel = '🔄 In Progress';
+                                                        } elseif ($status === 'assigned') {
+                                                            $statusBadgeClass = 'bg-purple-100 text-purple-800 border border-purple-200';
+                                                            $statusLabel = '📌 Assigned';
+                                                        } elseif ($status === 'submitted') {
+                                                            // Check latest submission to see if it's already graded
+                                                            try {
+                                                                $stmt = $pdo->prepare("SELECT status FROM quest_submissions WHERE employee_id = ? AND quest_id = ? ORDER BY submitted_at DESC LIMIT 1");
+                                                                $stmt->execute([$employee_id, $quest['id']]);
+                                                                $subStatus = strtolower(trim((string)($stmt->fetchColumn() ?: 'submitted')));
+                                                                if ($subStatus === 'approved') {
+                                                                    $statusBadgeClass = 'bg-green-100 text-green-800 border border-green-200';
+                                                                    $statusLabel = '✅ Graded';
+                                                                } elseif ($subStatus === 'under_review') {
+                                                                    $statusBadgeClass = 'bg-blue-100 text-blue-800 border border-blue-200';
+                                                                    $statusLabel = '🔎 Under Review';
+                                                                } elseif ($subStatus === 'rejected') {
+                                                                    $statusBadgeClass = 'bg-red-100 text-red-800 border border-red-200';
+                                                                    $statusLabel = '🚫 Declined';
+                                                                } else {
+                                                                    $statusBadgeClass = 'bg-yellow-100 text-yellow-800 border border-yellow-200';
+                                                                    $statusLabel = '📤 Submitted';
+                                                                }
+                                                            } catch (PDOException $e) {
+                                                                $statusBadgeClass = 'bg-yellow-100 text-yellow-800 border border-yellow-200';
+                                                                $statusLabel = '📤 Submitted';
+                                                            }
+                                                        }
+                                                    ?>
+                                                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium <?php echo $statusBadgeClass; ?>">
+                                                        <?php echo $statusLabel; ?>
                                                     </span>
                                                 </div>
                                             </div>
@@ -2759,6 +2785,42 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
                                                             </button>
                                                         </div>
                                                     </form>
+                                                </div>
+                                            <?php elseif ($status === 'submitted'): ?>
+                                                <?php
+                                                    // Fetch latest submission for this quest by current user
+                                                    $latestSubmission = null;
+                                                    $submission_status_display = '📤 Submitted';
+                                                    try {
+                                                        $stmt = $pdo->prepare("SELECT id, status, submitted_at FROM quest_submissions WHERE employee_id = ? AND quest_id = ? ORDER BY submitted_at DESC LIMIT 1");
+                                                        $stmt->execute([$employee_id, $quest['id']]);
+                                                        $latestSubmission = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+                                                    } catch (PDOException $e) {
+                                                        $latestSubmission = null;
+                                                    }
+                                                    if ($latestSubmission) {
+                                                        $st2 = strtolower(trim($latestSubmission['status'] ?? 'pending'));
+                                                        if ($st2 === 'under_review') { $submission_status_display = '🔎 Under Review'; }
+                                                        elseif ($st2 === 'approved') { $submission_status_display = '✅ Graded'; }
+                                                        elseif ($st2 === 'rejected') { $submission_status_display = '🚫 Declined'; }
+                                                    }
+                                                ?>
+                                                <div class="bg-white rounded-md p-3 border border-yellow-200 mt-3">
+                                                    <h5 class="font-medium text-gray-800 mb-2 text-sm"><?php echo $submission_status_display; ?></h5>
+                                                    <p class="text-xs text-gray-600 mb-3">Your work has been submitted. You can view your submission and, once graded, the per-skill performance and notes.</p>
+                                                    <div class="flex flex-wrap gap-2">
+                                                        <?php if ($latestSubmission && !empty($latestSubmission['id'])): ?>
+                                                            <a href="quest_assessment.php?quest_id=<?php echo urlencode((string)$quest['id']); ?>&user_id=<?php echo urlencode((string)$user_id); ?>&submission_id=<?php echo urlencode((string)$latestSubmission['id']); ?>"
+                                                               class="inline-flex items-center px-3 py-2 <?php echo (isset($st2) && $st2 === 'approved') ? 'bg-green-600 hover:bg-green-700' : 'bg-indigo-600 hover:bg-indigo-700'; ?> text-white text-xs font-medium rounded-md focus:ring-2 focus:ring-indigo-500 transition-colors">
+                                                                <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                                                </svg>
+                                                                <?php echo (isset($st2) && $st2 === 'approved') ? 'View Grade' : 'View Submission'; ?>
+                                                            </a>
+                                                        <?php else: ?>
+                                                            <span class="inline-flex items-center px-3 py-2 bg-gray-200 text-gray-700 text-xs font-medium rounded-md">No submission found</span>
+                                                        <?php endif; ?>
+                                                    </div>
                                                 </div>
                                             <?php elseif ($status === 'assigned'): ?>
                                                 <div class="bg-white rounded-md p-3 border border-purple-200 mt-3">
@@ -2817,6 +2879,70 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
                         <?php if ($total_active_quests > 0 || $active_page > 1): ?>
                             <div class="mt-4">
                                 <?php echo generatePagination($total_pages_active_quests, $active_page, 'active', $total_active_quests, count($active_quests)); ?>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+
+                    <!-- My Submissions & Grades -->
+                    <div class="mb-8">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-xl font-semibold text-gray-800">My Submissions & Grades</h3>
+                            <span class="bg-gray-100 text-gray-800 px-3 py-1 rounded-full text-sm font-medium">
+                                <?php echo (int)$total_submissions; ?> total
+                            </span>
+                        </div>
+                        <?php if (!empty($submissions)): ?>
+                            <div class="grid grid-cols-1 gap-4">
+                                <?php foreach ($submissions as $s): ?>
+                                    <?php 
+                                        $st = strtolower(trim($s['submission_status'] ?? $s['status'] ?? 'pending'));
+                                        $badgeClass = 'bg-yellow-100 text-yellow-800 border border-yellow-200';
+                                        $label = '📤 Submitted';
+                                        if ($st === 'under_review') { $badgeClass = 'bg-blue-100 text-blue-800 border border-blue-200'; $label = '🔎 Under Review'; }
+                                        elseif ($st === 'approved') { $badgeClass = 'bg-green-100 text-green-800 border border-green-200'; $label = '✅ Graded'; }
+                                        elseif ($st === 'rejected') { $badgeClass = 'bg-red-100 text-red-800 border border-red-200'; $label = '🚫 Declined'; }
+                                    ?>
+                                    <div class="bg-gradient-to-r from-gray-50 to-slate-50 border border-gray-200 rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200 overflow-hidden">
+                                        <div class="p-4">
+                                            <div class="flex justify-between items-start mb-2">
+                                                <div class="flex-1">
+                                                    <h4 class="font-semibold text-gray-900 mb-1">🧾 <?php echo htmlspecialchars($s['quest_title']); ?></h4>
+                                                    <div class="text-xs text-gray-500">Submitted: <?php echo !empty($s['submitted_at']) ? date('M d, Y g:i A', strtotime($s['submitted_at'])) : '—'; ?></div>
+                                                    <?php if (!empty($s['reviewer_name'])): ?>
+                                                        <div class="text-xs text-gray-500">Reviewed by: <?php echo htmlspecialchars($s['reviewer_name']); ?></div>
+                                                    <?php endif; ?>
+                                                </div>
+                                                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium <?php echo $badgeClass; ?>">
+                                                    <?php echo $label; ?>
+                                                </span>
+                                            </div>
+                                            <div class="flex justify-end gap-2 mt-2">
+                                                <a href="quest_assessment.php?quest_id=<?php echo urlencode((string)$s['quest_id']); ?>&user_id=<?php echo urlencode((string)$user_id); ?>&submission_id=<?php echo urlencode((string)$s['id']); ?>"
+                                                   class="inline-flex items-center px-3 py-2 <?php echo ($st === 'approved') ? 'bg-green-600 hover:bg-green-700' : 'bg-indigo-600 hover:bg-indigo-700'; ?> text-white text-xs font-medium rounded-md focus:ring-2 focus:ring-indigo-500 transition-colors">
+                                                    <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                                    </svg>
+                                                    <?php echo ($st === 'approved') ? 'View Grade' : 'View Submission'; ?>
+                                                </a>
+                                            </div>
+                                        </div>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php else: ?>
+                            <div class="text-center py-6">
+                                <svg class="w-12 h-12 mx-auto text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                </svg>
+                                <p class="text-gray-500">You haven't submitted any quests yet.</p>
+                                <p class="text-sm text-gray-400 mt-1">Once you submit, they will appear here with grading results.</p>
+                            </div>
+                        <?php endif; ?>
+
+                        <!-- Pagination for submissions -->
+                        <?php if ($total_submissions > 0 || $submission_page > 1): ?>
+                            <div class="mt-4">
+                                <?php echo generatePagination($total_pages, $submission_page, 'submissions', $total_submissions, count($submissions)); ?>
                             </div>
                         <?php endif; ?>
                     </div>
