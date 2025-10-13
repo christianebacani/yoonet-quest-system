@@ -2810,7 +2810,7 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
                                                     <p class="text-xs text-gray-600 mb-3">Your work has been submitted. You can view your submission and, once graded, the per-skill performance and notes.</p>
                                                     <div class="flex flex-wrap gap-2">
                                                         <?php if ($latestSubmission && !empty($latestSubmission['id'])): ?>
-                                                            <a href="quest_assessment.php?quest_id=<?php echo urlencode((string)$quest['id']); ?>&user_id=<?php echo urlencode((string)$user_id); ?>&submission_id=<?php echo urlencode((string)$latestSubmission['id']); ?>"
+                                                                                <a href="view_grade.php?submission_id=<?php echo urlencode((string)$latestSubmission['id']); ?>"
                                                                class="inline-flex items-center px-3 py-2 <?php echo (isset($st2) && $st2 === 'approved') ? 'bg-green-600 hover:bg-green-700' : 'bg-indigo-600 hover:bg-indigo-700'; ?> text-white text-xs font-medium rounded-md focus:ring-2 focus:ring-indigo-500 transition-colors">
                                                                 <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"></path>
@@ -2917,7 +2917,7 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
                                                 </span>
                                             </div>
                                             <div class="flex justify-end gap-2 mt-2">
-                                                <a href="quest_assessment.php?quest_id=<?php echo urlencode((string)$s['quest_id']); ?>&user_id=<?php echo urlencode((string)$user_id); ?>&submission_id=<?php echo urlencode((string)$s['id']); ?>"
+                                                                <a href="view_grade.php?submission_id=<?php echo urlencode((string)$s['id']); ?>"
                                                    class="inline-flex items-center px-3 py-2 <?php echo ($st === 'approved') ? 'bg-green-600 hover:bg-green-700' : 'bg-indigo-600 hover:bg-indigo-700'; ?> text-white text-xs font-medium rounded-md focus:ring-2 focus:ring-indigo-500 transition-colors">
                                                     <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"></path>
