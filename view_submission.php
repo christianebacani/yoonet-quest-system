@@ -158,6 +158,8 @@ try {
         .preview-body { padding:12px; }
         .preview-body iframe { width:100%; border:0; min-height:70vh; }
         .preview-body .docx-view { min-height:70vh; }
+        /* Ensure inline lightbox content never renders on the page */
+        .glightbox-inline { display:none; }
     </style>
     <script>
         function goBack() { window.history.back(); }
@@ -232,10 +234,7 @@ try {
                                         <span class="badge badge-img">IMG</span>
                                         <span><?php echo htmlspecialchars($fileName); ?></span>
                                     </div>
-                                    <div>
-                                        <a href="<?php echo htmlspecialchars($web); ?>" class="btn btn-gray view-newtab" data-ext="<?php echo htmlspecialchars($extLower ?: $ext); ?>" data-abs="<?php echo htmlspecialchars($web); ?>">View in new tab</a>
-                                        <?php if (!$isLink && !empty($filePath)): ?><a href="<?php echo htmlspecialchars($web); ?>" download class="btn btn-green">Download</a><?php endif; ?>
-                                    </div>
+                                    <div></div>
                                 </div>
                                 <div class="preview-body">
                                     <img style="max-width:100%;max-height:75vh;height:auto;display:block;margin:0 auto;background:#fff;" src="<?php echo htmlspecialchars($web); ?>" alt="<?php echo htmlspecialchars($fileName); ?>"/>
@@ -250,10 +249,7 @@ try {
                                         <span class="badge badge-pdf">PDF</span>
                                         <span><?php echo htmlspecialchars($fileName); ?></span>
                                     </div>
-                                    <div>
-                                        <a href="<?php echo htmlspecialchars($web); ?>" class="btn btn-gray view-newtab" data-ext="pdf" data-abs="<?php echo htmlspecialchars($web); ?>">View in new tab</a>
-                                        <?php if (!$isLink && !empty($filePath)): ?><a href="<?php echo htmlspecialchars($web); ?>" download class="btn btn-green">Download</a><?php endif; ?>
-                                    </div>
+                                    <div></div>
                                 </div>
                                 <div class="preview-body">
                                     <iframe src="<?php echo htmlspecialchars($web); ?>"></iframe>
@@ -268,10 +264,7 @@ try {
                                         <span class="badge badge-text">TEXT</span>
                                         <span><?php echo htmlspecialchars($fileName); ?></span>
                                     </div>
-                                    <div>
-                                        <a href="<?php echo htmlspecialchars($web); ?>" class="btn btn-gray view-newtab" data-ext="<?php echo htmlspecialchars($extLower ?: $ext); ?>" data-abs="<?php echo htmlspecialchars($web); ?>">View in new tab</a>
-                                        <?php if (!$isLink && !empty($filePath)): ?><a href="<?php echo htmlspecialchars($web); ?>" download class="btn btn-green">Download</a><?php endif; ?>
-                                    </div>
+                                    <div></div>
                                 </div>
                                 <div class="preview-body">
                                     <pre style="white-space:pre-wrap; background:#111827; color:#e5e7eb; padding:12px; border-radius:8px; max-height:75vh; overflow:auto;"><?php echo htmlspecialchars(@file_get_contents($filePath)); ?></pre>
@@ -287,10 +280,7 @@ try {
                                             <span class="badge badge-docx">DOCX</span>
                                             <span><?php echo htmlspecialchars($fileName); ?></span>
                                         </div>
-                                        <div>
-                                            <a href="<?php echo htmlspecialchars($web); ?>" class="btn btn-gray view-newtab" data-ext="docx" data-abs="<?php echo htmlspecialchars($web); ?>" <?php if (!$isLocal): ?>data-gview="<?php echo htmlspecialchars('https://docs.google.com/gview?embedded=1&url=' . rawurlencode($web)); ?>"<?php endif; ?>>View in new tab</a>
-                                            <?php if (!$isLink && !empty($filePath)): ?><a href="<?php echo htmlspecialchars($web); ?>" download class="btn btn-green">Download</a><?php endif; ?>
-                                        </div>
+                                        <div></div>
                                     </div>
                                     <div class="preview-body">
                                         <div class="docx-view"><div class="docx-html">Loading preview…</div></div>
@@ -305,10 +295,7 @@ try {
                                             <span class="badge badge-other"><?php echo strtoupper(htmlspecialchars($ext)); ?></span>
                                             <span><?php echo htmlspecialchars($fileName); ?></span>
                                         </div>
-                                        <div>
-                                            <a href="<?php echo htmlspecialchars($web); ?>" class="btn btn-gray view-newtab" data-ext="<?php echo htmlspecialchars($extLower ?: $ext); ?>" data-abs="<?php echo htmlspecialchars($web); ?>" <?php if (!$isLocal): ?>data-gview="<?php echo htmlspecialchars('https://docs.google.com/gview?embedded=1&url=' . rawurlencode($web)); ?>"<?php endif; ?>>View in new tab</a>
-                                            <?php if (!$isLink && !empty($filePath)): ?><a href="<?php echo htmlspecialchars($web); ?>" download class="btn btn-green">Download</a><?php endif; ?>
-                                        </div>
+                                        <div></div>
                                     </div>
                                     <div class="preview-body">
                                         <?php if (!$isLocal): ?>
@@ -370,63 +357,7 @@ try {
                 }
             }, true);
 
-            // Smarter 'View in new tab' logic to avoid forced downloads
-            document.addEventListener('click', async function(e){
-                const a = e.target.closest('a.view-newtab');
-                if (!a) return;
-                // Let modifier clicks behave normally
-                if (e.ctrlKey || e.shiftKey || e.metaKey || e.altKey) return;
-                e.preventDefault();
-                const ext = (a.getAttribute('data-ext') || '').toLowerCase();
-                const abs = a.getAttribute('data-abs') || a.getAttribute('href');
-                const gview = a.getAttribute('data-gview');
-                const host = location.host;
-                const isLocal = host.includes('localhost') || host.includes('127.0.0.1');
-
-                // Direct open for common previewable types
-                if (['jpg','jpeg','png','gif','webp','svg','pdf','txt','md','csv'].includes(ext)) {
-                    window.open(abs, '_blank', 'noopener');
-                    return;
-                }
-
-                // DOCX: try Mammoth new-tab rendering
-                if (ext === 'docx' && window.mammoth) {
-                    try {
-                        const res = await fetch(abs);
-                        const buf = await res.arrayBuffer();
-                        const result = await window.mammoth.convertToHtml({ arrayBuffer: buf });
-                        const title = (abs.split('/').pop() || 'Document');
-                        const html = `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title><style>body{font-family:system-ui,Segoe UI,Arial,sans-serif;margin:16px;color:#111827;background:#fff;} img{max-width:100%;height:auto}</style></head><body>${result.value}</body></html>`;
-                        const blob = new Blob([html], { type: 'text/html' });
-                        const url = URL.createObjectURL(blob);
-                        window.open(url, '_blank');
-                        setTimeout(() => URL.revokeObjectURL(url), 30000);
-                    } catch (err) {
-                        console.error('DOCX new-tab render failed:', err);
-                        if (!isLocal) {
-                            const url = gview || ('https://docs.google.com/gview?embedded=1&url=' + encodeURIComponent(abs));
-                            window.open(url, '_blank');
-                        } else {
-                            window.open(abs, '_blank');
-                        }
-                    }
-                    return;
-                }
-
-                // Other office formats: Google Viewer when public; raw when local
-                if (['doc','ppt','pptx','xls','xlsx'].includes(ext)) {
-                    if (!isLocal) {
-                        const url = gview || ('https://docs.google.com/gview?embedded=1&url=' + encodeURIComponent(abs));
-                        window.open(url, '_blank');
-                    } else {
-                        window.open(abs, '_blank');
-                    }
-                    return;
-                }
-
-                // Fallback: open normally
-                window.open(abs, '_blank', 'noopener');
-            }, true);
+            // Removed custom 'view-newtab' handler to avoid duplicate behaviors; rely on default anchor behavior
         })();
     </script>
 </body>
