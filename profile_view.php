@@ -456,14 +456,17 @@ $profile_photo = $profile['profile_photo'] ?? '';
                         $seconds_since_used = $skill['last_used'] ? (time() - strtotime($skill['last_used'])) : null;
                         $recent_usage_label = '';
                         if ($seconds_since_used !== null) {
+                            if ($seconds_since_used < 0) { $seconds_since_used = 0; }
                             if ($seconds_since_used < 60) {
-                                $s = $seconds_since_used; $recent_usage_label = 'Used ' . $s . ' second' . ($s===1?'':'s') . ' ago';
+                                $recent_usage_label = 'Used just now';
                             } elseif ($seconds_since_used < 3600) {
                                 $m = floor($seconds_since_used / 60); $recent_usage_label = 'Used ' . $m . ' minute' . ($m===1?'':'s') . ' ago';
                             } elseif ($seconds_since_used < 86400) {
                                 $h = floor($seconds_since_used / 3600); $recent_usage_label = 'Used ' . $h . ' hour' . ($h===1?'':'s') . ' ago';
+                            } elseif ($seconds_since_used < 604800) { // < 7 days
+                                $d = floor($seconds_since_used / 86400); $recent_usage_label = 'Used ' . $d . ' day' . ($d===1?'':'s') . ' ago';
                             } else {
-                                $recent_usage_label = 'Used ' . $days_since_used . ' day' . ($days_since_used===1?'':'s') . ' ago';
+                                $w = floor($seconds_since_used / 604800); $recent_usage_label = 'Used ' . $w . ' week' . ($w===1?'':'s') . ' ago';
                             }
                         }
                         ?>
@@ -496,12 +499,8 @@ $profile_photo = $profile['profile_photo'] ?? '';
                                         <span class="badge badge-recent">+<?= $skill['recent_points'] ?> pts</span>
                                     <?php endif; ?>
                                     
-                                    <?php if ($seconds_since_used !== null && $seconds_since_used < 86400): ?>
-                                        <span>📈 Used <?= htmlspecialchars($recent_usage_label) ?></span>
-                                    <?php elseif ($seconds_since_used !== null && $days_since_used < 30): ?>
-                                        <span>📈 Used <?= htmlspecialchars($recent_usage_label) ?></span>
-                                    <?php elseif ($seconds_since_used !== null && $days_since_used < 999): ?>
-                                        <span>⏰ Last used: <?= htmlspecialchars($recent_usage_label) ?></span>
+                                    <?php if ($seconds_since_used !== null): ?>
+                                        <span>📈 <?= htmlspecialchars($recent_usage_label) ?></span>
                                     <?php endif; ?>
                                 </div>
                                 
