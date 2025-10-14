@@ -2811,15 +2811,36 @@ function updateSkillDisplay() {
 }
 
 // Remove skill from selection
+// Unified skill removal: update Sets, tiers, checkbox state, UI & hidden data
 function removeSkill(skillId) {
-    const skillItem = document.querySelector(`[data-skill-id="${skillId}"]`);
+    const idStr = String(skillId);
+    if (selectedSkills.has(idStr)) {
+        selectedSkills.delete(idStr);
+        if (skillTiers[idStr]) delete skillTiers[idStr];
+    }
+
+    // Uncheck checkbox if present
+    const skillItem = document.querySelector(`[data-skill-id="${idStr}"]`);
     if (skillItem) {
         const checkbox = skillItem.querySelector('.skill-checkbox');
-        if (checkbox) {
+        if (checkbox && checkbox.checked) {
             checkbox.checked = false;
-            toggleSkillSelection(checkbox);
+        }
+        // Hide tier selector
+        const tierSelector = skillItem.querySelector('.skill-tier-selector');
+        if (tierSelector) {
+            tierSelector.classList.add('hidden');
+            const tierSelect = tierSelector.querySelector('.tier-select');
+            if (tierSelect) tierSelect.value = 2;
+        }
+        // Remove custom skill DOM label if it was a custom skill (identified via data-is-custom)
+        const checkboxEl = skillItem.querySelector('.skill-checkbox');
+        if (checkboxEl && checkboxEl.dataset.isCustom === 'true') {
+            skillItem.remove();
         }
     }
+
+    updateSkillDisplay();
 }
 
 // Form validation before submit

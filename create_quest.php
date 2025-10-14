@@ -2674,15 +2674,40 @@ function getFontSize() {
             updateHiddenInputs();
         }
         
-        // Function to remove skill
+        // Unified function to remove a skill (custom or predefined)
+        // Ensures: selectedSkills Set updated, related checkbox unchecked, tier selector hidden, custom label removed, hidden inputs & display refreshed
         function removeSkill(skillId) {
+            // Remove from the Set (works for object-based entries)
             selectedSkills.forEach(skill => {
                 if (skill.id == skillId) {
                     selectedSkills.delete(skill);
                 }
             });
+
+            // Uncheck corresponding checkbox if it exists (predefined or dynamically added custom)
+            const checkbox = document.querySelector(`.skill-checkbox[value="${skillId}"]`);
+            if (checkbox) {
+                if (checkbox.checked) {
+                    checkbox.checked = false;
+                }
+                // Hide tier selector if present for predefined skills
+                const container = checkbox.closest('.skill-item') || checkbox.closest('label');
+                if (container) {
+                    const tierSelector = container.querySelector('.tier-select')?.closest('.skill-tier-selector');
+                    if (tierSelector) tierSelector.classList.add('hidden');
+                }
+                // If it's a custom skill inside the selection list, remove its DOM element (checkbox wrapper)
+                if (checkbox.dataset.isCustom === 'true') {
+                    const labelEl = checkbox.closest('label');
+                    if (labelEl && labelEl.parentElement) {
+                        // Don't remove from the master list if you prefer keeping it; current pattern removes it.
+                        labelEl.remove();
+                    }
+                }
+            }
+
             updateSkillDisplay();
-            updateHiddenInputs(); // Update hidden inputs when skill is removed
+            updateHiddenInputs();
         }
         
         // Function to update hidden inputs for form submission
@@ -2739,7 +2764,9 @@ function getFontSize() {
         }
         
         // Function to handle skill selection (keeping for compatibility)
-        function handleSkillSelection(checkbox, skillId) {
+    // Legacy checkbox handler retained because some checkbox markup still calls handleSkillSelection();
+    // When refactoring, unify with object-based selectedSkills logic similar to toggleSkillSelection in edit_quest.
+    function handleSkillSelection(checkbox, skillId) {
             const skillName = checkbox.getAttribute('data-skill-name');
             const categoryName = checkbox.getAttribute('data-category-name');
             const isCustom = checkbox.getAttribute('data-is-custom') === 'true';
@@ -3117,14 +3144,7 @@ function getFontSize() {
             closeCalendarBox();
         }
         
-        // Function to remove a skill
-        function removeSkill(skillId) {
-            const checkbox = document.querySelector(`.skill-checkbox[value="${skillId}"]`);
-            if (checkbox) {
-                checkbox.checked = false;
-                handleSkillSelection(checkbox, skillId);
-            }
-        }
+        // (Duplicate removeSkill removed; unified version defined earlier.)
         
         // Function to toggle assignment type
         function toggleAssignmentType() {
