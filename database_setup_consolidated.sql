@@ -150,6 +150,55 @@ CREATE TABLE IF NOT EXISTS `user_earned_skills` (
   CONSTRAINT `ues_user_fk` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- --------------------------------------------------------------------
+-- Skill Progression Configuration (Bundle 2 - October 2025)
+-- --------------------------------------------------------------------
+-- New 12-level stretched thresholds (cumulative XP):
+-- Level | XP
+--   1   | 0
+--   2   | 100
+--   3   | 260
+--   4   | 510
+--   5   | 900
+--   6   | 1500
+--   7   | 2420
+--   8   | 4600
+--   9   | 7700
+--  10   | 12700
+--  11   | 19300
+--  12   | 29150
+-- Stages:
+--   Learning: 1–3
+--   Applying: 4–6
+--   Mastering: 7–9
+--   Innovating: 10–12
+-- Breadth XP Diminishing Factors (per quest, based on # skills awarded):
+--   1–2 skills: 1.00
+--   3 skills : 0.90
+--   4 skills : 0.75
+--   5+ skills: 0.60
+-- Max selectable skills per quest reduced to 5 (enforced UI + server edit_quest.php).
+-- Tier multipliers (applied in award pipeline; inferred presently):
+--   T1=0.85, T2=0.95, T3=1.00, T4=1.15, T5=1.30
+
+-- ACTIVE: Table-driven thresholds (now enabled)
+CREATE TABLE IF NOT EXISTS `skill_level_thresholds` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `level` int NOT NULL,
+  `cumulative_xp` int NOT NULL,
+  `stage` enum('Learning','Applying','Mastering','Innovating') NOT NULL,
+  `active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_level` (`level`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO `skill_level_thresholds` (level,cumulative_xp,stage) VALUES
+(1,0,'Learning'),(2,100,'Learning'),(3,260,'Learning'),
+(4,510,'Applying'),(5,900,'Applying'),(6,1500,'Applying'),
+(7,2420,'Mastering'),(8,4600,'Mastering'),(9,7700,'Mastering'),
+(10,12700,'Innovating'),(11,19300,'Innovating'),(12,29150,'Innovating');
+
 -- Quest completions summary (per user per quest)
 CREATE TABLE IF NOT EXISTS `quest_completions` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
