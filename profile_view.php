@@ -48,7 +48,7 @@ try {
             try {
                 // Aggregate totals and most recent award per skill for this user
                 $stmt = $pdo->prepare(
-                    "SELECT agg.skill_name,
+                    "SELECT agg.skill_natme,
                             agg.total_points,
                             agg.last_used,
                             det.adjusted_points AS recent_points
@@ -111,64 +111,8 @@ $total_user_points = array_sum(array_column($user_skills, 'total_points'));
 $overall_level = calculateLevelFromPoints($total_user_points);
 $overall_stage = calculateStageFromLevel($overall_level);
 
-// Dynamic summary metrics: quests to next milestone and estimated time
-$quests_to_next = null; // integer or null if maxed
-$estimated_time_label = '—';
+// Active skills count (for potential lightweight summaries)
 $active_skills_count = count(array_filter($user_skills, fn($s) => ($s['status'] ?? '') === 'ACTIVE'));
-
-// Determine next stage threshold for overall progress
-$stage_thresholds_overall = [
-    'Learning' => 700,
-    'Applying' => 3000,
-    'Mastering' => 6000,
-    'Innovating' => null,
-];
-$next_threshold_overall = $stage_thresholds_overall[$overall_stage] ?? null;
-$points_needed_overall = ($next_threshold_overall === null) ? 0 : max(0, $next_threshold_overall - (int)$total_user_points);
-
-// Compute average points per quest and recent pace to estimate time
-try {
-    $stmt = $pdo->prepare("SELECT total_points_awarded, completed_at FROM quest_completions WHERE user_id = ? ORDER BY completed_at DESC LIMIT 100");
-    $stmt->execute([$user_id]);
-    $comps = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
-
-    $points_list = array_map(fn($r) => (int)($r['total_points_awarded'] ?? 0), $comps);
-    $points_list = array_values(array_filter($points_list, fn($v) => $v > 0));
-    $avg_points_per_quest = !empty($points_list) ? (array_sum($points_list) / count($points_list)) : 0;
-
-    // Recent pace (quests per week) based on last 30 days
-    $now = time();
-    $cutoff = $now - (30 * 24 * 60 * 60);
-    $recent_30 = 0;
-    foreach ($comps as $r) {
-        $t = isset($r['completed_at']) ? strtotime((string)$r['completed_at']) : 0;
-        if ($t && $t >= $cutoff) { $recent_30++; }
-    }
-    $quests_per_week = $recent_30 / 4.2857; // approx weeks in 30 days
-
-    if ($next_threshold_overall === null) {
-        $quests_to_next = 0;
-        $estimated_time_label = '—';
-    } else {
-        $quests_to_next = ($avg_points_per_quest > 0) ? (int)max(0, ceil($points_needed_overall / $avg_points_per_quest)) : null;
-        if ($quests_to_next === null) {
-            $estimated_time_label = '—';
-        } else if ($quests_per_week > 0) {
-            $weeks = ceil($quests_to_next / $quests_per_week);
-            if ($weeks <= 1) {
-                // show days for short durations
-                $days = max(1, (int)ceil($quests_to_next / max(0.01, ($quests_per_week / 7))));
-                $estimated_time_label = $days . ' day' . ($days === 1 ? '' : 's');
-            } else {
-                $estimated_time_label = $weeks . ' week' . ($weeks === 1 ? '' : 's');
-            }
-        } else {
-            $estimated_time_label = '—';
-        }
-    }
-} catch (PDOException $e) {
-    // Leave defaults if table not available
-}
 
 // Helper functions for level and stage calculations
 function calculateLevelFromPoints($points) {
@@ -282,32 +226,26 @@ $profile_photo = $profile['profile_photo'] ?? '';
 
     .profile-body { display:grid; grid-template-columns: 1fr; gap:20px; margin-top:18px; }
 
-    /* Skill Journey Styles */
-    .skills-journey { background: linear-gradient(135deg, #1e293b, #334155); color: white; padding: 20px; border-radius: 12px; margin-bottom: 20px; position: relative; overflow: hidden; }
-    .skills-journey::before { content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="20" cy="20" r="1" fill="rgba(255,255,255,0.1)"/><circle cx="80" cy="80" r="1" fill="rgba(255,255,255,0.1)"/></svg>') repeat; }
-    .journey-header { text-align: center; margin-bottom: 20px; position: relative; z-index: 1; }
-    .user-overall { font-size: 1.5rem; font-weight: bold; margin-bottom: 10px; }
-    .journey-title { font-size: 1.2rem; color: #94a3b8; margin-bottom: 15px; letter-spacing: 2px; }
-    .journey-divider { border: none; height: 2px; background: linear-gradient(90deg, transparent, #64748b, transparent); margin: 20px 0; }
-    
-    .skill-item { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 16px; margin-bottom: 16px; backdrop-filter: blur(10px); }
-    .skill-header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
-    .skill-name { font-weight: bold; font-size: 1.1rem; }
-    .skill-level { color: #94a3b8; }
-    .skill-status { font-size: 0.9rem; }
-    
-    .skill-stage { margin-bottom: 8px; color: #cbd5e1; }
-    .progress-bar { background: rgba(255,255,255,0.1); height: 8px; border-radius: 4px; overflow: hidden; margin: 8px 0; }
-    .progress-fill { height: 100%; background: linear-gradient(90deg, #10b981, #34d399); transition: width 0.3s ease; }
-    
-    .skill-meta { display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; color: #94a3b8; margin-top: 8px; }
-    .skill-stats { display: flex; gap: 16px; }
-    .skill-hint { font-style: italic; }
-    
-    .journey-summary { background: rgba(255,255,255,0.05); border-radius: 8px; padding: 16px; margin-top: 20px; text-align: center; position: relative; z-index: 1; }
-    .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; text-align: center; }
-    .summary-value { font-size: 1.3rem; font-weight: bold; color: #10b981; }
-    .summary-label { font-size: 0.85rem; color: #94a3b8; }
+    /* Skill Journey Styles - light card to match site */
+    .skills-journey { background:#fff; color:#111827; padding: 16px; border-radius: 12px; border:1px solid #e5e7eb; box-shadow: 0 6px 22px rgba(18, 20, 56, 0.06); }
+    .journey-header { text-align: left; margin-bottom: 12px; }
+    .user-overall { font-size: 1.1rem; font-weight: 800; color:#111827; }
+    .journey-title { font-size: 0.9rem; color: #6b7280; letter-spacing: 1px; margin-top: 2px; text-transform: uppercase; }
+    .journey-divider { border: none; height: 1px; background: #e5e7eb; margin: 12px 0; }
+
+    .skill-item { background:#f8fafc; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px; margin-bottom: 12px; }
+    .skill-header { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+    .skill-name { font-weight: 800; color:#111827; letter-spacing: 0.4px; }
+    .skill-level { color: #374151; font-weight:600; }
+    .skill-status { font-size: 0.85rem; color:#374151; }
+
+    .skill-stage { margin-bottom: 6px; color: #374151; }
+    .progress-bar { background: #e5e7eb; height: 8px; border-radius: 4px; overflow: hidden; margin: 8px 0; }
+    .progress-fill { height: 100%; background: linear-gradient(90deg, #4f46e5, #22d3ee); transition: width 0.3s ease; }
+
+    .skill-meta { display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; color: #6b7280; margin-top: 6px; }
+    .skill-stats { display: flex; gap: 14px; align-items:center; }
+    .skill-hint { font-style: italic; color:#6b7280; }
 
     .prefs-box { background: linear-gradient(180deg,#ffffff,#fbfdff); padding:18px; border-radius:10px; border:1px solid #e6eefb; }
     .pref-item { display:flex; align-items:center; gap:12px; padding:12px 0; border-bottom:1px solid rgba(15,23,42,0.03); }
@@ -449,10 +387,6 @@ $profile_photo = $profile['profile_photo'] ?? '';
                                 <div class="progress-bar">
                                     <div class="progress-fill" style="width: <?= $progress_percent ?>%"></div>
                                 </div>
-                                <div style="font-size: 0.85rem; color: #cbd5e1; margin-bottom: 8px;">
-                                    <?= str_repeat('█', round($progress_percent / 5)) ?><?= str_repeat('░', 20 - round($progress_percent / 5)) ?> 
-                                    <?= round($progress_percent) ?>% to <?= $skill['current_stage'] === 'Learning' ? 'Applying' : ($skill['current_stage'] === 'Applying' ? 'Mastering' : 'Innovating') ?> Stage
-                                </div>
                             <?php endif; ?>
                             
                             <div class="skill-meta">
@@ -481,22 +415,7 @@ $profile_photo = $profile['profile_photo'] ?? '';
                         </div>
                     <?php endforeach; ?>
                     
-                    <div class="journey-summary">
-                        <div class="summary-grid">
-                            <div class="summary-item">
-                                <div class="summary-value"><?= $quests_to_next === null ? '—' : (int)$quests_to_next ?></div>
-                                <div class="summary-label">QUESTS TO NEXT MILESTONE</div>
-                            </div>
-                            <div class="summary-item">
-                                <div class="summary-value"><?= htmlspecialchars($estimated_time_label) ?></div>
-                                <div class="summary-label">ESTIMATED TIME</div>
-                            </div>
-                            <div class="summary-item">
-                                <div class="summary-value"><?= (int)$active_skills_count ?>/<?= count($user_skills) ?> 🟢</div>
-                                <div class="summary-label">ACTIVE SKILLS</div>
-                            </div>
-                        </div>
-                    </div>
+                    
                 </div>
             <?php endif; ?>
             
