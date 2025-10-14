@@ -397,22 +397,30 @@ $profile_photo = $profile['profile_photo'] ?? '';
             <?php if (!empty($user_skills)): ?>
                 <div class="skills-journey" id="skills-section">
                     <div class="journey-header">
-                        <div class="user-overall">
-                            USER: <?= htmlspecialchars($profile_full_name) ?> • Level <?= $overall_level ?> (<?= htmlspecialchars($overall_stage) ?> Stage)
-                        </div>
+                        <div class="user-overall">Level <?= $overall_level ?> • <?= htmlspecialchars($overall_stage) ?> Stage</div>
                         <div class="journey-title">Skill Journey</div>
                         <hr class="journey-divider">
                     </div>
 
                     <?php
-                        // Pagination setup
-                        $skillsPerPage = 8;
+                        // Search filter
+                        $skillQuery = isset($_GET['skill_q']) ? trim((string)$_GET['skill_q']) : '';
+                        $filtered_skills = $user_skills;
+                        if ($skillQuery !== '') {
+                            $qLower = mb_strtolower($skillQuery);
+                            $filtered_skills = array_values(array_filter($user_skills, function($s) use ($qLower) {
+                                return strpos(mb_strtolower($s['skill_name']), $qLower) !== false;
+                            }));
+                        }
+
+                        // Pagination setup (5 per page now)
+                        $skillsPerPage = 5;
                         $page = isset($_GET['spage']) ? max(1, (int)$_GET['spage']) : 1;
-                        $totalSkills = count($user_skills);
+                        $totalSkills = count($filtered_skills);
                         $totalPages = (int)max(1, ceil($totalSkills / $skillsPerPage));
                         if ($page > $totalPages) { $page = $totalPages; }
                         $offset = ($page - 1) * $skillsPerPage;
-                        $skills_slice = array_slice($user_skills, $offset, $skillsPerPage);
+                        $skills_slice = array_slice($filtered_skills, $offset, $skillsPerPage);
 
                         // Simple deterministic hash for color accent
                         $skillHashClass = function($name) {
@@ -421,6 +429,17 @@ $profile_photo = $profile['profile_photo'] ?? '';
                             return 'sa-' . $h;
                         };
                     ?>
+                    <form method="get" action="" style="margin:0 0 14px 0; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                        <input type="hidden" name="user_id" value="<?= (int)$user_id ?>">
+                        <input name="skill_q" value="<?= htmlspecialchars($skillQuery) ?>" placeholder="Search skills..." style="flex:1; min-width:220px; padding:8px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:0.85rem;" />
+                        <?php if ($skillQuery !== ''): ?>
+                            <a href="?user_id=<?= (int)$user_id ?>#skills-section" class="btn btn-secondary" style="text-decoration:none;">Clear</a>
+                        <?php endif; ?>
+                        <button type="submit" class="btn btn-primary">Search</button>
+                    </form>
+                    <?php if ($skillQuery !== '' && $totalSkills === 0): ?>
+                        <div style="padding:12px; background:#fef2f2; border:1px solid #fecaca; border-radius:8px; font-size:0.8rem; color:#991b1b;">No skills matched "<?= htmlspecialchars($skillQuery) ?>".</div>
+                    <?php endif; ?>
                     <?php foreach ($skills_slice as $skill): ?>
                         <?php 
                         $level_name = getLevelName($skill['current_level']);
@@ -438,13 +457,13 @@ $profile_photo = $profile['profile_photo'] ?? '';
                         $recent_usage_label = '';
                         if ($seconds_since_used !== null) {
                             if ($seconds_since_used < 60) {
-                                $recent_usage_label = 'just now';
+                                $s = $seconds_since_used; $recent_usage_label = 'Used ' . $s . ' second' . ($s===1?'':'s') . ' ago';
                             } elseif ($seconds_since_used < 3600) {
-                                $m = floor($seconds_since_used / 60); $recent_usage_label = $m . ' min' . ($m===1?'':'s') . ' ago';
+                                $m = floor($seconds_since_used / 60); $recent_usage_label = 'Used ' . $m . ' minute' . ($m===1?'':'s') . ' ago';
                             } elseif ($seconds_since_used < 86400) {
-                                $h = floor($seconds_since_used / 3600); $recent_usage_label = $h . ' hour' . ($h===1?'':'s') . ' ago';
+                                $h = floor($seconds_since_used / 3600); $recent_usage_label = 'Used ' . $h . ' hour' . ($h===1?'':'s') . ' ago';
                             } else {
-                                $recent_usage_label = $days_since_used . ' day' . ($days_since_used===1?'':'s') . ' ago';
+                                $recent_usage_label = 'Used ' . $days_since_used . ' day' . ($days_since_used===1?'':'s') . ' ago';
                             }
                         }
                         ?>
@@ -494,13 +513,18 @@ $profile_photo = $profile['profile_photo'] ?? '';
                     <?php endforeach; ?>
                     <?php if ($totalPages > 1): ?>
                         <div style="display:flex; justify-content:center; gap:6px; margin-top:10px; flex-wrap:wrap;">
-                            <?php for ($p=1; $p<=$totalPages; $p++): ?>
-                                <?php if ($p == $page): ?>
-                                    <span style="padding:6px 10px; border-radius:8px; background:#4f46e5; color:#fff; font-weight:600; font-size:0.8rem;">Page <?= $p ?></span>
-                                <?php else: ?>
-                                    <a href="?user_id=<?= (int)$user_id ?>&spage=<?= $p ?>#skills-section" style="padding:6px 10px; border-radius:8px; background:#eef2ff; color:#3730a3; font-weight:600; font-size:0.8rem; text-decoration:none; border:1px solid #c7d2fe;">Page <?= $p ?></a>
-                                <?php endif; ?>
-                            <?php endfor; ?>
+                            <?php
+                                // Build base query string preserving search
+                                $baseParams = ['user_id' => (int)$user_id];
+                                if ($skillQuery !== '') { $baseParams['skill_q'] = $skillQuery; }
+                                for ($p=1; $p<=$totalPages; $p++):
+                                    $qs = http_build_query(array_merge($baseParams, ['spage'=>$p]));
+                                    if ($p == $page): ?>
+                                        <span style="padding:6px 10px; border-radius:8px; background:#4f46e5; color:#fff; font-weight:600; font-size:0.8rem;">Page <?= $p ?></span>
+                                    <?php else: ?>
+                                        <a href="?<?= htmlspecialchars($qs) ?>#skills-section" style="padding:6px 10px; border-radius:8px; background:#eef2ff; color:#3730a3; font-weight:600; font-size:0.8rem; text-decoration:none; border:1px solid #c7d2fe;">Page <?= $p ?></a>
+                                    <?php endif;
+                                endfor; ?>
                         </div>
                     <?php endif; ?>
                 </div>
