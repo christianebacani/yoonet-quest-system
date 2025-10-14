@@ -239,6 +239,28 @@ $profile_photo = $profile['profile_photo'] ?? '';
     .skill-level { color: #374151; font-weight:600; }
     .skill-status { font-size: 0.85rem; color:#374151; }
 
+    /* Badges */
+    .badge { display:inline-flex; align-items:center; gap:4px; padding:4px 8px; border-radius:999px; font-size:0.65rem; font-weight:700; letter-spacing:.5px; text-transform:uppercase; border:1px solid transparent; }
+    .badge-level { background:#eef2ff; color:#3730a3; border-color:#c7d2fe; }
+    .badge-stage { background:#ecfdf5; color:#065f46; border-color:#a7f3d0; }
+    .badge-status-active { background:#d1fae5; color:#065f46; border-color:#10b981; }
+    .badge-status-stale { background:#fef3c7; color:#92400e; border-color:#fbbf24; }
+    .badge-status-rusty { background:#fee2e2; color:#991b1b; border-color:#fca5a5; }
+    .badge-recent { background:#e0f2fe; color:#075985; border-color:#7dd3fc; }
+
+    /* Skill color accents (hash-based categories) */
+    .skill-accent { display:inline-block; width:10px; height:10px; border-radius:3px; }
+    .sa-0 { background:#6366f1; }
+    .sa-1 { background:#f59e0b; }
+    .sa-2 { background:#10b981; }
+    .sa-3 { background:#ec4899; }
+    .sa-4 { background:#0ea5e9; }
+    .sa-5 { background:#8b5cf6; }
+    .sa-6 { background:#14b8a6; }
+    .sa-7 { background:#f43f5e; }
+    .sa-8 { background:#84cc16; }
+    .sa-9 { background:#fb7185; }
+
     .skill-stage { margin-bottom: 6px; color: #374151; }
     .progress-bar { background: #e5e7eb; height: 8px; border-radius: 4px; overflow: hidden; margin: 8px 0; }
     .progress-fill { height: 100%; background: linear-gradient(90deg, #4f46e5, #22d3ee); transition: width 0.3s ease; }
@@ -346,79 +368,6 @@ $profile_photo = $profile['profile_photo'] ?? '';
         </div>
 
         <div class="profile-body">
-            <?php if (!empty($user_skills)): ?>
-                <div class="skills-journey">
-                    <div class="journey-header">
-                        <div class="user-overall">
-                            USER: <?= htmlspecialchars($profile_full_name) ?><br>
-                            OVERALL: Level <?= $overall_level ?> | Stage: <?= htmlspecialchars($overall_stage) ?>
-                        </div>
-                        <div class="journey-title">SKILL JOURNEY:</div>
-                        <hr class="journey-divider">
-                    </div>
-                    
-                    <?php foreach ($user_skills as $skill): ?>
-                        <?php 
-                        $level_name = getLevelName($skill['current_level']);
-                        $status_icon = getStatusIcon($skill['status']);
-                        $progress_percent = getProgressToNextStage($skill['current_level'], $skill['total_points']);
-                        $next_stage_points = 0;
-                        
-                        // Calculate next stage points needed
-                        if ($skill['current_stage'] === 'Learning') $next_stage_points = 700;
-                        elseif ($skill['current_stage'] === 'Applying') $next_stage_points = 3000;
-                        elseif ($skill['current_stage'] === 'Mastering') $next_stage_points = 6000;
-                        
-                        $days_since_used = $skill['last_used'] ? round((time() - strtotime($skill['last_used'])) / (60 * 60 * 24)) : 999;
-                        ?>
-                        
-                        <div class="skill-item">
-                            <div class="skill-header">
-                                <span class="skill-name"><?= strtoupper(htmlspecialchars($skill['skill_name'])) ?>:</span>
-                                <span class="skill-level">Level <?= $skill['current_level'] ?> - <?= htmlspecialchars($level_name) ?></span>
-                                <span class="skill-status"><?= $status_icon ?> <?= strtoupper($skill['status']) ?></span>
-                            </div>
-                            
-                            <div class="skill-stage">
-                                Stage: <?= htmlspecialchars($skill['current_stage']) ?> (<?= number_format($skill['total_points']) ?><?= $next_stage_points > 0 ? '/' . number_format($next_stage_points) : '' ?> pts)
-                            </div>
-                            
-                            <?php if ($progress_percent < 100 && $next_stage_points > 0): ?>
-                                <div class="progress-bar">
-                                    <div class="progress-fill" style="width: <?= $progress_percent ?>%"></div>
-                                </div>
-                            <?php endif; ?>
-                            
-                            <div class="skill-meta">
-                                <div class="skill-stats">
-                                    <?php if ($skill['recent_points'] > 0): ?>
-                                        <span>🏆 Recent: +<?= $skill['recent_points'] ?> pts</span>
-                                    <?php endif; ?>
-                                    
-                                    <?php if ($days_since_used < 7): ?>
-                                        <span>📈 Used <?= $days_since_used === 0 ? 'today' : $days_since_used . ' day' . ($days_since_used > 1 ? 's' : '') . ' ago' ?></span>
-                                    <?php elseif ($days_since_used < 999): ?>
-                                        <span>⏰ Last used: <?= $days_since_used ?> days ago</span>
-                                    <?php endif; ?>
-                                </div>
-                                
-                                <div class="skill-hint">
-                                    <?php if ($skill['status'] === 'ACTIVE'): ?>
-                                        ⚡ Maintaining <?= htmlspecialchars($level_name) ?> status
-                                    <?php elseif ($skill['status'] === 'STALE'): ?>
-                                        💡 Complete any <?= htmlspecialchars($skill['skill_name']) ?> quest to reactivate!
-                                    <?php elseif ($skill['status'] === 'RUSTY'): ?>
-                                        🎯 Try "<?= htmlspecialchars($skill['skill_name']) ?> Refresher" for 2x points!
-                                    <?php endif; ?>
-                                </div>
-                            </div>
-                        </div>
-                    <?php endforeach; ?>
-                    
-                    
-                </div>
-            <?php endif; ?>
-            
             <div class="prefs-box">
                 <h4 style="margin:0 0 8px 0;color:var(--dark-color);">Preferences</h4>
                 <div class="pref-item">
@@ -444,6 +393,118 @@ $profile_photo = $profile['profile_photo'] ?? '';
                     </div>
                 </div>
             </div>
+
+            <?php if (!empty($user_skills)): ?>
+                <div class="skills-journey" id="skills-section">
+                    <div class="journey-header">
+                        <div class="user-overall">
+                            USER: <?= htmlspecialchars($profile_full_name) ?> • Level <?= $overall_level ?> (<?= htmlspecialchars($overall_stage) ?> Stage)
+                        </div>
+                        <div class="journey-title">Skill Journey</div>
+                        <hr class="journey-divider">
+                    </div>
+
+                    <?php
+                        // Pagination setup
+                        $skillsPerPage = 8;
+                        $page = isset($_GET['spage']) ? max(1, (int)$_GET['spage']) : 1;
+                        $totalSkills = count($user_skills);
+                        $totalPages = (int)max(1, ceil($totalSkills / $skillsPerPage));
+                        if ($page > $totalPages) { $page = $totalPages; }
+                        $offset = ($page - 1) * $skillsPerPage;
+                        $skills_slice = array_slice($user_skills, $offset, $skillsPerPage);
+
+                        // Simple deterministic hash for color accent
+                        $skillHashClass = function($name) {
+                            $h = 0; $len = strlen($name);
+                            for ($i=0; $i<$len; $i++) { $h = ($h * 31 + ord($name[$i])) % 10; }
+                            return 'sa-' . $h;
+                        };
+                    ?>
+                    <?php foreach ($skills_slice as $skill): ?>
+                        <?php 
+                        $level_name = getLevelName($skill['current_level']);
+                        $status_icon = getStatusIcon($skill['status']);
+                        $progress_percent = getProgressToNextStage($skill['current_level'], $skill['total_points']);
+                        $next_stage_points = 0;
+                        
+                        // Calculate next stage points needed
+                        if ($skill['current_stage'] === 'Learning') $next_stage_points = 700;
+                        elseif ($skill['current_stage'] === 'Applying') $next_stage_points = 3000;
+                        elseif ($skill['current_stage'] === 'Mastering') $next_stage_points = 6000;
+                        
+                        $days_since_used = $skill['last_used'] ? floor((time() - strtotime($skill['last_used'])) / 86400) : 999;
+                        $seconds_since_used = $skill['last_used'] ? (time() - strtotime($skill['last_used'])) : null;
+                        $recent_usage_label = '';
+                        if ($seconds_since_used !== null) {
+                            if ($seconds_since_used < 60) {
+                                $recent_usage_label = 'just now';
+                            } elseif ($seconds_since_used < 3600) {
+                                $m = floor($seconds_since_used / 60); $recent_usage_label = $m . ' min' . ($m===1?'':'s') . ' ago';
+                            } elseif ($seconds_since_used < 86400) {
+                                $h = floor($seconds_since_used / 3600); $recent_usage_label = $h . ' hour' . ($h===1?'':'s') . ' ago';
+                            } else {
+                                $recent_usage_label = $days_since_used . ' day' . ($days_since_used===1?'':'s') . ' ago';
+                            }
+                        }
+                        ?>
+                        
+                        <div class="skill-item">
+                            <div class="skill-header">
+                                <span class="skill-accent <?= $skillHashClass($skill['skill_name']) ?>" title="Skill color"></span>
+                                <span class="skill-name"><?= strtoupper(htmlspecialchars($skill['skill_name'])) ?></span>
+                                <span class="badge badge-level">Lvl <?= $skill['current_level'] ?> • <?= htmlspecialchars($level_name) ?></span>
+                                <span class="badge badge-stage"><?= htmlspecialchars($skill['current_stage']) ?></span>
+                                <span class="badge <?= $skill['status']==='ACTIVE'?'badge-status-active':($skill['status']==='STALE'?'badge-status-stale':'badge-status-rusty') ?>"><?= strtoupper($skill['status']) ?></span>
+                            </div>
+                            
+                            <div class="skill-stage" style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+                                <span>XP: <?= number_format($skill['total_points']) ?><?= $next_stage_points > 0 ? ' / ' . number_format($next_stage_points) : '' ?> pts</span>
+                                <?php if ($progress_percent < 100 && $next_stage_points > 0): ?>
+                                    <span style="font-size:0.7rem; letter-spacing:.5px; color:#6b7280; font-weight:600;"><?= round($progress_percent) ?>% to next stage</span>
+                                <?php endif; ?>
+                            </div>
+                            
+                            <?php if ($progress_percent < 100 && $next_stage_points > 0): ?>
+                                <div class="progress-bar">
+                                    <div class="progress-fill" style="width: <?= $progress_percent ?>%"></div>
+                                </div>
+                            <?php endif; ?>
+                            
+                            <div class="skill-meta">
+                                <div class="skill-stats">
+                                    <?php if ($skill['recent_points'] > 0): ?>
+                                        <span class="badge badge-recent">+<?= $skill['recent_points'] ?> pts</span>
+                                    <?php endif; ?>
+                                    
+                                    <?php if ($seconds_since_used !== null && $seconds_since_used < 86400): ?>
+                                        <span>📈 Used <?= htmlspecialchars($recent_usage_label) ?></span>
+                                    <?php elseif ($seconds_since_used !== null && $days_since_used < 30): ?>
+                                        <span>📈 Used <?= htmlspecialchars($recent_usage_label) ?></span>
+                                    <?php elseif ($seconds_since_used !== null && $days_since_used < 999): ?>
+                                        <span>⏰ Last used: <?= htmlspecialchars($recent_usage_label) ?></span>
+                                    <?php endif; ?>
+                                </div>
+                                
+                                <div class="skill-hint">
+                                    <?php if ($skill['status'] === 'ACTIVE'): ?>Maintain momentum by applying this skill weekly<?php elseif ($skill['status'] === 'STALE'): ?>Re-engage with a quest to restore activity<?php elseif ($skill['status'] === 'RUSTY'): ?>Consider a refresher quest to regain edge<?php endif; ?>
+                                </div>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                    <?php if ($totalPages > 1): ?>
+                        <div style="display:flex; justify-content:center; gap:6px; margin-top:10px; flex-wrap:wrap;">
+                            <?php for ($p=1; $p<=$totalPages; $p++): ?>
+                                <?php if ($p == $page): ?>
+                                    <span style="padding:6px 10px; border-radius:8px; background:#4f46e5; color:#fff; font-weight:600; font-size:0.8rem;">Page <?= $p ?></span>
+                                <?php else: ?>
+                                    <a href="?user_id=<?= (int)$user_id ?>&spage=<?= $p ?>#skills-section" style="padding:6px 10px; border-radius:8px; background:#eef2ff; color:#3730a3; font-weight:600; font-size:0.8rem; text-decoration:none; border:1px solid #c7d2fe;">Page <?= $p ?></a>
+                                <?php endif; ?>
+                            <?php endfor; ?>
+                        </div>
+                    <?php endif; ?>
+                </div>
+            <?php endif; ?>
         </div>
     </div>
 </div>
