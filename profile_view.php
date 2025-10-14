@@ -10,7 +10,7 @@ $user_id = isset($_GET['user_id']) ? (int)$_GET['user_id'] : ($_SESSION['user_id
 if (!$user_id) { redirect('dashboard.php'); }
 
 try {
-    $stmt = $pdo->prepare("SELECT full_name, bio, profile_photo, quest_interests, availability_status, job_position FROM users WHERE id = ?");
+    $stmt = $pdo->prepare("SELECT full_name, bio, profile_photo, quest_interests, availability_status, job_position, employee_id FROM users WHERE id = ?");
     $stmt->execute([$user_id]);
     $profile = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$profile) redirect('dashboard.php');
@@ -36,14 +36,71 @@ try {
     } else {
         // Legacy path (keep existing query if that table exists in your DB)
         try {
-            $stmt = $pdo->prepare("SELECT cs.skill_name, usp.total_points, usp.skill_level as current_level, usp.current_stage, usp.last_activity as last_used, usp.activity_status as status, usp.updated_at, sc.category_name FROM user_skill_progress usp JOIN comprehensive_skills cs ON usp.skill_id = cs.id JOIN skill_categories sc ON cs.category_id = sc.id WHERE usp.employee_id = ? ORDER BY usp.total_points DESC");
-            $stmt->execute([$_SESSION['employee_id'] ?? '']);
+            $profile_employee_id = $profile['employee_id'] ?? ($_SESSION['employee_id'] ?? '');
+            $stmt = $pdo->prepare("SELECT cs.skill_name, usp.total_points, usp.skill_level as current_level, usp.current_stage, usp.last_activity as last_used, usp.activity_status as status, usp.updated_at, sc.category_name FROM user_skill_progress usp JOIN comprehensive_skills cs ON usp.skill_id = cs.id JOIN skill_categories sc ON cs.category_id = sc.id WHERE usp.employee_id = ? AND usp.total_points > 0 ORDER BY usp.total_points DESC");
+            $stmt->execute([$profile_employee_id]);
             $user_skills = $stmt->fetchAll(PDO::FETCH_ASSOC);
         } catch (PDOException $e2) {
             $user_skills = [];
         }
+        // If still empty, derive from per-skill graded details as a last resort
+        if (empty($user_skills)) {
+            try {
+                // Aggregate totals and most recent award per skill for this user
+                $stmt = $pdo->prepare(
+                    "SELECT agg.skill_name,
+                            agg.total_points,
+                            agg.last_used,
+                            det.adjusted_points AS recent_points
+                     FROM (
+                        SELECT qd.skill_name,
+                               SUM(qd.adjusted_points) AS total_points,
+                               MAX(qd.reviewed_at)     AS last_used
+                        FROM quest_assessment_details qd
+                        JOIN quest_submissions qs ON qs.id = qd.submission_id AND LOWER(qs.status) = 'approved'
+                        WHERE qd.user_id = ?
+                        GROUP BY qd.skill_name
+                        HAVING SUM(qd.adjusted_points) > 0
+                     ) agg
+                     LEFT JOIN quest_assessment_details det
+                       ON det.user_id = ?
+                      AND det.skill_name = agg.skill_name
+                      AND det.reviewed_at = agg.last_used
+                     ORDER BY agg.total_points DESC"
+                );
+                $stmt->execute([$user_id, $user_id]);
+                $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+                // Map into the shape expected by the renderer
+                $mapped = [];
+                foreach ($rows as $r) {
+                    $tp = (int)($r['total_points'] ?? 0);
+                    $lvl = calculateLevelFromPoints($tp);
+                    $stg = calculateStageFromLevel($lvl);
+                    $last = $r['last_used'] ?? null;
+                    $days = $last ? round((time() - strtotime($last)) / (60 * 60 * 24)) : 999;
+                    $status = 'ACTIVE';
+                    if ($days >= 90) { $status = 'RUSTY'; }
+                    elseif ($days >= 30) { $status = 'STALE'; }
+
+                    $mapped[] = [
+                        'skill_name'    => (string)$r['skill_name'],
+                        'total_points'  => $tp,
+                        'current_level' => $lvl,
+                        'current_stage' => $stg,
+                        'last_used'     => $last,
+                        'recent_points' => (int)($r['recent_points'] ?? 0),
+                        'status'        => $status,
+                        'updated_at'    => $last,
+                    ];
+                }
+                $user_skills = $mapped;
+            } catch (PDOException $e3) {
+                // leave as empty
+                error_log('profile_view derive skills failed: ' . $e3->getMessage());
+            }
+        }
     }
-    $user_skills = $stmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (PDOException $e) {
     error_log("Error loading user earned skills: " . $e->getMessage());
     $user_skills = [];
@@ -53,6 +110,65 @@ try {
 $total_user_points = array_sum(array_column($user_skills, 'total_points'));
 $overall_level = calculateLevelFromPoints($total_user_points);
 $overall_stage = calculateStageFromLevel($overall_level);
+
+// Dynamic summary metrics: quests to next milestone and estimated time
+$quests_to_next = null; // integer or null if maxed
+$estimated_time_label = '—';
+$active_skills_count = count(array_filter($user_skills, fn($s) => ($s['status'] ?? '') === 'ACTIVE'));
+
+// Determine next stage threshold for overall progress
+$stage_thresholds_overall = [
+    'Learning' => 700,
+    'Applying' => 3000,
+    'Mastering' => 6000,
+    'Innovating' => null,
+];
+$next_threshold_overall = $stage_thresholds_overall[$overall_stage] ?? null;
+$points_needed_overall = ($next_threshold_overall === null) ? 0 : max(0, $next_threshold_overall - (int)$total_user_points);
+
+// Compute average points per quest and recent pace to estimate time
+try {
+    $stmt = $pdo->prepare("SELECT total_points_awarded, completed_at FROM quest_completions WHERE user_id = ? ORDER BY completed_at DESC LIMIT 100");
+    $stmt->execute([$user_id]);
+    $comps = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+    $points_list = array_map(fn($r) => (int)($r['total_points_awarded'] ?? 0), $comps);
+    $points_list = array_values(array_filter($points_list, fn($v) => $v > 0));
+    $avg_points_per_quest = !empty($points_list) ? (array_sum($points_list) / count($points_list)) : 0;
+
+    // Recent pace (quests per week) based on last 30 days
+    $now = time();
+    $cutoff = $now - (30 * 24 * 60 * 60);
+    $recent_30 = 0;
+    foreach ($comps as $r) {
+        $t = isset($r['completed_at']) ? strtotime((string)$r['completed_at']) : 0;
+        if ($t && $t >= $cutoff) { $recent_30++; }
+    }
+    $quests_per_week = $recent_30 / 4.2857; // approx weeks in 30 days
+
+    if ($next_threshold_overall === null) {
+        $quests_to_next = 0;
+        $estimated_time_label = '—';
+    } else {
+        $quests_to_next = ($avg_points_per_quest > 0) ? (int)max(0, ceil($points_needed_overall / $avg_points_per_quest)) : null;
+        if ($quests_to_next === null) {
+            $estimated_time_label = '—';
+        } else if ($quests_per_week > 0) {
+            $weeks = ceil($quests_to_next / $quests_per_week);
+            if ($weeks <= 1) {
+                // show days for short durations
+                $days = max(1, (int)ceil($quests_to_next / max(0.01, ($quests_per_week / 7))));
+                $estimated_time_label = $days . ' day' . ($days === 1 ? '' : 's');
+            } else {
+                $estimated_time_label = $weeks . ' week' . ($weeks === 1 ? '' : 's');
+            }
+        } else {
+            $estimated_time_label = '—';
+        }
+    }
+} catch (PDOException $e) {
+    // Leave defaults if table not available
+}
 
 // Helper functions for level and stage calculations
 function calculateLevelFromPoints($points) {
@@ -368,15 +484,15 @@ $profile_photo = $profile['profile_photo'] ?? '';
                     <div class="journey-summary">
                         <div class="summary-grid">
                             <div class="summary-item">
-                                <div class="summary-value">12</div>
+                                <div class="summary-value"><?= $quests_to_next === null ? '—' : (int)$quests_to_next ?></div>
                                 <div class="summary-label">QUESTS TO NEXT MILESTONE</div>
                             </div>
                             <div class="summary-item">
-                                <div class="summary-value">3 weeks</div>
+                                <div class="summary-value"><?= htmlspecialchars($estimated_time_label) ?></div>
                                 <div class="summary-label">ESTIMATED TIME</div>
                             </div>
                             <div class="summary-item">
-                                <div class="summary-value"><?= count(array_filter($user_skills, fn($s) => $s['status'] === 'ACTIVE')) ?>/<?= count($user_skills) ?> 🟢</div>
+                                <div class="summary-value"><?= (int)$active_skills_count ?>/<?= count($user_skills) ?> 🟢</div>
                                 <div class="summary-label">ACTIVE SKILLS</div>
                             </div>
                         </div>
