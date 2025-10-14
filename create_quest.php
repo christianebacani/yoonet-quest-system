@@ -2355,7 +2355,7 @@ function getFontSize() {
 
         // Enhanced skill selection functionality
         let selectedSkills = new Set();
-        const MAX_SKILLS = 8;
+    const MAX_SKILLS = 5; // Reduced from 8 to 5 for focused mastery (Bundle 2)
         let customSkillCounter = 1000; // Start custom skill IDs from 1000
         let currentCategory = '';
         let currentCategoryName = '';
@@ -2363,6 +2363,18 @@ function getFontSize() {
         
         // Skills data from PHP
         const allSkills = <?php echo json_encode($skills); ?>;
+
+        // Insert focus efficiency helper after DOM loaded
+        document.addEventListener('DOMContentLoaded', () => {
+            const target = document.getElementById('selected-skills-badges') || document.querySelector('#selected-skills-badges');
+            if (target && !document.getElementById('focus-efficiency-hint')) {
+                const hint = document.createElement('div');
+                hint.id = 'focus-efficiency-hint';
+                hint.className = 'mt-2 text-xs text-indigo-600';
+                hint.innerHTML = 'Tip: Selecting 1–2 skills = 100% XP each, 3 skills = 90%, 4 = 75%, 5 = 60%. Focus for faster mastery.';
+                target.parentElement.insertBefore(hint, target.nextSibling);
+            }
+        });
         
         // Category configurations
         const categoryConfig = {
@@ -2487,7 +2499,7 @@ function getFontSize() {
             
             if (checkbox.checked) {
                 if (tempSelectedSkills.size >= MAX_SKILLS) {
-                    alert(`You can only select up to ${MAX_SKILLS} skills per quest.`);
+                    alert(`You can only select up to ${MAX_SKILLS} skills per quest (focused mastery).`);
                     checkbox.checked = false;
                     return;
                 }
@@ -2606,7 +2618,7 @@ function getFontSize() {
             }
             
             if (selectedSkills.size >= MAX_SKILLS) {
-                alert(`You can only select up to ${MAX_SKILLS} skills per quest.`);
+                alert(`You can only select up to ${MAX_SKILLS} skills per quest (focused mastery).`);
                 return;
             }
             
@@ -2776,7 +2788,7 @@ function getFontSize() {
                 // Check if we've reached the maximum number of skills
                 if (selectedSkills.size >= MAX_SKILLS) {
                     checkbox.checked = false;
-                    alert(`You can only select up to ${MAX_SKILLS} skills per quest. Please deselect a skill first.`);
+                    alert(`You can only select up to ${MAX_SKILLS} skills per quest (focused mastery). Please deselect a skill first.`);
                     return;
                 }
                 

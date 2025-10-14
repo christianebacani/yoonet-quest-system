@@ -9,9 +9,74 @@ require_once __DIR__ . '/config.php';
 
 class SkillProgression {
     private $pdo;
+    // Default in-code thresholds (fallback if DB table not present)
+    private array $defaultThresholds = [
+        1 => 0,
+        2 => 100,
+        3 => 260,
+        4 => 510,
+        5 => 900,
+        6 => 1500,
+        7 => 2420,
+        8 => 4600,
+        9 => 7700,
+        10 => 12700,
+        11 => 19300,
+        12 => 29150,
+    ];
+    private array $thresholds = [];
     
     public function __construct($pdo) {
         $this->pdo = $pdo;
+        $this->loadThresholds();
+    }
+
+    /**
+     * Attempt to load thresholds from DB; create/seed if missing; fallback to defaults.
+     */
+    private function loadThresholds(): void {
+        $this->thresholds = $this->defaultThresholds; // preset fallback
+        try {
+            // Create table if not exists (idempotent)
+            $this->pdo->exec("CREATE TABLE IF NOT EXISTS skill_level_thresholds (
+                id INT NOT NULL AUTO_INCREMENT,
+                level INT NOT NULL,
+                cumulative_xp INT NOT NULL,
+                stage ENUM('Learning','Applying','Mastering','Innovating') NOT NULL,
+                active TINYINT(1) NOT NULL DEFAULT 1,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                UNIQUE KEY uniq_level (level)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+
+            // Check if rows exist
+            $stmt = $this->pdo->query("SELECT COUNT(*) FROM skill_level_thresholds");
+            $count = (int)$stmt->fetchColumn();
+            if ($count === 0) {
+                // Seed initial thresholds
+                $seed = [
+                    [1,0,'Learning'],[2,100,'Learning'],[3,260,'Learning'],
+                    [4,510,'Applying'],[5,900,'Applying'],[6,1500,'Applying'],
+                    [7,2420,'Mastering'],[8,4600,'Mastering'],[9,7700,'Mastering'],
+                    [10,12700,'Innovating'],[11,19300,'Innovating'],[12,29150,'Innovating']
+                ];
+                $ins = $this->pdo->prepare("INSERT INTO skill_level_thresholds (level,cumulative_xp,stage) VALUES (?,?,?)");
+                foreach ($seed as $row) { $ins->execute($row); }
+            }
+
+            // Load active thresholds
+            $stmt = $this->pdo->query("SELECT level, cumulative_xp, stage FROM skill_level_thresholds WHERE active = 1 ORDER BY level ASC");
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $loaded = [];
+            foreach ($rows as $r) {
+                $lvl = (int)$r['level'];
+                $loaded[$lvl] = (int)$r['cumulative_xp'];
+            }
+            if ($loaded) { $this->thresholds = $loaded; }
+        } catch (Throwable $e) {
+            // Fallback silently to default thresholds
+            error_log('SkillProgression threshold load fallback: ' . $e->getMessage());
+        }
     }
     
     /**
@@ -78,23 +143,55 @@ class SkillProgression {
     /**
      * Calculate level from total points
      */
-    private function calculateLevel($points) {
-        if ($points < 100) return 1;      // Beginner
-        if ($points < 300) return 2;      // Novice
-        if ($points < 700) return 3;      // Competent
-        if ($points < 1500) return 4;     // Proficient
-        if ($points < 3000) return 5;     // Advanced
-        if ($points < 6000) return 6;     // Expert
-        return 7;                         // Master
+    private function calculateLevel(int $points): int {
+        $level = 1;
+        foreach ($this->thresholds as $lvl => $xp) {
+            if ($points >= $xp) {
+                $level = $lvl;
+            } else {
+                break;
+            }
+        }
+        return $level;
+    }
+
+    public function getThresholds(): array {
+        return $this->thresholds;
+    }
+
+    /**
+     * Progress meta for UI: returns associative array with
+     * level, stage, current_floor, next_floor, xp_into_level, xp_to_next, percent_to_next
+     */
+    public function getProgressMeta(int $points): array {
+        $level = $this->calculateLevel($points);
+        $stage = $this->calculateStage($level);
+    $currentFloor = $this->thresholds[$level] ?? 0;
+        // If max level reached, next floor is null
+        $nextFloor = $this->thresholds[$level + 1] ?? null;
+        $xpInto = $points - $currentFloor;
+        if ($xpInto < 0) $xpInto = 0;
+        $xpToNext = $nextFloor !== null ? max(0, $nextFloor - $points) : 0;
+        $denom = $nextFloor !== null ? max(1, $nextFloor - $currentFloor) : 1;
+        $percent = $nextFloor !== null ? round(($xpInto / $denom) * 100, 1) : 100.0;
+        return [
+            'level' => $level,
+            'stage' => $stage,
+            'current_floor' => $currentFloor,
+            'next_floor' => $nextFloor,
+            'xp_into_level' => $xpInto,
+            'xp_to_next' => $xpToNext,
+            'percent_to_next' => $percent
+        ];
     }
     
     /**
      * Calculate stage from level
      */
-    private function calculateStage($level) {
+    private function calculateStage(int $level): string {
         if ($level <= 3) return 'Learning';
-        if ($level <= 5) return 'Applying';
-        if ($level <= 6) return 'Mastering';
+        if ($level <= 6) return 'Applying';
+        if ($level <= 9) return 'Mastering';
         return 'Innovating';
     }
     

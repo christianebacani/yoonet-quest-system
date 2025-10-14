@@ -261,10 +261,37 @@ if (empty($error) && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['subm
     try {
         $pdo->beginTransaction();
         
+        // Breadth factor + tier multiplier (Bundle 2)
+        $totalSkillsAssessed = 0;
+        foreach ($assessments as $assessment) {
+            $bp = (int)($assessment['base_points'] ?? 0);
+            $perf = (float)($assessment['performance'] ?? 0);
+            if ($bp > 0 && $perf > 0) { $totalSkillsAssessed++; }
+        }
+        $breadthFactor = 1.0;
+        if ($totalSkillsAssessed === 3) $breadthFactor = 0.90;
+        elseif ($totalSkillsAssessed === 4) $breadthFactor = 0.75;
+        elseif ($totalSkillsAssessed >= 5) $breadthFactor = 0.60;
+
+        // Optional tier multipliers by detecting tier markers in skill name (e.g., "(T3)") or extend schema later
+        $tierMultipliers = [1 => 0.85, 2 => 0.95, 3 => 1.00, 4 => 1.15, 5 => 1.30];
+        $tierPattern = '/\(T([1-5])\)$/';
+
         foreach ($assessments as $skill_name => $assessment) {
             $performance = (float)($assessment['performance'] ?? 1.0);
-            $base_points = (int)($assessment['base_points'] ?? 0);
+            $base_points_raw = (int)($assessment['base_points'] ?? 0);
             $notes = sanitize_input($assessment['notes'] ?? '');
+
+            // Derive tier if embedded in the skill name (fallback tier 3)
+            $tier = 3;
+            if (preg_match($tierPattern, $skill_name, $m)) {
+                $t = (int)$m[1];
+                if ($t >= 1 && $t <= 5) { $tier = $t; }
+            }
+            $tierMultiplier = $tierMultipliers[$tier] ?? 1.0;
+
+            // Adjusted base points with breadth + tier
+            $base_points = (int)round($base_points_raw * $breadthFactor * $tierMultiplier);
 
             // Skip zero-point awards (e.g., Not performed)
             if ($base_points <= 0 || $performance <= 0) { continue; }
@@ -308,10 +335,10 @@ if (empty($error) && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['subm
                     $user_id,
                     $currentSubmissionId,
                     $skill_name,
-                    $base_points,
+                    $base_points_raw, /* store original base */
                     $performance,
                     $label,
-                    (int)round($base_points * $performance),
+                    (int)round($base_points * $performance), /* adjusted_points reflects modified base */
                     $notes,
                     $reviewedBy,
                 ]);

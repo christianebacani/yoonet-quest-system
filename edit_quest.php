@@ -193,8 +193,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Please select a valid assignment type (mandatory or optional)';
     } elseif (!empty($due_date) && !strtotime($due_date)) {
         $error = 'Invalid due date format';
-    } elseif (count($quest_skills) > 8) {
-        $error = 'Maximum 8 skills allowed per quest';
+    } elseif (count($quest_skills) > 5) {
+        $error = 'Maximum 5 skills allowed per quest (focused mastery)';
     } elseif (empty($quest_skills)) {
         $error = 'At least one skill must be selected';
     } else {
@@ -2327,7 +2327,7 @@ function removeEmployee(employeeId) {
 let selectedSkills = new Set(); // Using Set for skill IDs
 let skillTiers = {}; // Store tiers separately: {skillId: tier}
 let customSkillCounter = 1000; // Counter for custom skill IDs
-let maxSkills = 8;
+let maxSkills = 5; // Reduced from 8 to 5 to encourage focused mastery (Bundle 2)
 
 // Load existing quest skills on page load
 document.addEventListener('DOMContentLoaded', function() {
@@ -2370,6 +2370,16 @@ document.addEventListener('DOMContentLoaded', function() {
     <?php endif; ?>
     
     updateSkillDisplay();
+
+    // Add focus efficiency hint
+    const target = document.getElementById('selectedSkillsBadges');
+    if (target && !document.getElementById('focus-efficiency-hint')) {
+        const hint = document.createElement('div');
+        hint.id = 'focus-efficiency-hint';
+        hint.className = 'mt-2 text-xs text-indigo-600';
+        hint.innerHTML = 'Tip: 1–2 skills = 100% XP each, 3 = 90%, 4 = 75%, 5 = 60%. Focus for faster mastery.';
+        target.parentNode.insertBefore(hint, target.nextSibling);
+    }
 });
 
 // Toggle skill selection (for checkboxes)

@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/includes/config.php';
 require_once __DIR__ . '/includes/functions.php';
+require_once __DIR__ . '/includes/skill_progression.php';
 
 if (!is_logged_in()) {
     redirect('login.php');
@@ -18,6 +19,10 @@ try {
     error_log("Error loading profile_view: " . $e->getMessage());
     redirect('dashboard.php');
 }
+
+// Initialize SkillProgression early so helper functions can use thresholds
+$sp = new SkillProgression($pdo);
+$PROFILE_THRESHOLDS = $sp->getThresholds();
 
 // Load user's earned skills from quest completions
 $user_skills = [];
@@ -48,7 +53,7 @@ try {
             try {
                 // Aggregate totals and most recent award per skill for this user
                 $stmt = $pdo->prepare(
-                    "SELECT agg.skill_natme,
+                    "SELECT agg.skill_name,
                             agg.total_points,
                             agg.last_used,
                             det.adjusted_points AS recent_points
@@ -106,7 +111,7 @@ try {
     $user_skills = [];
 }
 
-// Calculate overall user level and stage
+// Calculate overall user level and stage (after thresholds are loaded)
 $total_user_points = array_sum(array_column($user_skills, 'total_points'));
 $overall_level = calculateLevelFromPoints($total_user_points);
 $overall_stage = calculateStageFromLevel($overall_level);
@@ -114,21 +119,22 @@ $overall_stage = calculateStageFromLevel($overall_level);
 // Active skills count (for potential lightweight summaries)
 $active_skills_count = count(array_filter($user_skills, fn($s) => ($s['status'] ?? '') === 'ACTIVE'));
 
-// Helper functions for level and stage calculations
 function calculateLevelFromPoints($points) {
-    if ($points < 100) return 1;
-    if ($points < 300) return 2;
-    if ($points < 700) return 3;
-    if ($points < 1500) return 4;
-    if ($points < 3000) return 5;
-    if ($points < 6000) return 6;
-    return 7; // Master level
+    global $PROFILE_THRESHOLDS;
+    if (!is_array($PROFILE_THRESHOLDS) || empty($PROFILE_THRESHOLDS)) {
+        return 1; // safe fallback
+    }
+    $level = 1;
+    foreach ($PROFILE_THRESHOLDS as $lvl => $xp) {
+        if ($points >= $xp) { $level = $lvl; } else { break; }
+    }
+    return $level;
 }
 
 function calculateStageFromLevel($level) {
     if ($level <= 3) return 'Learning';
-    if ($level <= 5) return 'Applying';
-    if ($level <= 6) return 'Mastering';
+    if ($level <= 6) return 'Applying';
+    if ($level <= 9) return 'Mastering';
     return 'Innovating';
 }
 
@@ -154,31 +160,30 @@ function getStatusIcon($status) {
     }
 }
 
-function getProgressToNextStage($level, $current_points) {
-    $stage_thresholds = [
-        'Learning' => 700,    // To reach Applying (Level 4)
-        'Applying' => 3000,   // To reach Mastering (Level 6) 
-        'Mastering' => 6000,  // To reach Innovating (Level 7)
-        'Innovating' => 6000  // Already at max
-    ];
-    
-    $current_stage = calculateStageFromLevel($level);
-    $next_threshold = $stage_thresholds[$current_stage] ?? 6000;
-    
-    if ($current_points >= $next_threshold) {
-        return 100; // Already at or beyond threshold
+function getProgressToNextLevel($level, $current_points) {
+    global $PROFILE_THRESHOLDS;
+    $current_floor = $PROFILE_THRESHOLDS[$level] ?? 0;
+    $next_floor = $PROFILE_THRESHOLDS[$level + 1] ?? null;
+    if ($next_floor === null) {
+        return [
+            'percent' => 100,
+            'xp_into' => $current_points - $current_floor,
+            'xp_needed' => 0,
+            'current_floor' => $current_floor,
+            'next_floor' => null
+        ];
     }
-    
-    // Calculate previous threshold
-    $prev_threshold = 0;
-    if ($current_stage === 'Applying') $prev_threshold = 700;
-    if ($current_stage === 'Mastering') $prev_threshold = 3000;
-    if ($current_stage === 'Innovating') $prev_threshold = 6000;
-    
-    $progress_in_stage = $current_points - $prev_threshold;
-    $stage_range = $next_threshold - $prev_threshold;
-    
-    return $stage_range > 0 ? min(100, ($progress_in_stage / $stage_range) * 100) : 0;
+    $xp_into = max(0, $current_points - $current_floor);
+    $segment = max(1, $next_floor - $current_floor);
+    $percent = min(100, ($xp_into / $segment) * 100);
+    $xp_needed = max(0, $next_floor - $current_points);
+    return [
+        'percent' => $percent,
+        'xp_into' => $xp_into,
+        'xp_needed' => $xp_needed,
+        'current_floor' => $current_floor,
+        'next_floor' => $next_floor
+    ];
 }
 
 $skill_categories = [];
@@ -444,13 +449,12 @@ $profile_photo = $profile['profile_photo'] ?? '';
                         <?php 
                         $level_name = getLevelName($skill['current_level']);
                         $status_icon = getStatusIcon($skill['status']);
-                        $progress_percent = getProgressToNextStage($skill['current_level'], $skill['total_points']);
-                        $next_stage_points = 0;
-                        
-                        // Calculate next stage points needed
-                        if ($skill['current_stage'] === 'Learning') $next_stage_points = 700;
-                        elseif ($skill['current_stage'] === 'Applying') $next_stage_points = 3000;
-                        elseif ($skill['current_stage'] === 'Mastering') $next_stage_points = 6000;
+                        $progressMeta = getProgressToNextLevel($skill['current_level'], $skill['total_points']);
+                        $progress_percent = $progressMeta['percent'];
+                        $next_level_floor = $progressMeta['next_floor'];
+                        $current_floor = $progressMeta['current_floor'];
+                        $xp_into = $progressMeta['xp_into'];
+                        $xp_needed = $progressMeta['xp_needed'];
                         
                         $days_since_used = $skill['last_used'] ? floor((time() - strtotime($skill['last_used'])) / 86400) : 999;
                         $seconds_since_used = $skill['last_used'] ? (time() - strtotime($skill['last_used'])) : null;
@@ -481,14 +485,17 @@ $profile_photo = $profile['profile_photo'] ?? '';
                             </div>
                             
                             <div class="skill-stage" style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px;">
-                                <span>XP: <?= number_format($skill['total_points']) ?><?= $next_stage_points > 0 ? ' / ' . number_format($next_stage_points) : '' ?> pts</span>
-                                <?php if ($progress_percent < 100 && $next_stage_points > 0): ?>
-                                    <span style="font-size:0.7rem; letter-spacing:.5px; color:#6b7280; font-weight:600;"><?= round($progress_percent) ?>% to next stage</span>
+                                <?php if ($progressMeta['next_floor'] !== null): ?>
+                                    <span>XP: <?= number_format($skill['total_points']) ?> (<?= number_format($xp_into) ?> / <?= number_format(($next_level_floor - $current_floor)) ?> into Level <?= $skill['current_level'] + 1 ?>)</span>
+                                    <span style="font-size:0.7rem; letter-spacing:.5px; color:#6b7280; font-weight:600;"><?= round($progress_percent) ?>% • <?= number_format($xp_needed) ?> XP to L<?= $skill['current_level'] + 1 ?></span>
+                                <?php else: ?>
+                                    <span>XP: <?= number_format($skill['total_points']) ?> (MAX)</span>
+                                    <span style="font-size:0.7rem; letter-spacing:.5px; color:#6b7280; font-weight:600;">Max Level Achieved</span>
                                 <?php endif; ?>
                             </div>
-                            
-                            <?php if ($progress_percent < 100 && $next_stage_points > 0): ?>
-                                <div class="progress-bar">
+
+                            <?php if ($progressMeta['next_floor'] !== null): ?>
+                                <div class="progress-bar" title="<?= number_format($xp_into) ?> / <?= number_format(($next_level_floor - $current_floor)) ?> (<?= round($progress_percent,1) ?>%)">
                                     <div class="progress-fill" style="width: <?= $progress_percent ?>%"></div>
                                 </div>
                             <?php endif; ?>
