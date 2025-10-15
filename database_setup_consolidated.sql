@@ -194,10 +194,18 @@ CREATE TABLE IF NOT EXISTS `skill_level_thresholds` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT IGNORE INTO `skill_level_thresholds` (level,cumulative_xp,stage) VALUES
-(1,0,'Learning'),(2,100,'Learning'),(3,260,'Learning'),
-(4,510,'Applying'),(5,900,'Applying'),(6,1500,'Applying'),
-(7,2420,'Mastering'),(8,6000,'Mastering'),(9,12000,'Mastering'),
-(10,22000,'Innovating'),(11,37000,'Innovating'),(12,57000,'Innovating');
+(1,0,'Learning'),
+(2,150,'Learning'),
+(3,400,'Learning'),
+(4,800,'Applying'),
+(5,1400,'Applying'),
+(6,2200,'Applying'),
+(7,3500,'Mastering'),
+(8,5500,'Mastering'),
+(9,8500,'Mastering'),
+(10,13000,'Innovating'),
+(11,20000,'Innovating'),
+(12,30000,'Innovating');
 
 -- Quest completions summary (per user per quest)
 CREATE TABLE IF NOT EXISTS `quest_completions` (
