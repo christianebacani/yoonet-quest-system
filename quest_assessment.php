@@ -1,34 +1,18 @@
-// Quest type to base points per tier table
-function getQuestTypeBasePoints($questType, $tier) {
-    $table = [
-        'routine' =>   [1 => 10, 2 => 15, 3 => 20, 4 => 25, 5 => 30],
-        'minor' =>     [1 => 20, 2 => 30, 3 => 40, 4 => 50, 5 => 60],
-        'standard' =>  [1 => 40, 2 => 55, 3 => 70, 4 => 90, 5 => 110],
-        'major' =>     [1 => 70, 2 => 90, 3 => 120, 4 => 150, 5 => 180],
-        'project' =>   [1 => 120, 2 => 150, 3 => 200, 4 => 250, 5 => 300],
-    ];
-    $questType = strtolower($questType);
-    $tier = (int)$tier;
-    if (!isset($table[$questType])) $questType = 'routine';
-    if ($tier < 1 || $tier > 5) $tier = 3;
-    return $table[$questType][$tier];
-}
 
 <?php
-// Quest type to base points per tier table
-function getQuestTypeBasePoints($questType, $tier) {
-    $table = [
-        'routine' =>   [1 => 10, 2 => 15, 3 => 20, 4 => 25, 5 => 30],
-        'minor' =>     [1 => 20, 2 => 30, 3 => 40, 4 => 50, 5 => 60],
-        'standard' =>  [1 => 40, 2 => 55, 3 => 70, 4 => 90, 5 => 110],
-        'major' =>     [1 => 70, 2 => 90, 3 => 120, 4 => 150, 5 => 180],
-        'project' =>   [1 => 120, 2 => 150, 3 => 200, 4 => 250, 5 => 300],
-    ];
-    $questType = strtolower($questType);
+// Use only the new base points and tier names logic (single progression, no quest type)
+function getTierBasePoints($tier) {
+    $points = [1 => 2, 2 => 5, 3 => 12, 4 => 25, 5 => 50];
     $tier = (int)$tier;
-    if (!isset($table[$questType])) $questType = 'routine';
-    if ($tier < 1 || $tier > 5) $tier = 3;
-    return $table[$questType][$tier];
+    if ($tier < 1 || $tier > 5) $tier = 2;
+    return $points[$tier];
+}
+
+function getTierLabel($tier) {
+    $labels = [1 => 'Beginner', 2 => 'Intermediate', 3 => 'Advanced', 4 => 'Expert', 5 => 'Master'];
+    $tier = (int)$tier;
+    if ($tier < 1 || $tier > 5) $tier = 2;
+    return $labels[$tier];
 }
 
 require_once __DIR__ . '/includes/config.php';
@@ -199,41 +183,30 @@ if (is_array($quest_skills) && !empty($quest_skills)) {
             }
 
             // Normalize tier_level to T1..T5 (support numeric tier_level, numeric tier, or required_level enum)
-            $tier_level = 'T2';
             $tier_num = 2;
             if (isset($row['tier_level'])) {
                 $tv = $row['tier_level'];
                 if (is_numeric($tv)) {
-                    $t = (int)$tv; if ($t < 1) $t = 1; if ($t > 5) $t = 5; $tier_level = 'T' . $t; $tier_num = $t;
+                    $t = (int)$tv; if ($t < 1) $t = 1; if ($t > 5) $t = 5; $tier_num = $t;
                 } elseif (is_string($tv) && preg_match('~^T([1-5])$~', $tv, $m)) {
-                    $tier_level = $tv; $tier_num = (int)$m[1];
+                    $tier_num = (int)$m[1];
                 }
             } elseif (isset($row['tier'])) {
-                $t = (int)$row['tier']; if ($t < 1) $t = 1; if ($t > 5) $t = 5; $tier_level = 'T' . $t; $tier_num = $t;
+                $t = (int)$row['tier']; if ($t < 1) $t = 1; if ($t > 5) $t = 5; $tier_num = $t;
             } elseif (isset($row['required_level'])) {
-                // Map legacy required_level to tiers
-                $map = [
-                    'beginner' => 1,
-                    'intermediate' => 2,
-                    'advanced' => 3,
-                    'expert' => 4,
-                ];
+                $map = [ 'beginner' => 1, 'intermediate' => 2, 'advanced' => 3, 'expert' => 4, 'master' => 5 ];
                 $rl = strtolower((string)$row['required_level']);
-                if (isset($map[$rl])) { $tier_level = 'T' . $map[$rl]; $tier_num = $map[$rl]; }
+                if (isset($map[$rl])) { $tier_num = $map[$rl]; }
             }
 
-            // Determine quest type (default to 'routine' if not set)
-            $questType = isset($quest['quest_type']) ? strtolower($quest['quest_type']) : 'routine';
-            if (!in_array($questType, ['routine','minor','standard','major','project'])) $questType = 'routine';
-
-            // Assign base points dynamically
-            $base_points = getQuestTypeBasePoints($questType, $tier_num);
-
+            $base_points = getTierBasePoints($tier_num);
+            $tier_label = getTierLabel($tier_num);
             $normalized_skills[] = [
                 'skill_name' => $name,
-                'tier_level' => $tier_level,
+                'tier_level' => 'T' . $tier_num,
                 'skill_id' => isset($row['skill_id']) ? (int)$row['skill_id'] : null,
                 'base_points' => $base_points,
+                'tier_label' => $tier_label,
             ];
         }
 }
@@ -434,29 +407,6 @@ if (isset($_GET['success'])) {
 }
 
 // Calculate tier points
-function getTierPoints($tier) {
-    switch($tier) {
-        // Aligned with provided tier dropdown: T1 25, T2 40, T3 60, T4 85, T5 115
-        case 'T1': return 25;
-        case 'T2': return 40;
-        case 'T3': return 60;
-        case 'T4': return 85;
-        case 'T5': return 115;
-        default: return 25;
-    }
-}
-
-// Human-friendly labels per tier
-function getTierLabel($tier) {
-    switch ($tier) {
-        case 'T1': return 'Beginner';
-        case 'T2': return 'Intermediate';
-        case 'T3': return 'Advanced';
-        case 'T4': return 'Expert';
-        case 'T5': return 'Master';
-        default: return '';
-    }
-}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -933,7 +883,8 @@ function getTierLabel($tier) {
                     <?php 
                     $skill_name = isset($skill['skill_name']) ? (string)$skill['skill_name'] : 'Skill';
                     $tier_level = isset($skill['tier_level']) ? (string)$skill['tier_level'] : 'T2';
-                    $base_points = getTierPoints($tier_level);
+                    $tier_num = (int)str_replace('T', '', $tier_level);
+                    $base_points = getTierBasePoints($tier_num);
                     $safeId = preg_replace('/[^a-zA-Z0-9_\-]/', '_', strtolower($skill_name));
                     $existing = $existingAssessments[$skill_name] ?? null;
                     $selectedMultiplier = $existing ? (float)$existing['performance_multiplier'] : 1.0;
@@ -947,7 +898,7 @@ function getTierLabel($tier) {
                         </div>
                         
                         <div class="tier-info tier-<?= htmlspecialchars($tier_level) ?>">
-                            <span class="base-tier">Base Tier: <?= htmlspecialchars($tier_level) ?> - <?= htmlspecialchars(getTierLabel($tier_level)) ?> (<?= $base_points ?> pts)</span>
+                            <span class="base-tier">Base Tier: <?= htmlspecialchars($tier_level) ?> - <?= htmlspecialchars(getTierLabel((int)str_replace('T','',$tier_level))) ?> (<?= $base_points ?> pts)</span>
                         </div>
                         
                         <div class="performance-section">

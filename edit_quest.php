@@ -138,7 +138,7 @@ $due_date = $quest['due_date'] ?? null;
 $status = $quest['status'] ?? 'active';
 $assign_to = !empty($quest['assigned_employees']) ? explode(',', $quest['assigned_employees']) : [];
 $assign_group = !empty($quest['assigned_groups']) ? explode(',', $quest['assigned_groups'])[0] : null;
-$quest_type = $quest['quest_type'] ?? 'Standard';
+$quest_type = $quest['quest_type'] ?? 'single';
 $visibility = $quest['visibility'] ?? 'public';
 $recurrence_pattern = $quest['recurrence_pattern'] ?? '';
 $recurrence_end_date = $quest['recurrence_end_date'] ?? '';
@@ -171,7 +171,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $due_date = !empty($_POST['due_date']) ? $_POST['due_date'] : null;
     $assign_to = isset($_POST['assign_to']) ? $_POST['assign_to'] : [];
     $assign_group = isset($_POST['assign_group']) ? $_POST['assign_group'] : null;
-    $quest_type = $_POST['quest_type'] ?? 'Standard';
     $status = $_POST['status'] ?? 'active';
     
     // Handle quest skills
@@ -192,8 +191,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Description must be less than 2000 characters';
     } elseif (!in_array($quest_assignment_type, ['mandatory', 'optional'])) {
         $error = 'Please select a valid assignment type (mandatory or optional)';
-    } elseif (!in_array($quest_type, ['Routine', 'Minor', 'Standard', 'Major', 'Project'])) {
-        $error = 'Invalid quest type selected.';
     } elseif (!empty($due_date) && !strtotime($due_date)) {
         $error = 'Invalid due date format';
     } elseif (count($quest_skills) > 5) {
@@ -290,7 +287,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     status = ?, 
                     due_date = ?, 
                     quest_assignment_type = ?,
-                    quest_type = ?,
                     updated_at = NOW()
                     WHERE id = ?");
                 $stmt->execute([
@@ -299,7 +295,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $status, 
                     $due_date,
                     $quest_assignment_type,
-                    $quest_type,
                     $quest_id
                 ]);
                 
@@ -998,26 +993,125 @@ function getFontSize() {
                                 </select>
                             </div>
                             <div>
-                                <label for="quest_type" class="block text-sm font-medium text-gray-700 mb-1">Quest Type*</label>
-                                <select name="quest_type" id="quest_type" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300" required>
-                                    <option value="Routine" <?php echo ($quest_type == 'Routine') ? 'selected' : ''; ?>>Routine (Daily/Weekly tasks)</option>
-                                    <option value="Minor" <?php echo ($quest_type == 'Minor') ? 'selected' : ''; ?>>Minor (Small, quick tasks)</option>
-                                    <option value="Standard" <?php echo ($quest_type == 'Standard') ? 'selected' : ''; ?>>Standard (Regular work, default)</option>
-                                    <option value="Major" <?php echo ($quest_type == 'Major') ? 'selected' : ''; ?>>Major (Large, complex tasks)</option>
-                                    <option value="Project" <?php echo ($quest_type == 'Project') ? 'selected' : ''; ?>>Project (Long-term, multi-step)</option>
-                                </select>
-                                <p class="text-xs text-gray-500 mt-1">
-                                    <span class="font-medium">Routine:</span> Daily/weekly recurring tasks.<br>
-                                    <span class="font-medium">Minor:</span> Small, quick tasks.<br>
-                                    <span class="font-medium">Standard:</span> Regular work, default.<br>
-                                    <span class="font-medium">Major:</span> Large, complex tasks.<br>
-                                    <span class="font-medium">Project:</span> Long-term, multi-step quests.
+                                <label for="due_date" class="block text-sm font-medium text-gray-700 mb-1">Due Date &amp; Time (Optional)</label>
+                                <div class="relative">
+                                    <!-- Date/Time Display Button -->
+                                    <button type="button" 
+                                            id="dueDateBtn"
+                                            class="w-full px-4 py-2.5 border border-indigo-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300 shadow-sm transition duration-200 bg-white hover:bg-gray-50 text-left flex items-center justify-between"
+                                            onclick="toggleCalendarBox()">
+                                        <span id="dueDateDisplay" class="text-gray-500">
+                                            <i class="fas fa-calendar-alt mr-2 text-indigo-500"></i>
+                                            Click to select due date and time
+                                        </span>
+                                        <i class="fas fa-chevron-down text-gray-400" id="chevronIcon"></i>
+                                    </button>
+                                    <input type="hidden" id="due_date" name="due_date" value="<?php echo $due_date ? htmlspecialchars($due_date) : ''; ?>">
+                                    
+                                    <!-- Calendar Box (Initially Hidden) -->
+                                    <div id="calendarBox" class="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded-lg shadow-xl z-50 mt-1 hidden">
+                                        <div class="p-4">
+                                            <!-- Calendar Container -->
+                                            <div id="calendarContainer" class="mb-4"></div>
+                                            
+                                            <!-- Time Selection -->
+                                            <div class="border-t pt-4">
+                                                <div class="flex items-center justify-between mb-3">
+                                                    <label class="text-sm font-medium text-gray-700">Select Time</label>
+                                                    <button type="button" 
+                                                            onclick="clearDueDate()" 
+                                                            class="text-xs text-red-600 hover:text-red-800 flex items-center">
+                                                        <i class="fas fa-times mr-1"></i>Clear
+                                                    </button>
+                                                </div>
+                                                
+                                                <div class="grid grid-cols-3 gap-2 mb-3">
+                                                    <div>
+                                                        <input type="number" 
+                                                               id="hourSelect" 
+                                                               min="1" 
+                                                               max="12" 
+                                                               value="12"
+                                                               oninput="clearFieldError(this)"
+                                                               class="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-center">
+                                                        <label class="text-xs text-gray-500 mt-1 block text-center">Hour</label>
+                                                    </div>
+                                                    <div>
+                                                        <input type="number" 
+                                                               id="minuteSelect" 
+                                                               min="0" 
+                                                               max="59" 
+                                                               value="00"
+                                                               oninput="clearFieldError(this)"
+                                                               class="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-center">
+                                                        <label class="text-xs text-gray-500 mt-1 block text-center">Min</label>
+                                                    </div>
+                                                    <div>
+                                                        <select id="ampmSelect" class="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                                                            <option value="AM">AM</option>
+                                                            <option value="PM">PM</option>
+                                                        </select>
+                                                        <label class="text-xs text-gray-500 mt-1 block text-center">AM/PM</label>
+                                                    </div>
+                                                </div>
+                                                
+                                                <!-- Quick Time Buttons -->
+                                                <div class="flex flex-wrap gap-1 mb-3">
+                                                    <button type="button" onclick="setQuickTime('09:00 AM')" class="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded transition-colors">9 AM</button>
+                                                    <button type="button" onclick="setQuickTime('12:00 PM')" class="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded transition-colors">12 PM</button>
+                                                    <button type="button" onclick="setQuickTime('05:00 PM')" class="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded transition-colors">5 PM</button>
+                                                    <button type="button" onclick="setQuickTime('11:59 PM')" class="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded transition-colors">End of Day</button>
+                                                </div>
+                                                
+                                                <!-- Apply Button -->
+                                                <button type="button" 
+                                                        onclick="applyDateTime()" 
+                                                        class="w-full px-3 py-2 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition-colors">
+                                                    Apply Date & Time
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <p class="mt-1 text-xs text-gray-500">
+                                    <i class="fas fa-info-circle mr-1"></i>
+                                    Click the button above to select both date and time for quest deadline
                                 </p>
                             </div>
                         </div>
                     </div>
                 </div>
 
+                <!-- Quest Type Selection -->
+                <div class="card p-6">
+                    <h2 class="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b border-gray-100">
+                        <i class="fas fa-layer-group text-indigo-500 mr-2"></i> Quest Type
+                    </h2>
+                    <div class="flex gap-4 mb-4">
+                        <label class="flex items-center cursor-pointer">
+                            <input type="radio" name="quest_type" value="routine" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500" checked>
+                            <span class="ml-2 text-sm font-medium text-gray-700">Routine Task</span>
+                        </label>
+                        <label class="flex items-center cursor-pointer">
+                            <input type="radio" name="quest_type" value="minor" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500">
+                            <span class="ml-2 text-sm font-medium text-gray-700">Minor Quest</span>
+                        </label>
+                        <label class="flex items-center cursor-pointer">
+                            <input type="radio" name="quest_type" value="standard" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500">
+                            <span class="ml-2 text-sm font-medium text-gray-700">Standard Quest</span>
+                        </label>
+                        <label class="flex items-center cursor-pointer">
+                            <input type="radio" name="quest_type" value="major" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500">
+                            <span class="ml-2 text-sm font-medium text-gray-700">Major Quest</span>
+                        </label>
+                        <label class="flex items-center cursor-pointer">
+                            <input type="radio" name="quest_type" value="project" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500">
+                            <span class="ml-2 text-sm font-medium text-gray-700">Major Project</span>
+                        </label>
+                    </div>
+                    <p class="mt-1 text-xs text-gray-500"><i class="fas fa-info-circle mr-1"></i>Quest type affects skill tier base points and recurrence options.</p>
+                </div>
                 <!-- Skills & Assessment Section -->
                 <div class="card p-6">
                     <h2 class="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b border-gray-100">
@@ -1120,11 +1214,7 @@ function getFontSize() {
                                         <div class="skill-tier-selector hidden mt-1">
                                             <select class="tier-select text-xs border border-gray-300 rounded px-2 py-1 focus:ring-2 focus:ring-indigo-500 bg-white"
                                                     onchange="updateSkillTier(this)">
-                                                <option value="1">Tier 1 - Beginner</option>
-                                                <option value="2" selected>Tier 2 - Intermediate</option>
-                                                <option value="3">Tier 3 - Advanced</option>
-                                                <option value="4">Tier 4 - Expert</option>
-                                                <option value="5">Tier 5 - Master</option>
+                                                <!-- Dynamic options will be injected by JS -->
                                             </select>
                                         </div>
                                     </div>
@@ -1180,11 +1270,76 @@ function getFontSize() {
                             <label for="customSkillTier" class="block text-sm font-medium text-gray-700 mb-1">Skill Tier*</label>
                             <select id="customSkillTier" 
                                     class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
-                                <option value="1">Tier 1 - Beginner</option>
-                                <option value="2" selected>Tier 2 - Intermediate</option>
-                                <option value="3">Tier 3 - Advanced</option>
-                                <option value="4">Tier 4 - Expert</option>
-                                <option value="5">Tier 5 - Master</option>
+                                <!-- Dynamic options will be injected by JS -->
+        // --- DYNAMIC TIER DROPDOWNS BASED ON QUEST TYPE ---
+        // Central mapping for base points per tier by quest type
+        const questTypeTierPoints = {
+            routine:  [2, 4, 6, 8, 10],      // Routine Task
+            minor:    [5, 10, 15, 20, 25],   // Minor Quest
+            standard: [10, 20, 30, 40, 50],  // Standard Quest
+            major:    [20, 40, 60, 80, 100], // Major Quest
+            project:  [40, 80, 120, 160, 200]// Major Project
+        };
+
+        // Helper to get current quest type (radio)
+        function getCurrentQuestType() {
+            const el = document.querySelector('input[name="quest_type"]:checked');
+            return el ? el.value : 'routine';
+        }
+
+        // Helper to get points for a given tier (1-based) and quest type
+        function getTierPoints(tier, questType) {
+            const arr = questTypeTierPoints[questType] || questTypeTierPoints['routine'];
+            return arr[tier-1] || 0;
+        }
+
+        // Generate tier <option>s for a dropdown
+        function generateTierOptions(selectedTier, questType) {
+            const names = ['Beginner', 'Intermediate', 'Advanced', 'Expert', 'Master'];
+            let opts = '';
+            for (let i=1; i<=5; ++i) {
+                const pts = getTierPoints(i, questType);
+                opts += '<option value="' + i + '"' + (selectedTier==i ? ' selected' : '') + '>Tier ' + i + ' - ' + names[i-1] + ' (' + pts + ' pts)</option>';
+            }
+            return opts;
+        }
+
+        // Update all tier dropdowns (modals, custom, etc.)
+        function updateAllTierDropdowns() {
+            const questType = getCurrentQuestType();
+            // Update all .tier-select dropdowns
+            document.querySelectorAll('.tier-select').forEach(sel => {
+                const selected = parseInt(sel.value) || 2;
+                sel.innerHTML = generateTierOptions(selected, questType);
+            });
+            // Update custom skill modal dropdown
+            const customSel = document.getElementById('customSkillTier');
+            if (customSel) {
+                const selected = parseInt(customSel.value) || 2;
+                customSel.innerHTML = generateTierOptions(selected, questType);
+            }
+        }
+
+        // On quest type change, update all dropdowns
+        document.querySelectorAll('input[name="quest_type"]').forEach(radio => {
+            radio.addEventListener('change', updateAllTierDropdowns);
+        });
+
+        // When modals open, ensure dropdowns are updated
+        window.showCustomSkillModal = function(categoryId, categoryName) {
+            // ...existing code...
+            document.getElementById('customSkillModal').classList.remove('hidden');
+            document.getElementById('modalCategoryId').value = categoryId;
+            document.getElementById('modalCategoryName').textContent = categoryName;
+            document.getElementById('customSkillName').value = '';
+            document.getElementById('customSkillTier').value = '2';
+            document.getElementById('customSkillName').focus();
+            // Update dropdown in custom modal
+            setTimeout(updateAllTierDropdowns, 0);
+        }
+
+        // On DOM ready, initialize all tier dropdowns
+        document.addEventListener('DOMContentLoaded', updateAllTierDropdowns);
                             </select>
                         </div>
                         
