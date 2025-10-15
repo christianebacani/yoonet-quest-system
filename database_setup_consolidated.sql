@@ -196,8 +196,8 @@ CREATE TABLE IF NOT EXISTS `skill_level_thresholds` (
 INSERT IGNORE INTO `skill_level_thresholds` (level,cumulative_xp,stage) VALUES
 (1,0,'Learning'),(2,100,'Learning'),(3,260,'Learning'),
 (4,510,'Applying'),(5,900,'Applying'),(6,1500,'Applying'),
-(7,2420,'Mastering'),(8,4600,'Mastering'),(9,7700,'Mastering'),
-(10,12700,'Innovating'),(11,19300,'Innovating'),(12,29150,'Innovating');
+(7,2420,'Mastering'),(8,6000,'Mastering'),(9,12000,'Mastering'),
+(10,22000,'Innovating'),(11,37000,'Innovating'),(12,57000,'Innovating');
 
 -- Quest completions summary (per user per quest)
 CREATE TABLE IF NOT EXISTS `quest_completions` (
