@@ -229,7 +229,6 @@ $profile_photo = $profile['profile_photo'] ?? '';
     /* Skill Journey Styles - light card to match site */
     .skills-journey { background:#fff; color:#111827; padding: 16px; border-radius: 12px; border:1px solid #e5e7eb; box-shadow: 0 6px 22px rgba(18, 20, 56, 0.06); }
     .journey-header { text-align: left; margin-bottom: 12px; }
-    .user-overall { font-size: 1.1rem; font-weight: 800; color:#111827; }
     .journey-title { font-size: 0.9rem; color: #6b7280; letter-spacing: 1px; margin-top: 2px; text-transform: uppercase; }
     .journey-divider { border: none; height: 1px; background: #e5e7eb; margin: 12px 0; }
 
@@ -497,7 +496,11 @@ $profile_photo = $profile['profile_photo'] ?? '';
                             <div class="skill-meta">
                                 <div class="skill-stats">
                                     <?php if ($skill['recent_points'] > 0): ?>
-                                        <span class="badge badge-recent">+<?= $skill['recent_points'] ?> pts</span>
+                                        <span class="badge badge-recent">+<?= $skill['recent_points'] ?> pts
+                                            <span style="cursor:pointer; margin-left:4px;" title="XP Breakdown: Awarded = Base × Tier × Performance × Breadth. See quest details for exact values. Example: 60 × 1.15 × 1.25 × 0.90 = 77.">
+                                                <i class="fas fa-info-circle" style="color:#2563eb;"></i>
+                                            </span>
+                                        </span>
                                     <?php endif; ?>
                                     
                                     <?php if ($seconds_since_used !== null): ?>
