@@ -311,6 +311,40 @@ class SkillProgression {
             ];
         }
     }
+    
+    /**
+     * Resync current_level and current_stage from total_points for all users' skills.
+     * Call after changing skill_level_thresholds to ensure consistency.
+     * @return array { success: bool, updated: int, error?: string }
+     */
+    public function resyncAllUserSkillLevels(): array {
+        try {
+            $sql = "SELECT id, total_points, current_level, current_stage FROM user_earned_skills";
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute();
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $updated = 0;
+            if (!$rows) { return ['success' => true, 'updated' => 0]; }
+            $this->pdo->beginTransaction();
+            $upd = $this->pdo->prepare("UPDATE user_earned_skills SET current_level = ?, current_stage = ?, updated_at = NOW() WHERE id = ?");
+            foreach ($rows as $r) {
+                $points = (int)($r['total_points'] ?? 0);
+                $meta = $this->getProgressMeta($points);
+                $lvl = (int)($meta['level'] ?? 1);
+                $stg = (string)($meta['stage'] ?? 'Learning');
+                if ((int)$r['current_level'] !== $lvl || (string)$r['current_stage'] !== $stg) {
+                    $upd->execute([$lvl, $stg, (int)$r['id']]);
+                    $updated++;
+                }
+            }
+            $this->pdo->commit();
+            return ['success' => true, 'updated' => $updated];
+        } catch (Throwable $e) {
+            if ($this->pdo->inTransaction()) { $this->pdo->rollBack(); }
+            error_log('resyncAllUserSkillLevels failed: ' . $e->getMessage());
+            return ['success' => false, 'updated' => 0, 'error' => $e->getMessage()];
+        }
+    }
 }
 
 // Example usage when a user completes a quest:
