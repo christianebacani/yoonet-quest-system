@@ -229,37 +229,12 @@ CREATE TABLE IF NOT EXISTS `quest_completions` (
 -- 4. GROUP MANAGEMENT SYSTEM
 -- ====================================================================
 
--- Employee groups table
-CREATE TABLE IF NOT EXISTS `employee_groups` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
-  `group_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `description` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
-  `created_by` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  KEY `idx_created_by` (`created_by`),
-  KEY `idx_group_name` (`group_name`),
-  CONSTRAINT `employee_groups_ibfk_1` FOREIGN KEY (`created_by`) REFERENCES `users` (`employee_id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Group members table
-CREATE TABLE IF NOT EXISTS `group_members` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
-  `group_id` int(11) NOT NULL,
-  `employee_id` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `joined_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `group_employee_unique` (`group_id`, `employee_id`),
-  KEY `idx_employee_id` (`employee_id`),
-  CONSTRAINT `group_members_ibfk_1` FOREIGN KEY (`group_id`) REFERENCES `employee_groups` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ====================================================================
 -- 5. QUEST SYSTEM CORE TABLES
 -- ====================================================================
 
--- Quest categories table
 CREATE TABLE IF NOT EXISTS `quest_categories` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,

@@ -28,33 +28,6 @@ if (!in_array($role, ['quest_lead'])) { // was ['quest_giver', 'hybrid']
     exit();
 }
 
-// Handle AJAX request for group members
-if (isset($_GET['ajax']) && $_GET['ajax'] == 'get_group_members' && isset($_GET['group_id'])) {
-    header('Content-Type: application/json');
-    
-    try {
-        $group_id = intval($_GET['group_id']);
-        $current_user_id = $_SESSION['employee_id'];
-        $members = [];
-        
-        $stmt = $pdo->prepare("SELECT u.employee_id, u.full_name 
-                              FROM group_members gm
-                              JOIN users u ON gm.employee_id = u.employee_id
-                              WHERE gm.group_id = ? 
-                              AND u.role IN ('skill_associate', 'quest_lead')
-                              AND u.employee_id != ?
-                              ORDER BY u.full_name");
-        $stmt->execute([$group_id, $current_user_id]);
-        $members = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        
-        echo json_encode(['success' => true, 'members' => $members]);
-    } catch (PDOException $e) {
-        error_log("Database error: " . $e->getMessage());
-        echo json_encode(['success' => false, 'message' => 'Database error']);
-    }
-    exit;
-}
-
 // Create and populate quest_categories table if needed
 try {
     $pdo->exec("CREATE TABLE IF NOT EXISTS quest_categories (
@@ -143,9 +116,8 @@ $assign_to = [];
 $assign_group = null;
 $selected_skills = [];
 
-// Fetch employees, groups, and skills for assignment
+// Fetch employees and skills for assignment
 $employees = [];
-$groups = [];
 $skills = [];
 try {
     // Get all skill_associates and quest_leads EXCEPT the current user
@@ -156,11 +128,6 @@ try {
                           ORDER BY full_name");
     $stmt->execute([$current_user_id]);
     $employees = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    
-    // Get all employee groups
-    $stmt = $pdo->query("SELECT id, group_name FROM employee_groups ORDER BY group_name");
-    $groups = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    
     // Get all skills organized by category
     $stmt = $pdo->query("SELECT cs.id as skill_id, cs.skill_name, sc.category_name, sc.id as category_id,
                                 cs.tier_1_points, cs.tier_2_points, cs.tier_3_points, cs.tier_4_points, cs.tier_5_points
@@ -178,7 +145,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $quest_assignment_type = $_POST['quest_assignment_type'] ?? 'optional';
     $due_date = !empty($_POST['due_date']) ? $_POST['due_date'] : null;
     $assign_to = isset($_POST['assign_to']) ? $_POST['assign_to'] : [];
-    $assign_group = isset($_POST['assign_group']) ? $_POST['assign_group'] : null;
+    $assign_group = null;
     $status = 'active';
     
     // Handle selected skills with tiers
@@ -276,18 +243,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
         
-        // Validate group exists if selected
-        if (empty($error) && !empty($assign_group)) {
-            try {
-                $stmt = $pdo->prepare("SELECT id FROM employee_groups WHERE id = ?");
-                $stmt->execute([$assign_group]);
-                if (!$stmt->fetch()) {
-                    $error = 'Selected group does not exist';
-                }
-            } catch (PDOException $e) {
-                $error = 'Error validating group: ' . $e->getMessage();
-            }
-        }
+
         
         // If no validation errors, proceed with database operations
         if (empty($error)) {
@@ -359,21 +315,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 }
                 
-                // Get employees from group if group is selected
-                $group_employees = [];
-                if ($assign_group) {
-                    $stmt = $pdo->prepare("SELECT employee_id FROM group_members WHERE group_id = ?");
-                    $stmt->execute([$assign_group]);
-                    $group_employees = $stmt->fetchAll(PDO::FETCH_COLUMN, 0);
-                }
-                
-                // Combine individual assignments with group assignments
-                $all_assignments = array_unique(array_merge($assign_to, $group_employees));
-
+                // Only assign to selected employees
+                $all_assignments = !empty($assign_to) ? array_unique($assign_to) : [];
                 if (empty($all_assignments)) {
                     throw new Exception('VALIDATION_NO_ASSIGNEES');
                 }
-
                 // Assign quest to selected employees
                 foreach ($all_assignments as $employee_id) {
                     // First check if the employee exists
@@ -1485,10 +1431,7 @@ function getFontSize() {
                                 <input type="radio" name="assignment_type" value="individual" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500" checked onchange="toggleAssignmentType()">
                                 <span class="ml-2 text-sm font-medium text-gray-700"><i class="fas fa-user mr-1"></i>Individuals</span>
                             </label>
-                            <label class="flex items-center cursor-pointer">
-                                <input type="radio" name="assignment_type" value="group" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500" onchange="toggleAssignmentType()">
-                                <span class="ml-2 text-sm font-medium text-gray-700"><i class="fas fa-users mr-1"></i>Group</span>
-                            </label>
+
                         </div>
                         
                         <!-- Individual Assignment -->
@@ -1553,24 +1496,7 @@ function getFontSize() {
                             </p>
                         </div>
                         
-                        <!-- Group Assignment -->
-                        <div id="groupAssignment" class="hidden">
-                            <select name="assign_group" id="assign_group" 
-                                    class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white text-sm"
-                                    onchange="loadGroupMembers(this.value)">
-                                <option value="">-- Select a Group --</option>
-                                <?php foreach ($groups as $group): ?>
-                                    <option value="<?php echo $group['id']; ?>"
-                                        <?php echo ($assign_group == $group['id']) ? 'selected' : ''; ?>>
-                                        <?php echo htmlspecialchars($group['group_name']); ?>
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
-                            
-                            <div id="groupMembersPreview" class="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-xs text-gray-700 hidden max-h-16 overflow-y-auto">
-                                <strong class="text-blue-800">Members:</strong> <span id="groupMembersList"></span>
-                            </div>
-                        </div>
+
                     </div>
                     </div>
                 </div>
@@ -2124,36 +2050,7 @@ function getFontSize() {
             });
 
             // Group member loading
-            $('#assign_group').change(function() {
-                const groupId = $(this).val();
-                if (!groupId) {
-                    $('#groupMembersList').html('<p class="text-sm text-gray-500">Select a group to view members</p>');
-                    return;
-                }
 
-                $('#groupMembersList').html('<p class="text-sm text-gray-500">Loading members...</p>');
-
-                $.ajax({
-                    url: 'create_quest.php?ajax=get_group_members&group_id=' + groupId,
-                    type: 'GET',
-                    dataType: 'json',
-                    success: function(response) {
-                        if (response.success && response.members.length > 0) {
-                            let html = '<ul class="space-y-1">';
-                            response.members.forEach(member => {
-                                html += `<li class="text-sm text-gray-700">${member.full_name} <span class="text-gray-500">(ID: ${member.employee_id})</span></li>`;
-                            });
-                            html += '</ul>';
-                            $('#groupMembersList').html(html);
-                        } else {
-                            $('#groupMembersList').html('<p class="text-sm text-gray-500">No members in this group</p>');
-                        }
-                    },
-                    error: function() {
-                        $('#groupMembersList').html('<p class="text-sm text-red-500">Error loading members</p>');
-                    }
-                });
-            });
 
             // File upload preview with validation and remove functionality
             const fileList = $('#fileList');

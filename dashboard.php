@@ -299,108 +299,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         redirect_with_message('dashboard.php', $success ?? null, $error ?? null);
     }
     
-    // Handle group creation
-    if ($is_taker && isset($_POST['create_group'])) {
-        $group_name = trim($_POST['group_name'] ?? '');
-        $group_description = trim($_POST['group_description'] ?? '');
-        
-        if (empty($group_name)) {
-            $error = "Group name is required";
-        } else {
-            try {
-                // Check if user is already in a group
-                $stmt = $pdo->prepare("SELECT COUNT(*) FROM group_members WHERE employee_id = ?");
-                $stmt->execute([$employee_id]);
-                $in_group = $stmt->fetchColumn();
-                
-                if ($in_group > 0) {
-                    $error = "You can only be in one group at a time";
-                } else {
-                    $pdo->beginTransaction();
-                    
-                    // Create the group
-                    $stmt = $pdo->prepare("INSERT INTO employee_groups 
-                                         (group_name, description, created_by) 
-                                         VALUES (?, ?, ?)");
-                    $stmt->execute([$group_name, $group_description, $employee_id]);
-                    $group_id = $pdo->lastInsertId();
-                    
-                    // Add creator to the group
-                    $stmt = $pdo->prepare("INSERT INTO group_members 
-                                         (group_id, employee_id) 
-                                         VALUES (?, ?)");
-                    $stmt->execute([$group_id, $employee_id]);
-                    
-                    $pdo->commit();
-                    $success = "Group created successfully!";
-                }
-            } catch (PDOException $e) {
-                $pdo->rollBack();
-                error_log("Database error creating group: " . $e->getMessage());
-                $error = "Error creating group";
-            }
-        }
-        // PRG redirect
-        redirect_with_message('dashboard.php', $success ?? null, $error ?? null);
-    }
-    
-    // Handle joining a group
-    if ($is_taker && isset($_POST['join_group'])) {
-        $group_id = $_POST['group_id'] ?? 0;
-        
-        try {
-            // Check if user is already in a group
-            $stmt = $pdo->prepare("SELECT COUNT(*) FROM group_members WHERE employee_id = ?");
-            $stmt->execute([$employee_id]);
-            $in_group = $stmt->fetchColumn();
-            
-            if ($in_group > 0) {
-                $error = "You can only be in one group at a time";
-            } else {
-                // Add user to the group
-                $stmt = $pdo->prepare("INSERT INTO group_members 
-                                     (group_id, employee_id) 
-                                     VALUES (?, ?)");
-                $stmt->execute([$group_id, $employee_id]);
-                
-                $success = "You have joined the group successfully!";
-            }
-        } catch (PDOException $e) {
-            error_log("Database error joining group: " . $e->getMessage());
-            $error = "Error joining group";
-        }
-        // PRG redirect
-        redirect_with_message('dashboard.php', $success ?? null, $error ?? null);
-    }
-    
-    // Handle leaving a group
-    if ($is_taker && isset($_POST['leave_group'])) {
-        try {
-            $stmt = $pdo->prepare("DELETE FROM group_members WHERE employee_id = ?");
-            $stmt->execute([$employee_id]);
-            
-            // Check if group is now empty and delete it if so
-            $stmt = $pdo->prepare("SELECT group_id FROM group_members WHERE employee_id = ?");
-            $stmt->execute([$employee_id]);
-            $group_id = $stmt->fetchColumn();
-            
-            $stmt = $pdo->prepare("SELECT COUNT(*) FROM group_members WHERE group_id = ?");
-            $stmt->execute([$group_id]);
-            $member_count = $stmt->fetchColumn();
-            
-            if ($member_count == 0) {
-                $stmt = $pdo->prepare("DELETE FROM employee_groups WHERE id = ?");
-                $stmt->execute([$group_id]);
-            }
-            
-            $success = "You have left the group";
-        } catch (PDOException $e) {
-            error_log("Database error leaving group: " . $e->getMessage());
-            $error = "Error leaving group";
-        }
-        // PRG redirect
-        redirect_with_message('dashboard.php', $success ?? null, $error ?? null);
-    }
+
     
     // Handle quest submission (for takers)
     if ($is_taker && isset($_POST['submit_quest'])) {
@@ -2411,7 +2310,7 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
             <?php endif; ?>
 
             <!-- User Info Compact Bar -->
-            <div class="bg-gray-50 border border-gray-200 rounded-md px-4 py-3 mb-4 text-sm text-gray-700" style="background-color: var(--card-bg);">
+            <div class="w-full max-w-4xl mx-auto bg-gray-50 border border-gray-200 rounded-lg px-6 py-4 mb-6 text-sm text-gray-700 shadow-sm" style="background-color: var(--card-bg);">
                 <div class="flex items-center justify-between flex-wrap gap-4">
                     <div class="flex items-center gap-6">
                         <span><strong class="text-gray-900">Employee ID:</strong> <?php echo htmlspecialchars($employee_id); ?></span>
@@ -2427,100 +2326,7 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
                 </div>
             </div>
 
-            <!-- Group Management Section (for takers) -->
-            <?php if ($is_taker): ?>
-                <div class="bg-white rounded-lg shadow-sm p-4 mb-6 section-animation" style="background-color: var(--card-bg);">
-                    <div class="section-header flex items-center mb-4">
-                        <svg class="role-icon text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
-                        </svg>
-                        <h2 class="text-lg font-bold">Group Management</h2>
-                    </div>
-                    
-                    <?php if ($user_group): ?>
-                        <!-- Current Group Info -->
-                        <div class="mb-6">
-                            <h3 class="font-medium mb-2">Your Group: <?php echo htmlspecialchars($user_group['group_name']); ?></h3>
-                            <p class="text-sm text-gray-600 mb-3"><?php echo htmlspecialchars($user_group['description']); ?></p>
-                            
-                            <h4 class="font-medium mb-2">Group Members</h4>
-                            <div class="space-y-2">
-                                <?php foreach ($group_members as $member): ?>
-                                    <div class="group-member interactive-card">
-                                        <div class="group-member-avatar">
-                                            <?php echo strtoupper(substr($member['full_name'], 0, 1)); ?>
-                                        </div>
-                                        <div>
-                                            <p class="font-medium"><?php echo htmlspecialchars($member['full_name']); ?></p>
-                                            <p class="text-xs text-gray-500">ID: <?php echo htmlspecialchars($member['employee_id']); ?></p>
-                                        </div>
-                                    </div>
-                                <?php endforeach; ?>
-                            </div>
-                            
-                            <form method="post" class="mt-4">
-                                <input type="hidden" name="leave_group" value="1">
-                                <button type="submit" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded text-sm font-medium interactive-button">
-                                    Leave Group
-                                </button>
-                            </form>
-                        </div>
-                    <?php else: ?>
-                        <!-- Group Creation Form -->
-                        <div class="mb-6">
-                            <h3 class="font-medium mb-2">Create a New Group</h3>
-                            <form method="post" class="space-y-3">
-                                <div>
-                                    <label for="group_name" class="block text-sm font-medium text-gray-700 mb-1">Group Name*</label>
-                                    <input type="text" id="group_name" name="group_name" 
-                                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                                           placeholder="Enter group name" required>
-                                </div>
-                                <div>
-                                    <label for="group_description" class="block text-sm font-medium text-gray-700 mb-1">Description</label>
-                                    <textarea id="group_description" name="group_description" rows="2"
-                                              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                                              placeholder="Optional group description"></textarea>
-                                </div>
-                                <button type="submit" name="create_group" class="bg-indigo-500 hover:indigo-600 text-white px-4 py-2 rounded text-sm font-medium interactive-button">
-                                    Create Group
-                                </button>
-                            </form>
-                        </div>
-                        
-                        <!-- Available Groups to Join -->
-                        <?php if (!empty($available_groups)): ?>
-                            <div>
-                                <h3 class="font-medium mb-2">Available Groups to Join</h3>
-                                <div class="space-y-3">
-                                    <?php foreach ($available_groups as $group): ?>
-                                        <div class="border rounded p-3 interactive-card" style="border-color: var(--border-color);">
-                                            <div class="flex justify-between">
-                                                <h4 class="font-medium"><?php echo htmlspecialchars($group['group_name']); ?></h4>
-                                                <span class="text-xs bg-gray-100 text-gray-800 px-2 py-1 rounded">
-                                                    <?php echo $group['member_count']; ?> members
-                                                </span>
-                                            </div>
-                                            <?php if (!empty($group['description'])): ?>
-                                                <p class="text-sm text-gray-600 mt-1"><?php echo htmlspecialchars($group['description']); ?></p>
-                                            <?php endif; ?>
-                                            <form method="post" class="mt-2">
-                                                <input type="hidden" name="group_id" value="<?php echo $group['id']; ?>">
-                                                <input type="hidden" name="join_group" value="1">
-                                                <button type="submit" class="w-full bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded text-sm interactive-button">
-                                                    Join Group
-                                                </button>
-                                            </form>
-                                        </div>
-                                    <?php endforeach; ?>
-                                </div>
-                            </div>
-                        <?php else: ?>
-                            <p class="text-gray-500">No groups available to join at the moment.</p>
-                        <?php endif; ?>
-                    <?php endif; ?>
-                </div>
-            <?php endif; ?>
+
 
             <!-- Main Dashboard Layout Header -->
             <div class="text-center mb-6">
@@ -2534,10 +2340,10 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
             </div>
 
             <!-- Role-Based Content Grid -->
-            <div class="dashboard-columns <?php echo $is_giver ? '' : 'justify-center'; ?>">
+            <div class="dashboard-columns justify-center">
 
                 <!-- LEFT COLUMN: Learning Journey (Quest Taking) -->
-                <div class="dashboard-column <?php echo $is_giver ? 'w-full lg:w-1/2' : 'w-full max-w-4xl'; ?> bg-white rounded-lg shadow-sm p-6" style="background-color: var(--card-bg); min-height: 600px;">
+                <div class="dashboard-column w-full max-w-4xl bg-white rounded-lg shadow-sm p-6" style="background-color: var(--card-bg); min-height: 600px;">
                     <div class="section-header flex items-center mb-6">
                         <svg class="role-icon text-green-500 w-6 h-6 mr-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path>
@@ -2946,7 +2752,7 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
 
                 <!-- RIGHT COLUMN: Teaching Responsibilities (Quest Management) -->
                 <?php if ($is_giver): ?>
-                    <div class="dashboard-column w-full lg:w-1/2 bg-white rounded-lg shadow-sm p-6" style="background-color: var(--card-bg); min-height: 600px;">
+                    <div class="dashboard-column w-full max-w-4xl bg-white rounded-lg shadow-sm p-6" style="background-color: var(--card-bg); min-height: 600px;">
                         <div class="section-header flex items-center mb-6">
                             <svg class="role-icon text-blue-500 w-6 h-6 mr-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>

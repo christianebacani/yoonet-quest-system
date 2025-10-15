@@ -23,44 +23,7 @@ if (!in_array($role, ['learning_architect'])) { // was ['quest_giver', 'hybrid']
     exit();
 }
 
-// Handle AJAX request for group members
-if (isset($_GET['ajax']) && $_GET['ajax'] == 'get_group_members' && isset($_GET['group_id'])) {
-    header('Content-Type: application/json');
-    
-    try {
-        $group_id = intval($_GET['group_id']);
-        $current_user_id = $_SESSION['employee_id'];
-        $members = [];
-        
-        // First check if user has access to this group
-        $stmt = $pdo->prepare("SELECT g.id FROM employee_groups g 
-                              JOIN group_members gm ON g.id = gm.group_id 
-                              WHERE g.id = ? AND gm.employee_id = ?");
-        $stmt->execute([$group_id, $current_user_id]);
-        $has_access = $stmt->fetch();
 
-        if (!$has_access) {
-            echo json_encode(['success' => false, 'message' => 'Access denied']);
-            exit;
-        }
-        
-        $stmt = $pdo->prepare("SELECT u.employee_id, u.full_name 
-                              FROM group_members gm
-                              JOIN users u ON gm.employee_id = u.employee_id
-                              WHERE gm.group_id = ? 
-                              AND u.role IN ('skill_associate', 'quest_lead')
-                              AND u.employee_id != ?
-                              ORDER BY u.full_name");
-        $stmt->execute([$group_id, $current_user_id]);
-        $members = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        
-        echo json_encode(['success' => true, 'members' => $members]);
-    } catch (PDOException $e) {
-        error_log("Database error: " . $e->getMessage());
-        echo json_encode(['success' => false, 'message' => 'Database error']);
-    }
-    exit;
-}
 
 $error = '';
 $success = '';
@@ -70,13 +33,10 @@ $quest_id = $_GET['id'] ?? 0;
 // Fetch quest data with all new fields
 try {
     $stmt = $pdo->prepare("SELECT q.*, 
-                          GROUP_CONCAT(DISTINCT uq.employee_id) as assigned_employees,
-                          GROUP_CONCAT(DISTINCT g.id) as assigned_groups
+                          GROUP_CONCAT(DISTINCT uq.employee_id) as assigned_employees
                           FROM quests q
                           LEFT JOIN user_quests uq ON q.id = uq.quest_id
                           LEFT JOIN users u ON uq.employee_id = u.employee_id
-                          LEFT JOIN group_members gm ON u.employee_id = gm.employee_id
-                          LEFT JOIN employee_groups g ON gm.group_id = g.id
                           WHERE q.id = ? AND q.created_by = ?
                           GROUP BY q.id");
     $stmt->execute([$quest_id, $_SESSION['employee_id']]);
@@ -137,16 +97,15 @@ $quest_assignment_type = $quest['quest_assignment_type'] ?? 'optional';
 $due_date = $quest['due_date'] ?? null;
 $status = $quest['status'] ?? 'active';
 $assign_to = !empty($quest['assigned_employees']) ? explode(',', $quest['assigned_employees']) : [];
-$assign_group = !empty($quest['assigned_groups']) ? explode(',', $quest['assigned_groups'])[0] : null;
+$assign_group = null;
 $quest_type = $quest['quest_type'] ?? 'single';
 $visibility = $quest['visibility'] ?? 'public';
 $recurrence_pattern = $quest['recurrence_pattern'] ?? '';
 $recurrence_end_date = $quest['recurrence_end_date'] ?? '';
 $publish_at = $quest['publish_at'] ?? '';
 
-// Fetch employees and groups for assignment
+// Fetch employees for assignment
 $employees = [];
-$groups = [];
 try {
     // Get all skill_associates and quest_leads EXCEPT the current user
     $current_user_id = $_SESSION['employee_id'];
@@ -156,10 +115,6 @@ try {
                           ORDER BY full_name");
     $stmt->execute([$current_user_id]);
     $employees = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    
-    // Get all employee groups
-    $stmt = $pdo->query("SELECT id, group_name FROM employee_groups ORDER BY group_name");
-    $groups = $stmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (PDOException $e) {
     error_log("Database error fetching data: " . $e->getMessage());
 }
@@ -170,7 +125,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $quest_assignment_type = isset($_POST['quest_assignment_type']) ? $_POST['quest_assignment_type'] : 'optional';
     $due_date = !empty($_POST['due_date']) ? $_POST['due_date'] : null;
     $assign_to = isset($_POST['assign_to']) ? $_POST['assign_to'] : [];
-    $assign_group = isset($_POST['assign_group']) ? $_POST['assign_group'] : null;
+    $assign_group = null;
     $status = $_POST['status'] ?? 'active';
     
     // Handle quest skills
@@ -219,18 +174,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
         
-        // Validate group exists if selected
-        if (empty($error) && !empty($assign_group)) {
-            try {
-                $stmt = $pdo->prepare("SELECT id FROM employee_groups WHERE id = ?");
-                $stmt->execute([$assign_group]);
-                if (!$stmt->fetch()) {
-                    $error = 'Selected group does not exist';
-                }
-            } catch (PDOException $e) {
-                $error = 'Error validating group: ' . $e->getMessage();
-            }
-        }
+
         
         // Validate file uploads
         if (empty($error) && !empty($_FILES['attachments']['name'][0])) {
@@ -354,22 +298,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt = $pdo->prepare("DELETE FROM user_quests WHERE quest_id = ?");
                 $stmt->execute([$quest_id]);
                 
-                // Get employees from group if group is selected
-                $group_employees = [];
-                if ($assign_group) {
-                    $stmt = $pdo->prepare("SELECT employee_id FROM group_members WHERE group_id = ?");
-                    $stmt->execute([$assign_group]);
-                    $group_employees = $stmt->fetchAll(PDO::FETCH_COLUMN, 0);
-                }
-                
-                // Combine assignments - prefer individual over group assignments
-                if (!empty($assign_to)) {
-                    $all_assignments = array_unique($assign_to);
-                } elseif (!empty($group_employees)) {
-                    $all_assignments = array_unique($group_employees);
-                } else {
-                    $all_assignments = [];
-                }
+                // Only assign to selected employees
+                $all_assignments = !empty($assign_to) ? array_unique($assign_to) : [];
                 
                 // Assign quest to selected employees
                 if (!empty($all_assignments)) {
@@ -1491,25 +1421,7 @@ function getFontSize() {
                             </p>
                         </div>
                         
-                        <!-- Group Assignment Tab Content -->
-                        <div class="tab-content hidden" id="groupTab">
-                            <select name="assign_group" id="assign_group" 
-                                    class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white text-sm">
-                                <option value="">-- Select Group --</option>
-                                <?php foreach ($groups as $group): ?>
-                                    <option value="<?php echo $group['id']; ?>"
-                                        <?php echo $assign_group == $group['id'] ? 'selected' : ''; ?>>
-                                        <?php echo htmlspecialchars($group['group_name']); ?>
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
-                            
-                            <div id="groupMembersContainer" class="mt-2">
-                                <div id="groupMembersList" class="bg-blue-50 border border-blue-200 p-2 rounded-lg text-xs text-gray-700 max-h-16 overflow-y-auto hidden">
-                                    <strong class="text-blue-800">Members:</strong> <span id="groupMembersListContent"></span>
-                                </div>
-                            </div>
-                        </div>
+
                     </div>
                     </div>
                 </div>
@@ -2091,37 +2003,7 @@ function getFontSize() {
                 $(this).closest('.subtask-item').remove();
             });
 
-            // Group member loading
-            $('#assign_group').change(function() {
-                const groupId = $(this).val();
-                if (!groupId) {
-                    $('#groupMembersList').html('<p class="text-sm text-gray-500">Select a group to view members</p>');
-                    return;
-                }
 
-                $('#groupMembersList').html('<p class="text-sm text-gray-500">Loading members...</p>');
-
-                $.ajax({
-                    url: 'edit_quest.php?ajax=get_group_members&group_id=' + groupId,
-                    type: 'GET',
-                    dataType: 'json',
-                    success: function(response) {
-                        if (response.success && response.members.length > 0) {
-                            let html = '<ul class="space-y-1">';
-                            response.members.forEach(member => {
-                                html += `<li class="text-sm text-gray-700">${member.full_name} <span class="text-gray-500">(ID: ${member.employee_id})</span></li>`;
-                            });
-                            html += '</ul>';
-                            $('#groupMembersList').html(html);
-                        } else {
-                            $('#groupMembersList').html('<p class="text-sm text-gray-500">No members in this group</p>');
-                        }
-                    },
-                    error: function() {
-                        $('#groupMembersList').html('<p class="text-sm text-red-500">Error loading members</p>');
-                    }
-                });
-            });
 
             // File upload preview with validation and remove functionality
             const fileList = $('#fileList');
