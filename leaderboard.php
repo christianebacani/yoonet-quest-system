@@ -215,26 +215,34 @@ window.onunload = function() { void (0); }
         <form method="get" class="flex flex-wrap gap-4 mb-6 items-end">
             <div>
                 <label for="job_position" class="block text-xs font-semibold text-gray-600 mb-1">Job Position</label>
-                <select name="job_position" id="job_position" class="form-input rounded-md border-gray-300">
-                    <?php foreach ($job_positions as $key => $label): ?>
-                        <option value="<?= htmlspecialchars($key) ?>" <?= $selected_job === $key ? 'selected' : '' ?>><?= htmlspecialchars($label) ?></option>
-                    <?php endforeach; ?>
-                </select>
+                <div class="relative">
+                    <select name="job_position" id="job_position" class="form-select block w-full pl-10 pr-8 py-2 rounded-lg border border-gray-300 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-700 bg-white appearance-none transition" style="min-width:180px;">
+                        <?php foreach ($job_positions as $key => $label): ?>
+                            <option value="<?= htmlspecialchars($key) ?>" <?= $selected_job === $key ? 'selected' : '' ?>><?= htmlspecialchars($label) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <span class="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 pointer-events-none"><i class="fas fa-briefcase"></i></span>
+                    <span class="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 pointer-events-none"><i class="fas fa-chevron-down"></i></span>
+                </div>
             </div>
             <div>
                 <label for="skill_name" class="block text-xs font-semibold text-gray-600 mb-1">Skill</label>
-                <select name="skill_name" id="skill_name" class="form-input rounded-md border-gray-300">
-                    <option value="">All Skills (Global XP)</option>
-                    <?php foreach ($skills as $skill): ?>
-                        <option value="<?= htmlspecialchars($skill) ?>" <?= $selected_skill === $skill ? 'selected' : '' ?>><?= htmlspecialchars($skill) ?></option>
-                    <?php endforeach; ?>
-                </select>
+                <div class="relative">
+                    <select name="skill_name" id="skill_name" class="form-select block w-full pl-10 pr-8 py-2 rounded-lg border border-gray-300 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-700 bg-white appearance-none transition" style="min-width:180px;">
+                        <option value="">All Skills (Global XP)</option>
+                        <?php foreach ($skills as $skill): ?>
+                            <option value="<?= htmlspecialchars($skill) ?>" <?= $selected_skill === $skill ? 'selected' : '' ?>><?= htmlspecialchars($skill) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <span class="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 pointer-events-none"><i class="fas fa-lightbulb"></i></span>
+                    <span class="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 pointer-events-none"><i class="fas fa-chevron-down"></i></span>
+                </div>
             </div>
-            <button type="submit" class="btn btn-primary">Filter</button>
+            <button type="submit" class="btn btn-primary px-6 py-2 rounded-lg shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition">Filter</button>
         </form>
 
         <?php if (!empty($leaderboard)): ?>
-            <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+            <div class="bg-white rounded-2xl shadow-lg overflow-hidden border border-gray-100">
                 <div class="overflow-x-auto">
                     <table class="min-w-full divide-y divide-gray-200">
                         <thead class="bg-gray-50">
@@ -254,12 +262,14 @@ window.onunload = function() { void (0); }
                                 ?>
                                 <tr class="<?php echo $is_current_user ? 'current-user' : ''; ?> hover:bg-gray-50 transition-colors">
                                     <td class="px-6 py-4 whitespace-nowrap">
-                                        <?php if ($index < 3): ?>
-                                            <div class="rank-badge rank-<?php echo $index + 1; ?>">
-                                                <?php echo $index + 1; ?>
-                                            </div>
+                                        <?php if ($index === 0): ?>
+                                            <span title="Gold Medalist" class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-yellow-400 text-white text-lg font-bold shadow"><i class="fas fa-medal"></i></span>
+                                        <?php elseif ($index === 1): ?>
+                                            <span title="Silver Medalist" class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-gray-400 text-white text-lg font-bold shadow"><i class="fas fa-medal"></i></span>
+                                        <?php elseif ($index === 2): ?>
+                                            <span title="Bronze Medalist" class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-orange-400 text-white text-lg font-bold shadow"><i class="fas fa-medal"></i></span>
                                         <?php else: ?>
-                                            <span class="text-gray-700 font-medium"><?php echo $index + 1; ?></span>
+                                            <span class="text-gray-700 font-medium text-lg"><?php echo $index + 1; ?></span>
                                         <?php endif; ?>
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap">
@@ -278,9 +288,48 @@ window.onunload = function() { void (0); }
                                             </div>
                                         </div>
                                     </td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700"><?php echo isset($user['job_position']) && isset($job_positions[$user['job_position']]) ? htmlspecialchars($job_positions[$user['job_position']]) : 'N/A'; ?></td>
+<?php
+// Job badge color map
+$job_colors = [
+    'software_developer' => 'bg-blue-100 text-blue-800 border-blue-300',
+    'web_developer' => 'bg-cyan-100 text-cyan-800 border-cyan-300',
+    'ui_ux_designer' => 'bg-pink-100 text-pink-800 border-pink-300',
+    'project_manager' => 'bg-yellow-100 text-yellow-800 border-yellow-300',
+    'data_analyst' => 'bg-green-100 text-green-800 border-green-300',
+    'qa_engineer' => 'bg-purple-100 text-purple-800 border-purple-300',
+    'devops_engineer' => 'bg-gray-100 text-gray-800 border-gray-300',
+    'product_manager' => 'bg-orange-100 text-orange-800 border-orange-300',
+    'business_analyst' => 'bg-teal-100 text-teal-800 border-teal-300',
+    'designer' => 'bg-fuchsia-100 text-fuchsia-800 border-fuchsia-300',
+    '' => 'bg-slate-100 text-slate-600 border-slate-300',
+];
+$job_key = $user['job_position'] ?? '';
+$job_label = isset($job_positions[$job_key]) ? $job_positions[$job_key] : 'N/A';
+$job_class = isset($job_colors[$job_key]) ? $job_colors[$job_key] : 'bg-slate-100 text-slate-600 border-slate-300';
+?>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm">
+                                        <span class="inline-flex items-center px-3 py-1 rounded-full border text-xs font-semibold <?php echo $job_class; ?>">
+                                            <i class="fas fa-user-tie mr-1"></i> <?php echo htmlspecialchars($job_label); ?>
+                                        </span>
+                                    </td>
                                     <?php if ($selected_skill !== ''): ?><td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900"><?php echo isset($user['skill_name']) ? htmlspecialchars($user['skill_name']) : ''; ?></td><?php endif; ?>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-green-700 font-bold"><?php echo number_format($points); ?></td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-green-700 font-bold">
+                                        <?php echo number_format($points); ?>
+                                        <?php if ($selected_skill !== '' && $index < 3): // Only for top 3 ?>
+                                            <?php
+                                            $xp = isset($user['total_points']) ? $user['total_points'] : 0;
+                                            $level = floor($xp / 100) + 1;
+                                            $progress = $xp % 100;
+                                            $percent = min(100, ($progress / 100) * 100);
+                                            ?>
+                                            <div class="mt-2">
+                                                <div class="progress-bar" style="background: #e5e7eb; border-radius: 6px; height: 10px; width: 120px;">
+                                                    <div class="progress-fill" style="background: #34a853; height: 10px; border-radius: 6px; width: <?php echo $percent; ?>%; transition: width 0.6s;"></div>
+                                                </div>
+                                                <span class="text-xs text-gray-500 ml-1">Level <?php echo $level; ?> (<?php echo $progress; ?>/100 XP)</span>
+                                            </div>
+                                        <?php endif; ?>
+                                    </td>
                                 </tr>
                             <?php endforeach; ?>
                         </tbody>
@@ -292,33 +341,7 @@ window.onunload = function() { void (0); }
                 <h3 class="text-lg font-bold text-purple-700">Keep progressing! Earn more XP by completing quests and mastering new skills.</h3>
                 <p class="text-gray-500">Top 3 users earn a special badge and recognition on the leaderboard.</p>
             </div>
-            <!-- Optional: Progress bar for XP if level logic exists -->
-            <?php if ($selected_skill === '' && !empty($leaderboard)): ?>
-            <div class="my-4">
-                <table class="min-w-full">
-                    <tr>
-                        <td colspan="5" class="text-center text-xs text-gray-500 pb-2">Progress to next level (based on 100 XP per level):</td>
-                    </tr>
-                    <?php foreach ($leaderboard as $index => $user): ?>
-                        <?php $xp = isset($user['total_xp']) ? $user['total_xp'] : 0;
-                              $level = floor($xp / 100) + 1;
-                              $progress = $xp % 100;
-                              $percent = min(100, ($progress / 100) * 100);
-                        ?>
-                        <tr>
-                            <td class="px-2 py-1 text-xs text-gray-700 text-right" style="width: 120px;"><?php echo htmlspecialchars($user['full_name']); ?></td>
-                            <td style="width: 200px;">
-                                <div class="progress-bar" style="background: #e5e7eb; border-radius: 6px; height: 10px; width: 100%;">
-                                    <div class="progress-fill" style="background: #34a853; height: 10px; border-radius: 6px; width: <?php echo $percent; ?>%; transition: width 0.6s;"></div>
-                                </div>
-                            </td>
-                            <td class="px-2 py-1 text-xs text-gray-500">Level <?php echo $level; ?></td>
-                            <td class="px-2 py-1 text-xs text-gray-500"><?php echo $progress; ?>/100 XP</td>
-                        </tr>
-                    <?php endforeach; ?>
-                </table>
-            </div>
-            <?php endif; ?>
+            <!-- Progress bar for XP now only shown for top 3 in main table -->
         <?php else: ?>
             <div class="bg-white rounded-xl shadow-sm p-8 text-center">
                 <div class="mx-auto max-w-md">
