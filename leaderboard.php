@@ -6,83 +6,79 @@ if (!is_logged_in()) {
     header('Location: login.php');
     exit();
 }
+// ...existing code...
 
-// Initialize variables with default values
+// --- Job + Skill Leaderboard Logic ---
 $leaderboard = [];
-$user_stats = [
-    'total_xp' => 0,
-    'level' => 1,
-    'rank' => 'Newbie',
-    'progress_percent' => 0,
-    'progress_text' => '0/50 XP'
+$selected_job = $_GET['job_position'] ?? '';
+$selected_skill = $_GET['skill_name'] ?? '';
+
+// Fetch all job positions (static list for now, can be dynamic)
+$job_positions = [
+    '' => 'All Jobs',
+    'software_developer' => 'Software Developer',
+    'web_developer' => 'Web Developer',
+    'ui_ux_designer' => 'UI/UX Designer',
+    'project_manager' => 'Project Manager',
+    'data_analyst' => 'Data Analyst',
+    'qa_engineer' => 'QA Engineer',
+    'devops_engineer' => 'DevOps Engineer',
+    'product_manager' => 'Product Manager',
+    'business_analyst' => 'Business Analyst',
+    'designer' => 'Designer'
 ];
-$user_position = 'N/A';
 
-// Get leaderboard data
+// Fetch all skills from user_earned_skills (distinct skill_name)
+$skills = [];
 try {
-    // Main leaderboard query
-    $stmt = $pdo->query("
-        SELECT 
-            u.employee_id, 
-            u.full_name, 
-            u.email,
-            COALESCE(SUM(xh.xp_change), 0) as total_xp,
-            FLOOR(COALESCE(SUM(xh.xp_change), 0) / 50 + 1) as level,
-            CASE 
-                WHEN COALESCE(SUM(xh.xp_change), 0) >= 200 THEN 'Expert'
-                WHEN COALESCE(SUM(xh.xp_change), 0) >= 100 THEN 'Adventurer'
-                WHEN COALESCE(SUM(xh.xp_change), 0) >= 50 THEN 'Explorer'
-                ELSE 'Newbie'
-            END as rank
-        FROM users u
-        LEFT JOIN xp_history xh ON u.employee_id = xh.employee_id
-        GROUP BY u.employee_id, u.full_name, u.email
-        ORDER BY total_xp DESC
-        LIMIT 50
-    ");
-    $leaderboard = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-    // Get current user's XP total
-    $stmt = $pdo->prepare("
-        SELECT COALESCE(SUM(xp_change), 0) as total_xp
-        FROM xp_history
-        WHERE employee_id = ?
-    ");
-    $stmt->execute([$_SESSION['employee_id']]);
-    $total_xp = $stmt->fetchColumn();
-
-    // Calculate user stats
-    $level = floor($total_xp / 50) + 1;
-    $xp_for_next_level = $total_xp % 50;
-    $progress_percent = ($xp_for_next_level / 50) * 100;
-    
-    $user_stats = [
-        'total_xp' => $total_xp,
-        'level' => $level,
-        'rank' => ($total_xp >= 200 ? 'Expert' : 
-                 ($total_xp >= 100 ? 'Adventurer' : 
-                 ($total_xp >= 50 ? 'Explorer' : 'Newbie'))),
-        'progress_percent' => $progress_percent,
-        'progress_text' => "$xp_for_next_level/50 XP"
-    ];
-
-    // Get user's position
-    $stmt = $pdo->prepare("
-        SELECT COUNT(*) + 1 as position
-        FROM (
-            SELECT employee_id, SUM(xp_change) as total_xp 
-            FROM xp_history 
-            GROUP BY employee_id
-            HAVING SUM(xp_change) > ?
-        ) as ranked_users
-    ");
-    $stmt->execute([$total_xp]);
-    $user_position = $stmt->fetchColumn() ?: 'N/A';
-
+    $stmt = $pdo->query("SELECT DISTINCT skill_name FROM user_earned_skills ORDER BY skill_name ASC");
+    $skills = $stmt->fetchAll(PDO::FETCH_COLUMN);
 } catch (PDOException $e) {
-    error_log("Database error: " . $e->getMessage());
-    $error = "Error loading leaderboard data";
+    error_log('Skill fetch error: ' . $e->getMessage());
+    $skills = [];
 }
+
+// Build leaderboard query: sum all skill points for each user
+$params = [];
+$where = [];
+if ($selected_job !== '' && isset($job_positions[$selected_job])) {
+    $where[] = 'u.job_position = ?';
+    $params[] = $selected_job;
+}
+if ($selected_skill !== '' && in_array($selected_skill, $skills)) {
+    $where[] = 'ues.skill_name = ?';
+    $params[] = $selected_skill;
+}
+
+if ($selected_skill !== '') {
+    // Leaderboard for a specific skill
+    $sql = "SELECT u.employee_id, u.full_name, u.job_position, u.email, ues.skill_name, ues.total_points
+            FROM users u
+            JOIN user_earned_skills ues ON u.id = ues.user_id
+            " . ($where ? 'WHERE ' . implode(' AND ', $where) : '') . "
+            ORDER BY ues.total_points DESC, u.full_name ASC
+            LIMIT 50";
+} else {
+    // Leaderboard for all skills: sum all skill points per user
+    $sql = "SELECT u.employee_id, u.full_name, u.job_position, u.email, SUM(ues.total_points) as total_xp
+            FROM users u
+            JOIN user_earned_skills ues ON u.id = ues.user_id
+            " . ($where ? 'WHERE ' . implode(' AND ', $where) : '') . "
+            GROUP BY u.employee_id, u.full_name, u.job_position, u.email
+            ORDER BY total_xp DESC, u.full_name ASC
+            LIMIT 50";
+}
+try {
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    $leaderboard = $stmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (PDOException $e) {
+    error_log('Leaderboard query error: ' . $e->getMessage());
+    $leaderboard = [];
+}
+
+// If no skill selected, fallback to global XP leaderboard (legacy)
+// ...legacy global XP leaderboard code removed...
 
 // Set default values if not set
 $current_theme = $_SESSION['theme'] ?? 'default';
@@ -127,205 +123,49 @@ function getFontSize() {
     <link rel="stylesheet" href="assets/css/style.css">
     <link rel="stylesheet" href="assets/css/buttons.css">
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-        
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: #f8fafc;
-        }
-        
-        .rank-badge {
-            width: 32px;
-            height: 32px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border-radius: 50%;
-            font-weight: bold;
-            color: white;
-        }
-        
-        .rank-1 {
-            background: linear-gradient(135deg, #FFD700 0%, #FFC600 100%);
-            box-shadow: 0 4px 6px rgba(251, 191, 36, 0.3);
-        }
-        
-        .rank-2 {
-            background: linear-gradient(135deg, #C0C0C0 0%, #D3D3D3 100%);
-            box-shadow: 0 4px 6px rgba(209, 213, 219, 0.3);
-        }
-        
-        .rank-3 {
-            background: linear-gradient(135deg, #CD7F32 0%, #B87333 100%);
-            box-shadow: 0 4px 6px rgba(180, 83, 9, 0.3);
-        }
-        
-        .progress-bar {
-            height: 8px;
-            border-radius: 4px;
-            background-color: #e2e8f0;
-            overflow: hidden;
-        }
-        
-        .progress-fill {
-            height: 100%;
-            border-radius: 4px;
-            background: linear-gradient(90deg, #4f46e5, #10b981);
-            transition: width 0.5s ease-in-out;
-        }
-        
-        .user-card {
-            background: white;
-            border-radius: 12px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
-            transition: all 0.3s ease;
-        }
-        
-        .user-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 15px rgba(0, 0, 0, 0.1);
-        }
-        
-        .current-user {
-            border-left: 4px solid #3b82f6;
-            background-color: #f8fafc;
-        }
-        
-        .rank-title {
-            padding: 0.25rem 0.5rem;
-            border-radius: 0.25rem;
-            font-size: 0.75rem;
-            font-weight: 600;
-            text-transform: uppercase;
-        }
-        
-        .title-expert {
-            background-color: #8b5cf6;
-            color: white;
-        }
-        
-        .title-adventurer {
-            background-color: #3b82f6;
-            color: white;
-        }
-        
-        .title-explorer {
-            background-color: #10b981;
-            color: white;
-        }
-        
-        .title-newbie {
-            background-color: #64748b;
-            color: white;
-        }
-        
+        .title-expert { background-color: #8b5cf6; color: white; }
+        .title-adventurer { background-color: #3b82f6; color: white; }
+        .title-explorer { background-color: #10b981; color: white; }
+        .title-newbie { background-color: #64748b; color: white; }
         .avatar {
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            background-color: #3b82f6;
-            color: white;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: bold;
-            text-transform: uppercase;
+            width: 40px; height: 40px; border-radius: 50%; background-color: #3b82f6; color: white;
+            display: flex; align-items: center; justify-content: center; font-weight: bold; text-transform: uppercase;
         }
-        
-        .section-header {
-            position: relative;
-            padding-left: 1.25rem;
-        }
-        
+        .section-header { position: relative; padding-left: 1.25rem; }
         .section-header:before {
-            content: "";
-            position: absolute;
-            left: 0;
-            top: 0;
-            bottom: 0;
-            width: 4px;
-            border-radius: 2px;
+            content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; border-radius: 2px;
             background: linear-gradient(to bottom, #4f46e5, #10b981);
         }
-    :root {
-        --primary-color: #4285f4;
-        --secondary-color: #34a853;
-        --background-color: #ffffff;
-        --text-color: #333333;
-        --card-bg: #f8f9fa;
-        --border-color: #e0e0e0;
-        --shadow-color: rgba(0, 0, 0, 0.1);
-        --transition-speed: 0.4s;
-    }
-
-    /* Dark Mode */
-    .dark-mode {
-        --primary-color: #8ab4f8;
-        --secondary-color: #81c995;
-        --background-color: #121212;
-        --text-color: #e0e0e0;
-        --card-bg: #1e1e1e;
-        --border-color: #333333;
-        --shadow-color: rgba(0, 0, 0, 0.3);
-    }
-
-    /* Ocean Theme */
-    .ocean-theme {
-        --primary-color: #00a1f1;
-        --secondary-color: #00c1d4;
-        --background-color: #f0f8ff;
-        --text-color: #003366;
-        --card-bg: #e1f0fa;
-        --border-color: #b3d4ff;
-    }
-
-    /* Forest Theme */
-    .forest-theme {
-        --primary-color: #228B22;
-        --secondary-color: #2E8B57;
-        --background-color: #f0fff0;
-        --text-color: #013220;
-        --card-bg: #e1fae1;
-        --border-color: #98fb98;
-    }
-
-    /* Sunset Theme */
-    .sunset-theme {
-        --primary-color: #FF6B6B;
-        --secondary-color: #FFA07A;
-        --background-color: #FFF5E6;
-        --text-color: #8B0000;
-        --card-bg: #FFE8D6;
-        --border-color: #FFB347;
-    }
-
-    /* Animation for theme change */
-    @keyframes fadeIn {
-        from { opacity: 0.8; }
-        to { opacity: 1; }
-    }
-
-    .theme-change {
-        animation: fadeIn var(--transition-speed) ease;
-    }
-
-    /* Apply transitions to elements that change with theme */
-    body {
-        background-color: var(--background-color);
-        color: var(--text-color);
-        transition: background-color var(--transition-speed) ease, 
-                    color var(--transition-speed) ease;
-    }
-
-    /* Add this to any element that uses theme colors */
-    .card, .btn-primary, .btn-secondary, 
-    .assignment-section, .section-header, 
-    .user-card, .progress-bar, .rank-badge,
-    .status-badge, .xp-badge {
-        transition: all var(--transition-speed) ease;
-    }
+        :root {
+            --primary-color: #4285f4; --secondary-color: #34a853; --background-color: #ffffff; --text-color: #333333;
+            --card-bg: #f8f9fa; --border-color: #e0e0e0; --shadow-color: rgba(0, 0, 0, 0.1); --transition-speed: 0.4s;
+        }
+        .dark-mode {
+            --primary-color: #8ab4f8; --secondary-color: #81c995; --background-color: #121212; --text-color: #e0e0e0;
+            --card-bg: #1e1e1e; --border-color: #333333; --shadow-color: rgba(0, 0, 0, 0.3);
+        }
+        .ocean-theme {
+            --primary-color: #00a1f1; --secondary-color: #00c1d4; --background-color: #f0f8ff; --text-color: #003366;
+            --card-bg: #e1f0fa; --border-color: #b3d4ff;
+        }
+        .forest-theme {
+            --primary-color: #228B22; --secondary-color: #2E8B57; --background-color: #f0fff0; --text-color: #013220;
+            --card-bg: #e1fae1; --border-color: #98fb98;
+        }
+        .sunset-theme {
+            --primary-color: #FF6B6B; --secondary-color: #FFA07A; --background-color: #FFF5E6; --text-color: #8B0000;
+            --card-bg: #FFE8D6; --border-color: #FFB347;
+        }
+        @keyframes fadeIn { from { opacity: 0.8; } to { opacity: 1; } }
+        .theme-change { animation: fadeIn var(--transition-speed) ease; }
+        body {
+            background-color: var(--background-color); color: var(--text-color);
+            transition: background-color var(--transition-speed) ease, color var(--transition-speed) ease;
+        }
+        .card, .btn-primary, .btn-secondary, .assignment-section, .section-header, .user-card, .progress-bar, .rank-badge, .status-badge, .xp-badge {
+            transition: all var(--transition-speed) ease;
+        }
     </style>
 </head>
 
@@ -362,64 +202,37 @@ window.onunload = function() { void (0); }
             </div>
         </header>
         
-        <!-- User Stats -->
-        <div class="user-card p-6 mb-8">
-            <div class="flex flex-col md:flex-row items-center justify-between gap-6">
-                <div class="flex items-center gap-4">
-                    <div class="avatar bg-blue-100 text-blue-600">
-                        <?php echo substr($_SESSION['full_name'], 0, 1); ?>
-                    </div>
-                    <div>
-                        <h2 class="font-bold text-lg text-gray-900"><?php echo htmlspecialchars($_SESSION['full_name']); ?></h2>
-                        <p class="text-sm text-gray-500"><?php echo htmlspecialchars($_SESSION['employee_id']); ?></p>
-                    </div>
-                </div>
-                
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 w-full md:w-auto">
-                    <div class="text-center">
-                        <p class="text-sm text-gray-500 mb-1">Rank</p>
-                        <p class="text-xl font-bold text-purple-600">#<?php echo $user_position; ?></p>
-                    </div>
-                    <div class="text-center">
-                        <p class="text-sm text-gray-500 mb-1">Total XP</p>
-                        <p class="text-xl font-bold text-green-600"><?php echo number_format($user_stats['total_xp']); ?></p>
-                    </div>
-                    <div class="text-center">
-                        <p class="text-sm text-gray-500 mb-1">Level</p>
-                        <p class="text-xl font-bold text-blue-600"><?php echo $user_stats['level']; ?></p>
-                    </div>
-                    <div class="text-center">
-                        <p class="text-sm text-gray-500 mb-1">Title</p>
-                        <p class="text-xl font-bold <?php 
-                            echo $user_stats['rank'] === 'Expert' ? 'text-purple-600' : 
-                                 ($user_stats['rank'] === 'Adventurer' ? 'text-blue-600' : 
-                                 ($user_stats['rank'] === 'Explorer' ? 'text-green-600' : 'text-gray-600')); 
-                        ?>">
-                            <?php echo $user_stats['rank']; ?>
-                        </p>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="mt-6">
-                <div class="flex justify-between text-sm mb-2">
-                    <span class="text-gray-600">Progress to level <?php echo $user_stats['level'] + 1; ?></span>
-                    <span class="font-medium"><?php echo $user_stats['progress_text']; ?></span>
-                </div>
-                <div class="progress-bar">
-                    <div class="progress-fill" style="width: <?php echo $user_stats['progress_percent']; ?>%"></div>
-                </div>
-            </div>
-        </div>
+        <!-- User Stats removed for clarity and to avoid confusion/errors -->
         
-        <!-- Leaderboard -->
+        <!-- Leaderboard + Filters -->
         <div class="section-header mb-6">
             <h2 class="text-xl font-bold text-gray-900 flex items-center gap-2">
                 <i class="fas fa-trophy text-yellow-500"></i>
                 Top Performers
             </h2>
         </div>
-        
+        <!-- Filter Form -->
+        <form method="get" class="flex flex-wrap gap-4 mb-6 items-end">
+            <div>
+                <label for="job_position" class="block text-xs font-semibold text-gray-600 mb-1">Job Position</label>
+                <select name="job_position" id="job_position" class="form-input rounded-md border-gray-300">
+                    <?php foreach ($job_positions as $key => $label): ?>
+                        <option value="<?= htmlspecialchars($key) ?>" <?= $selected_job === $key ? 'selected' : '' ?>><?= htmlspecialchars($label) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div>
+                <label for="skill_name" class="block text-xs font-semibold text-gray-600 mb-1">Skill</label>
+                <select name="skill_name" id="skill_name" class="form-input rounded-md border-gray-300">
+                    <option value="">All Skills (Global XP)</option>
+                    <?php foreach ($skills as $skill): ?>
+                        <option value="<?= htmlspecialchars($skill) ?>" <?= $selected_skill === $skill ? 'selected' : '' ?>><?= htmlspecialchars($skill) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <button type="submit" class="btn btn-primary">Filter</button>
+        </form>
+
         <?php if (!empty($leaderboard)): ?>
             <div class="bg-white rounded-xl shadow-sm overflow-hidden">
                 <div class="overflow-x-auto">
@@ -428,18 +241,16 @@ window.onunload = function() { void (0); }
                             <tr>
                                 <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rank</th>
                                 <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Employee</th>
-                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">XP</th>
-                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Level</th>
-                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Title</th>
-                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Progress</th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Job Position</th>
+                                <?php if ($selected_skill !== ''): ?><th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Skill</th><?php endif; ?>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total XP</th>
                             </tr>
                         </thead>
                         <tbody class="bg-white divide-y divide-gray-200">
                             <?php foreach ($leaderboard as $index => $user): ?>
                                 <?php 
-                                    $is_current_user = $user['employee_id'] === $_SESSION['employee_id'];
-                                    $xp_for_level = $user['total_xp'] % 50;
-                                    $progress_percent = ($xp_for_level / 50) * 100;
+                                    $is_current_user = isset($_SESSION['employee_id']) && isset($user['employee_id']) && $user['employee_id'] === $_SESSION['employee_id'];
+                                    $points = $selected_skill !== '' ? (isset($user['total_points']) ? $user['total_points'] : 0) : (isset($user['total_xp']) ? $user['total_xp'] : 0);
                                 ?>
                                 <tr class="<?php echo $is_current_user ? 'current-user' : ''; ?> hover:bg-gray-50 transition-colors">
                                     <td class="px-6 py-4 whitespace-nowrap">
@@ -453,54 +264,61 @@ window.onunload = function() { void (0); }
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap">
                                         <div class="flex items-center">
-                                            <div class="avatar mr-3" style="background-color: <?php echo $is_current_user ? '#3b82f6' : '#e2e8f0'; ?>; color: <?php echo $is_current_user ? 'white' : '#64748b'; ?>">
-                                                <?php echo substr($user['full_name'], 0, 1); ?>
+                                            <div class="avatar mr-3" style="background-color: <?php echo $is_current_user ? '#3b82f6' : '#e2e8f0'; ?>; color: <?php echo $is_current_user ? 'white' : '#64748b'; ?>;">
+                                                <?php echo isset($user['full_name']) ? strtoupper(substr($user['full_name'], 0, 1)) : '?'; ?>
                                             </div>
                                             <div>
                                                 <div class="text-sm font-medium <?php echo $is_current_user ? 'text-blue-600' : 'text-gray-900'; ?>">
-                                                    <?php echo htmlspecialchars($user['full_name']); ?>
+                                                    <?php echo isset($user['full_name']) ? htmlspecialchars($user['full_name']) : 'Unknown'; ?>
                                                     <?php if ($is_current_user): ?>
                                                         <span class="ml-2 text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">You</span>
                                                     <?php endif; ?>
                                                 </div>
-                                                <div class="text-sm text-gray-500"><?php echo htmlspecialchars($user['employee_id']); ?></div>
+                                                <div class="text-sm text-gray-500"><?php echo isset($user['employee_id']) ? htmlspecialchars($user['employee_id']) : ''; ?></div>
                                             </div>
                                         </div>
                                     </td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                                        <?php echo number_format($user['total_xp']); ?>
-                                    </td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                        <?php echo $user['level']; ?>
-                                    </td>
-                                    <td class="px-6 py-4 whitespace-nowrap">
-                                        <span class="rank-title <?php 
-                                            echo $user['rank'] === 'Expert' ? 'title-expert' : 
-                                                 ($user['rank'] === 'Adventurer' ? 'title-adventurer' : 
-                                                 ($user['rank'] === 'Explorer' ? 'title-explorer' : 'title-newbie')); 
-                                        ?>">
-                                            <?php echo $user['rank']; ?>
-                                        </span>
-                                    </td>
-                                    <td class="px-6 py-4 whitespace-nowrap">
-                                        <div class="flex items-center gap-3">
-                                            <div class="w-full max-w-xs">
-                                                <div class="flex justify-between text-xs mb-1">
-                                                    <span class="text-gray-500">Lvl <?php echo $user['level'] + 1; ?></span>
-                                                    <span class="font-medium"><?php echo $xp_for_level; ?>/50</span>
-                                                </div>
-                                                <div class="progress-bar">
-                                                    <div class="progress-fill" style="width: <?php echo $progress_percent; ?>%"></div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700"><?php echo isset($user['job_position']) && isset($job_positions[$user['job_position']]) ? htmlspecialchars($job_positions[$user['job_position']]) : 'N/A'; ?></td>
+                                    <?php if ($selected_skill !== ''): ?><td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900"><?php echo isset($user['skill_name']) ? htmlspecialchars($user['skill_name']) : ''; ?></td><?php endif; ?>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-green-700 font-bold"><?php echo number_format($points); ?></td>
                                 </tr>
                             <?php endforeach; ?>
                         </tbody>
                     </table>
                 </div>
             </div>
+            <!-- Gamification: Add a motivational message and badge for top 3 -->
+            <div class="my-6 text-center">
+                <h3 class="text-lg font-bold text-purple-700">Keep progressing! Earn more XP by completing quests and mastering new skills.</h3>
+                <p class="text-gray-500">Top 3 users earn a special badge and recognition on the leaderboard.</p>
+            </div>
+            <!-- Optional: Progress bar for XP if level logic exists -->
+            <?php if ($selected_skill === '' && !empty($leaderboard)): ?>
+            <div class="my-4">
+                <table class="min-w-full">
+                    <tr>
+                        <td colspan="5" class="text-center text-xs text-gray-500 pb-2">Progress to next level (based on 100 XP per level):</td>
+                    </tr>
+                    <?php foreach ($leaderboard as $index => $user): ?>
+                        <?php $xp = isset($user['total_xp']) ? $user['total_xp'] : 0;
+                              $level = floor($xp / 100) + 1;
+                              $progress = $xp % 100;
+                              $percent = min(100, ($progress / 100) * 100);
+                        ?>
+                        <tr>
+                            <td class="px-2 py-1 text-xs text-gray-700 text-right" style="width: 120px;"><?php echo htmlspecialchars($user['full_name']); ?></td>
+                            <td style="width: 200px;">
+                                <div class="progress-bar" style="background: #e5e7eb; border-radius: 6px; height: 10px; width: 100%;">
+                                    <div class="progress-fill" style="background: #34a853; height: 10px; border-radius: 6px; width: <?php echo $percent; ?>%; transition: width 0.6s;"></div>
+                                </div>
+                            </td>
+                            <td class="px-2 py-1 text-xs text-gray-500">Level <?php echo $level; ?></td>
+                            <td class="px-2 py-1 text-xs text-gray-500"><?php echo $progress; ?>/100 XP</td>
+                        </tr>
+                    <?php endforeach; ?>
+                </table>
+            </div>
+            <?php endif; ?>
         <?php else: ?>
             <div class="bg-white rounded-xl shadow-sm p-8 text-center">
                 <div class="mx-auto max-w-md">
