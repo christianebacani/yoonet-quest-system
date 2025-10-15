@@ -1091,7 +1091,7 @@ function getFontSize() {
                     
                     <!-- Selected Skills Summary -->
                     <div class="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-lg min-h-[50px]">
-                        <div class="flex items-center justify-between mb-2">
+                        <div class="flex iteclss-center justify-between mb-2">
                             <div class="text-xs font-medium text-blue-800">Selected Skills:</div>
                             <div class="text-sm text-gray-600">
                                 <span id="skillCount" class="font-semibold text-indigo-600">0</span>/5 selected
