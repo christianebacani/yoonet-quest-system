@@ -1307,7 +1307,7 @@ function getFontSize() {
                             <div class="flex items-center justify-between mb-2">
                                 <label class="block text-sm font-medium text-gray-700">Required Skills* (Select or Add 1-8)</label>
                                 <div class="text-sm text-gray-600">
-                                    <span id="skill-counter" class="font-semibold text-indigo-600">0</span>/8 selected
+                                    <span id="skill-counter" class="font-semibold text-indigo-600">0</span>/5 selected
                                 </div>
                             </div>
                             
