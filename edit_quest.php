@@ -1094,7 +1094,7 @@ function getFontSize() {
                         <div class="flex items-center justify-between mb-2">
                             <div class="text-xs font-medium text-blue-800">Selected Skills:</div>
                             <div class="text-sm text-gray-600">
-                                <span id="skillCount" class="font-semibold text-indigo-600">0</span>/8 selected
+                                <span id="skillCount" class="font-semibold text-indigo-600">0</span>/5 selected
                             </div>
                         </div>
                         <div id="selectedSkillsBadges" class="flex flex-wrap gap-2">
@@ -2327,7 +2327,7 @@ function removeEmployee(employeeId) {
 let selectedSkills = new Set(); // Using Set for skill IDs
 let skillTiers = {}; // Store tiers separately: {skillId: tier}
 let customSkillCounter = 1000; // Counter for custom skill IDs
-let maxSkills = 5; // Reduced from 8 to 5 to encourage focused mastery (Bundle 2)
+const MAX_SKILLS = 5; // Reduced from 8 to 5 for focused mastery (Bundle 2)
 
 // Load existing quest skills on page load
 document.addEventListener('DOMContentLoaded', function() {
@@ -2377,8 +2377,8 @@ document.addEventListener('DOMContentLoaded', function() {
         const hint = document.createElement('div');
         hint.id = 'focus-efficiency-hint';
         hint.className = 'mt-2 text-xs text-indigo-600';
-        hint.innerHTML = 'Tip: 1–2 skills = 100% XP each, 3 = 90%, 4 = 75%, 5 = 60%. Focus for faster mastery.';
-        target.parentNode.insertBefore(hint, target.nextSibling);
+        hint.innerHTML = 'Tip: Selecting 1–2 skills = 100% XP each, 3 skills = 90%, 4 = 75%, 5 = 60%. Focus for faster mastery.';
+        target.parentElement.insertBefore(hint, target.nextSibling);
     }
 });
 
@@ -2392,9 +2392,9 @@ function toggleSkillSelection(checkbox) {
     
     if (checkbox.checked) {
         // Check skill limit
-        if (selectedSkills.size >= maxSkills) {
+        if (selectedSkills.size >= MAX_SKILLS) {
             checkbox.checked = false;
-            alert(`Maximum ${maxSkills} skills allowed per quest`);
+            alert(`You can only select up to ${MAX_SKILLS} skills per quest (focused mastery). Please deselect a skill first.`);
             return;
         }
         

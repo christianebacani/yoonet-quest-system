@@ -226,8 +226,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Quest assignment type must be either mandatory or optional';
     } elseif (empty($existing_skills) && empty($custom_skills)) {
         $error = 'At least one skill must be selected for this quest';
-    } elseif (count($selected_skills) > 8) {
-        $error = 'Maximum of 8 skills can be selected per quest';
+    } elseif (count($selected_skills) > 5) {
+        $error = 'Maximum of 5 skills can be selected per quest';
     } elseif (!empty($due_date) && !strtotime($due_date)) {
         $error = 'Invalid due date format';
     } else {
