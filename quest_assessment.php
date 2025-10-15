@@ -898,7 +898,7 @@ if (isset($_GET['success'])) {
                         </div>
                         
                         <div class="tier-info tier-<?= htmlspecialchars($tier_level) ?>">
-                            <span class="base-tier">Base Tier: <?= htmlspecialchars($tier_level) ?> - <?= htmlspecialchars(getTierLabel((int)str_replace('T','',$tier_level))) ?> (<?= $base_points ?> pts)</span>
+                            <span class="base-tier">Base Tier: <?= htmlspecialchars($tier_level) ?> - <?= htmlspecialchars(getTierLabel($tier_num)) ?> (<?= $base_points ?> pts)</span>
                         </div>
                         
                         <div class="performance-section">
