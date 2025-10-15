@@ -1,4 +1,36 @@
+// Quest type to base points per tier table
+function getQuestTypeBasePoints($questType, $tier) {
+    $table = [
+        'routine' =>   [1 => 10, 2 => 15, 3 => 20, 4 => 25, 5 => 30],
+        'minor' =>     [1 => 20, 2 => 30, 3 => 40, 4 => 50, 5 => 60],
+        'standard' =>  [1 => 40, 2 => 55, 3 => 70, 4 => 90, 5 => 110],
+        'major' =>     [1 => 70, 2 => 90, 3 => 120, 4 => 150, 5 => 180],
+        'project' =>   [1 => 120, 2 => 150, 3 => 200, 4 => 250, 5 => 300],
+    ];
+    $questType = strtolower($questType);
+    $tier = (int)$tier;
+    if (!isset($table[$questType])) $questType = 'routine';
+    if ($tier < 1 || $tier > 5) $tier = 3;
+    return $table[$questType][$tier];
+}
+
 <?php
+// Quest type to base points per tier table
+function getQuestTypeBasePoints($questType, $tier) {
+    $table = [
+        'routine' =>   [1 => 10, 2 => 15, 3 => 20, 4 => 25, 5 => 30],
+        'minor' =>     [1 => 20, 2 => 30, 3 => 40, 4 => 50, 5 => 60],
+        'standard' =>  [1 => 40, 2 => 55, 3 => 70, 4 => 90, 5 => 110],
+        'major' =>     [1 => 70, 2 => 90, 3 => 120, 4 => 150, 5 => 180],
+        'project' =>   [1 => 120, 2 => 150, 3 => 200, 4 => 250, 5 => 300],
+    ];
+    $questType = strtolower($questType);
+    $tier = (int)$tier;
+    if (!isset($table[$questType])) $questType = 'routine';
+    if ($tier < 1 || $tier > 5) $tier = 3;
+    return $table[$questType][$tier];
+}
+
 require_once __DIR__ . '/includes/config.php';
 require_once __DIR__ . '/includes/functions.php';
 require_once __DIR__ . '/includes/skill_progression.php';
@@ -156,45 +188,54 @@ if (is_array($quest_skills) && !empty($quest_skills)) {
         }
     }
 
-    foreach ($quest_skills as $row) {
-        $name = '';
-        if (isset($row['skill_name']) && $row['skill_name'] !== '') {
-            $name = (string)$row['skill_name'];
-        } elseif (isset($row['skill_id']) && isset($nameMap[(int)$row['skill_id']])) {
-            $name = $nameMap[(int)$row['skill_id']];
-        } else {
-            $name = 'Skill';
-        }
-
-        // Normalize tier_level to T1..T5 (support numeric tier_level, numeric tier, or required_level enum)
-        $tier_level = 'T2';
-        if (isset($row['tier_level'])) {
-            $tv = $row['tier_level'];
-            if (is_numeric($tv)) {
-                $t = (int)$tv; if ($t < 1) $t = 1; if ($t > 5) $t = 5; $tier_level = 'T' . $t;
-            } elseif (is_string($tv) && preg_match('~^T[1-5]$~', $tv)) {
-                $tier_level = $tv;
+        foreach ($quest_skills as $row) {
+            $name = '';
+            if (isset($row['skill_name']) && $row['skill_name'] !== '') {
+                $name = (string)$row['skill_name'];
+            } elseif (isset($row['skill_id']) && isset($nameMap[(int)$row['skill_id']])) {
+                $name = $nameMap[(int)$row['skill_id']];
+            } else {
+                $name = 'Skill';
             }
-        } elseif (isset($row['tier'])) {
-            $t = (int)$row['tier']; if ($t < 1) $t = 1; if ($t > 5) $t = 5; $tier_level = 'T' . $t;
-        } elseif (isset($row['required_level'])) {
-            // Map legacy required_level to tiers
-            $map = [
-                'beginner' => 'T1',
-                'intermediate' => 'T2',
-                'advanced' => 'T3',
-                'expert' => 'T4',
-            ];
-            $rl = strtolower((string)$row['required_level']);
-            if (isset($map[$rl])) { $tier_level = $map[$rl]; }
-        }
 
-        $normalized_skills[] = [
-            'skill_name' => $name,
-            'tier_level' => $tier_level,
-            'skill_id' => isset($row['skill_id']) ? (int)$row['skill_id'] : null,
-        ];
-    }
+            // Normalize tier_level to T1..T5 (support numeric tier_level, numeric tier, or required_level enum)
+            $tier_level = 'T2';
+            $tier_num = 2;
+            if (isset($row['tier_level'])) {
+                $tv = $row['tier_level'];
+                if (is_numeric($tv)) {
+                    $t = (int)$tv; if ($t < 1) $t = 1; if ($t > 5) $t = 5; $tier_level = 'T' . $t; $tier_num = $t;
+                } elseif (is_string($tv) && preg_match('~^T([1-5])$~', $tv, $m)) {
+                    $tier_level = $tv; $tier_num = (int)$m[1];
+                }
+            } elseif (isset($row['tier'])) {
+                $t = (int)$row['tier']; if ($t < 1) $t = 1; if ($t > 5) $t = 5; $tier_level = 'T' . $t; $tier_num = $t;
+            } elseif (isset($row['required_level'])) {
+                // Map legacy required_level to tiers
+                $map = [
+                    'beginner' => 1,
+                    'intermediate' => 2,
+                    'advanced' => 3,
+                    'expert' => 4,
+                ];
+                $rl = strtolower((string)$row['required_level']);
+                if (isset($map[$rl])) { $tier_level = 'T' . $map[$rl]; $tier_num = $map[$rl]; }
+            }
+
+            // Determine quest type (default to 'routine' if not set)
+            $questType = isset($quest['quest_type']) ? strtolower($quest['quest_type']) : 'routine';
+            if (!in_array($questType, ['routine','minor','standard','major','project'])) $questType = 'routine';
+
+            // Assign base points dynamically
+            $base_points = getQuestTypeBasePoints($questType, $tier_num);
+
+            $normalized_skills[] = [
+                'skill_name' => $name,
+                'tier_level' => $tier_level,
+                'skill_id' => isset($row['skill_id']) ? (int)$row['skill_id'] : null,
+                'base_points' => $base_points,
+            ];
+        }
 }
 $quest_skills = $normalized_skills ?: (is_array($quest_skills) ? $quest_skills : []);
 
@@ -282,16 +323,8 @@ if (empty($error) && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['subm
             $base_points_raw = (int)($assessment['base_points'] ?? 0);
             $notes = sanitize_input($assessment['notes'] ?? '');
 
-            // Derive tier if embedded in the skill name (fallback tier 3)
-            $tier = 3;
-            if (preg_match($tierPattern, $skill_name, $m)) {
-                $t = (int)$m[1];
-                if ($t >= 1 && $t <= 5) { $tier = $t; }
-            }
-            $tierMultiplier = $tierMultipliers[$tier] ?? 1.0;
-
-            // Adjusted base points with breadth + tier
-            $base_points = (int)round($base_points_raw * $breadthFactor * $tierMultiplier);
+            // Use base_points_raw directly (already dynamically set by quest type/tier)
+            $base_points = (int)round($base_points_raw * $breadthFactor);
 
             // Skip zero-point awards (e.g., Not performed)
             if ($base_points <= 0 || $performance <= 0) { continue; }
