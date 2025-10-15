@@ -142,6 +142,7 @@ $due_date = null;
 $assign_to = [];
 $assign_group = null;
 $selected_skills = [];
+$quest_type = 'Standard'; // Default quest type
 
 // Fetch employees, groups, and skills for assignment
 $employees = [];
@@ -179,6 +180,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $due_date = !empty($_POST['due_date']) ? $_POST['due_date'] : null;
     $assign_to = isset($_POST['assign_to']) ? $_POST['assign_to'] : [];
     $assign_group = isset($_POST['assign_group']) ? $_POST['assign_group'] : null;
+    $quest_type = $_POST['quest_type'] ?? 'Standard';
     $status = 'active';
     
     // Handle selected skills with tiers
@@ -224,6 +226,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Description must be less than 2000 characters';
     } elseif (!in_array($quest_assignment_type, ['mandatory', 'optional'])) {
         $error = 'Quest assignment type must be either mandatory or optional';
+    } elseif (!in_array($quest_type, ['Routine', 'Minor', 'Standard', 'Major', 'Project'])) {
+        $error = 'Invalid quest type selected.';
     } elseif (empty($existing_skills) && empty($custom_skills)) {
         $error = 'At least one skill must be selected for this quest';
     } elseif (count($selected_skills) > 5) {
@@ -296,15 +300,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 
                 // Create the quest
                 $stmt = $pdo->prepare("INSERT INTO quests 
-                    (title, description, status, due_date, created_by, quest_assignment_type, created_at) 
-                    VALUES (?, ?, ?, ?, ?, ?, NOW())");
+                    (title, description, status, due_date, created_by, quest_assignment_type, quest_type, created_at) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, NOW())");
                 $stmt->execute([
                     $title, 
                     $description, 
                     $status, 
                     $due_date,
                     $_SESSION['employee_id'],
-                    $quest_assignment_type
+                    $quest_assignment_type,
+                    $quest_type
                 ]);
                 $quest_id = $pdo->lastInsertId();
                 
@@ -409,6 +414,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $assign_group = null;
                     $due_date = null;
                     $selected_skills = [];
+                    $quest_type = 'Standard';
                 }
             } catch (PDOException $e) {
                 if ($pdo->inTransaction()) {
@@ -1205,90 +1211,20 @@ function getFontSize() {
                                 </p>
                             </div>
                             <div>
-                                <label for="due_date" class="block text-sm font-medium text-gray-700 mb-1">Due Date &amp; Time (Optional)</label>
-                                <div class="relative">
-                                    <!-- Date/Time Display Button -->
-                                    <button type="button" 
-                                            id="dueDateBtn"
-                                            class="w-full px-4 py-2.5 border border-indigo-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300 shadow-sm transition duration-200 bg-white hover:bg-gray-50 text-left flex items-center justify-between"
-                                            onclick="toggleCalendarBox()">
-                                        <span id="dueDateDisplay" class="text-gray-500">
-                                            <i class="fas fa-calendar-alt mr-2 text-indigo-500"></i>
-                                            Click to select due date and time
-                                        </span>
-                                        <i class="fas fa-chevron-down text-gray-400" id="chevronIcon"></i>
-                                    </button>
-                                    <input type="hidden" id="due_date" name="due_date" value="<?php echo htmlspecialchars($due_date ?? ''); ?>">
-                                    
-                                    <!-- Calendar Box (Initially Hidden) -->
-                                    <div id="calendarBox" class="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded-lg shadow-xl z-50 mt-1 hidden">
-                                        <div class="p-4">
-                                            <!-- Calendar Container -->
-                                            <div id="calendarContainer" class="mb-4"></div>
-                                            
-                                            <!-- Time Selection -->
-                                            <div class="border-t pt-4">
-                                                <div class="flex items-center justify-between mb-3">
-                                                    <label class="text-sm font-medium text-gray-700">Select Time</label>
-                                                    <button type="button" 
-                                                            onclick="clearDueDate()" 
-                                                            class="text-xs text-red-600 hover:text-red-800 flex items-center">
-                                                        <i class="fas fa-times mr-1"></i>Clear
-                                                    </button>
-                                                </div>
-                                                
-                                                <div class="grid grid-cols-3 gap-2 mb-3">
-                                                    <div>
-                                                        <input type="number" 
-                                                               id="hourSelect" 
-                                                               min="1" 
-                                                               max="12" 
-                                                               value="12"
-                                                               oninput="clearFieldError(this)"
-                                                               class="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-center">
-                                                        <label class="text-xs text-gray-500 mt-1 block text-center">Hour</label>
-                                                    </div>
-                                                    <div>
-                                                        <input type="number" 
-                                                               id="minuteSelect" 
-                                                               min="0" 
-                                                               max="59" 
-                                                               value="00"
-                                                               oninput="clearFieldError(this)"
-                                                               class="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-center">
-                                                        <label class="text-xs text-gray-500 mt-1 block text-center">Min</label>
-                                                    </div>
-                                                    <div>
-                                                        <select id="ampmSelect" class="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
-                                                            <option value="AM">AM</option>
-                                                            <option value="PM">PM</option>
-                                                        </select>
-                                                        <label class="text-xs text-gray-500 mt-1 block text-center">AM/PM</label>
-                                                    </div>
-                                                </div>
-                                                
-                                                <!-- Quick Time Buttons -->
-                                                <div class="flex flex-wrap gap-1 mb-3">
-                                                    <button type="button" onclick="setQuickTime('09:00 AM')" class="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded transition-colors">9 AM</button>
-                                                    <button type="button" onclick="setQuickTime('12:00 PM')" class="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded transition-colors">12 PM</button>
-                                                    <button type="button" onclick="setQuickTime('05:00 PM')" class="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded transition-colors">5 PM</button>
-                                                    <button type="button" onclick="setQuickTime('11:59 PM')" class="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded transition-colors">End of Day</button>
-                                                </div>
-                                                
-                                                <!-- Apply Button -->
-                                                <button type="button" 
-                                                        onclick="applyDateTime()" 
-                                                        class="w-full px-3 py-2 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition-colors">
-                                                    Apply Date & Time
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                                
-                                <p class="mt-1 text-xs text-gray-500">
-                                    <i class="fas fa-info-circle mr-1"></i>
-                                    Click the button above to select both date and time for quest deadline
+                                <label for="quest_type" class="block text-sm font-medium text-gray-700 mb-1">Quest Type*</label>
+                                <select name="quest_type" id="quest_type" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300" required>
+                                    <option value="Routine" <?php echo ($quest_type == 'Routine') ? 'selected' : ''; ?>>Routine (Daily/Weekly tasks)</option>
+                                    <option value="Minor" <?php echo ($quest_type == 'Minor') ? 'selected' : ''; ?>>Minor (Small, quick tasks)</option>
+                                    <option value="Standard" <?php echo ($quest_type == 'Standard') ? 'selected' : ''; ?>>Standard (Regular work, default)</option>
+                                    <option value="Major" <?php echo ($quest_type == 'Major') ? 'selected' : ''; ?>>Major (Large, complex tasks)</option>
+                                    <option value="Project" <?php echo ($quest_type == 'Project') ? 'selected' : ''; ?>>Project (Long-term, multi-step)</option>
+                                </select>
+                                <p class="text-xs text-gray-500 mt-1">
+                                    <span class="font-medium">Routine:</span> Daily/weekly recurring tasks.<br>
+                                    <span class="font-medium">Minor:</span> Small, quick tasks.<br>
+                                    <span class="font-medium">Standard:</span> Regular work, default.<br>
+                                    <span class="font-medium">Major:</span> Large, complex tasks.<br>
+                                    <span class="font-medium">Project:</span> Long-term, multi-step quests.
                                 </p>
                             </div>
                         </div>
@@ -2361,8 +2297,101 @@ function getFontSize() {
         let currentCategoryName = '';
         let tempSelectedSkills = new Set(); // Temporary storage for modal selections
         
+
         // Skills data from PHP
         const allSkills = <?php echo json_encode($skills); ?>;
+
+        // Quest type to base points per tier table (sync with backend getQuestTypeBasePoints)
+        const questTypeBasePoints = {
+            'Routine':   [0, 10, 15, 20, 25, 30],
+            'Minor':     [0, 20, 30, 40, 50, 60],
+            'Standard':  [0, 40, 55, 70, 90, 110],
+            'Major':     [0, 70, 90, 120, 150, 180],
+            'Project':   [0, 120, 150, 200, 250, 300]
+        };
+
+        // Function to get base points for a given quest type and tier (1-5)
+        function getBasePoints(questType, tier) {
+            if (!questTypeBasePoints[questType]) questType = 'Routine';
+            tier = parseInt(tier);
+            if (tier < 1 || tier > 5) tier = 3;
+            return questTypeBasePoints[questType][tier];
+        }
+
+        // Update all tier selectors in the modal with correct points for the selected quest type
+        function updateTierPointsInModal() {
+            const questType = document.getElementById('quest_type').value;
+            document.querySelectorAll('.tier-selector').forEach(function(select) {
+                const skillId = select.getAttribute('data-skill-id');
+                const currentVal = select.value;
+                select.innerHTML = '';
+                for (let t = 1; t <= 5; t++) {
+                    const pts = getBasePoints(questType, t);
+                    const selected = (parseInt(currentVal) === t) ? 'selected' : '';
+                    select.innerHTML += `<option value="${t}" ${selected}>Tier ${t} - ${getTierName(t)} (${pts} pts)</option>`;
+                }
+            });
+        }
+
+        // Update custom skill modal tier selector points
+        function updateCustomSkillTierPoints() {
+            const questType = document.getElementById('quest_type').value;
+            const select = document.getElementById('customSkillTier');
+            const currentVal = select.value;
+            select.innerHTML = '';
+            for (let t = 1; t <= 5; t++) {
+                const pts = getBasePoints(questType, t);
+                const selected = (parseInt(currentVal) === t) ? 'selected' : '';
+                select.innerHTML += `<option value="${t}" ${selected}>Tier ${t} - ${getTierName(t)} (${pts} pts)</option>`;
+            }
+        }
+
+        // When quest type changes, update all tier points in modal and custom skill modal
+        document.addEventListener('DOMContentLoaded', function() {
+            const questTypeSelect = document.getElementById('quest_type');
+            if (questTypeSelect) {
+                questTypeSelect.addEventListener('change', function() {
+                    updateTierPointsInModal();
+                    updateCustomSkillTierPoints();
+                });
+            }
+        });
+
+        // Also update tier points when opening the skills modal or custom skill modal
+        function showCategorySkills(categoryId, categoryName) {
+            currentCategory = categoryId;
+            currentCategoryName = categoryName;
+            const config = categoryConfig[categoryId];
+            document.getElementById('modalCategoryIcon').innerHTML = config.icon;
+            document.getElementById('modalCategoryTitle').textContent = config.name;
+            const categorySkills = allSkills.filter(skill => {
+                const catMap = {
+                    'Technical Skills': 'technical',
+                    'Communication Skills': 'communication', 
+                    'Soft Skills': 'soft',
+                    'Business Skills': 'business'
+                };
+                return catMap[skill.category_name] === categoryId;
+            });
+            tempSelectedSkills.clear();
+            selectedSkills.forEach(skill => tempSelectedSkills.add(skill));
+            populateSkillsList(categorySkills);
+            document.getElementById('skillsModal').classList.remove('hidden');
+            document.getElementById('skillSearchInput').value = '';
+            document.getElementById('skillSearchInput').focus();
+            updateTierPointsInModal(); // <-- update points when opening modal
+        }
+
+        function showCustomSkillModal() {
+            closeSkillsModal();
+            document.getElementById('customSkillModal').classList.remove('hidden');
+            document.getElementById('modalCategoryId').value = currentCategory;
+            document.getElementById('modalCategoryName').textContent = currentCategoryName;
+            document.getElementById('customSkillName').value = '';
+            document.getElementById('customSkillTier').value = '2';
+            document.getElementById('customSkillName').focus();
+            updateCustomSkillTierPoints(); // <-- update points when opening custom skill modal
+        }
 
         // Insert focus efficiency helper after DOM loaded
         document.addEventListener('DOMContentLoaded', () => {
