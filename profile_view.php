@@ -394,6 +394,49 @@ $profile_photo = $profile['profile_photo'] ?? '';
             </div>
 
             <?php if (!empty($user_skills)): ?>
+                <!-- Top N Skill Growth Tracker Visualization -->
+                <?php
+                // Sort and get top 5 skills by XP
+                $topN = 5;
+                $sorted_skills = $user_skills;
+                usort($sorted_skills, function($a, $b) { return $b['total_points'] <=> $a['total_points']; });
+                $top_skills = array_slice($sorted_skills, 0, $topN);
+                ?>
+                <div class="skills-journey" id="skills-growth-tracker" style="margin-bottom:22px;">
+                    <div class="journey-header">
+                        <div class="journey-title" style="font-size:1rem;color:#6366f1;letter-spacing:0.5px;font-weight:700;">Top <?= $topN ?> Skill Growth Tracker</div>
+                        <hr class="journey-divider">
+                    </div>
+                    <div style="width:100%;max-width:480px;margin:0 auto;">
+                        <canvas id="profileSkillBarChart" height="<?= 60 + 36 * (count($top_skills)-1) ?>"></canvas>
+                    </div>
+                    <div style="margin-top:18px;">
+                        <?php foreach ($top_skills as $skill):
+                            $progressMeta = getProgressToNextLevel($skill['current_level'], $skill['total_points']);
+                            $progress_percent = $progressMeta['percent'];
+                            $next_level = $skill['current_level'] + 1;
+                            $xp_needed = $progressMeta['xp_needed'];
+                            $maxed = ($progressMeta['next_floor'] === null);
+                        ?>
+                        <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0 7px 0;border-bottom:1px solid #f3f4f6;gap:10px;">
+                            <div style="font-weight:700;color:#374151;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                                <?= htmlspecialchars($skill['skill_name']) ?>
+                            </div>
+                            <div style="font-size:0.95em;color:#6366f1;font-weight:600;min-width:60px;text-align:right;">
+                                XP: <?= number_format($skill['total_points']) ?>
+                            </div>
+                            <div style="font-size:0.92em;color:#6b7280;min-width:110px;text-align:right;">
+                                Level <?= $skill['current_level'] ?>
+                                <?php if (!$maxed): ?>
+                                    <span style="color:#10b981;font-weight:600;">• <?= number_format($xp_needed) ?> XP to L<?= $next_level ?></span>
+                                <?php else: ?>
+                                    <span style="color:#f59e42;font-weight:600;">• MAX</span>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
                 <div class="skills-journey" id="skills-section">
                     <div class="journey-header">
                         <div class="journey-title">Skill Journey</div>
@@ -533,7 +576,66 @@ $profile_photo = $profile['profile_photo'] ?? '';
                 </div>
             <?php endif; ?>
         </div>
-    </div>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+    // Render Top N Skill Growth Tracker Bar Chart if skills exist
+    <?php if (!empty($user_skills)): ?>
+    (function(){
+        const ctx = document.getElementById('profileSkillBarChart').getContext('2d');
+        // Distinct color palette for bars
+        const barColors = [
+            'rgba(59,130,246,0.7)',   // blue
+            'rgba(16,185,129,0.7)',  // green
+            'rgba(245,158,11,0.7)',  // yellow
+            'rgba(236,72,153,0.7)',  // pink
+            'rgba(139,92,246,0.7)',  // purple
+            'rgba(251,113,133,0.7)', // red
+            'rgba(34,197,94,0.7)',   // emerald
+            'rgba(14,165,233,0.7)',  // sky
+            'rgba(250,204,21,0.7)',  // amber
+            'rgba(52,211,153,0.7)'   // teal
+        ];
+        const bgColors = barColors.map(c => c.replace(',0.7)', ',0.18)'));
+        const n = <?= count($top_skills) ?>;
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: <?= json_encode(array_map(fn($s) => $s['skill_name'], $top_skills)) ?>,
+                datasets: [{
+                    label: '',
+                    data: <?= json_encode(array_map(fn($s) => (int)$s['total_points'], $top_skills)) ?>,
+                    backgroundColor: bgColors.slice(0, n),
+                    borderColor: barColors.slice(0, n),
+                    borderWidth: 2,
+                    borderRadius: 10,
+                    maxBarThickness: 20
+                }]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                plugins: {
+                    legend: { display: false },
+                    title: { display: false }
+                },
+                scales: {
+                    x: {
+                        beginAtZero: true,
+                        grid: { color: '#f3f4f6' },
+                        border: { color: '#e5e7eb' },
+                        ticks: { color: '#6b7280', font: { size: 13 } }
+                    },
+                    y: {
+                        grid: { display: false },
+                        border: { color: '#e5e7eb' },
+                        ticks: { color: '#374151', font: { size: 15, weight: 'bold' } }
+                    }
+                }
+            }
+        });
+    })();
+    <?php endif; ?>
+    </script>
 </div>
     <script>
     // Animated background - lightweight glowing particles
