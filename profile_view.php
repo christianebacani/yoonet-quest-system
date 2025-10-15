@@ -111,11 +111,6 @@ try {
     $user_skills = [];
 }
 
-// Calculate overall user level and stage (after thresholds are loaded)
-$total_user_points = array_sum(array_column($user_skills, 'total_points'));
-$overall_level = calculateLevelFromPoints($total_user_points);
-$overall_stage = calculateStageFromLevel($overall_level);
-
 // Active skills count (for potential lightweight summaries)
 $active_skills_count = count(array_filter($user_skills, fn($s) => ($s['status'] ?? '') === 'ACTIVE'));
 
@@ -402,7 +397,6 @@ $profile_photo = $profile['profile_photo'] ?? '';
             <?php if (!empty($user_skills)): ?>
                 <div class="skills-journey" id="skills-section">
                     <div class="journey-header">
-                        <div class="user-overall">Level <?= $overall_level ?> • <?= htmlspecialchars($overall_stage) ?> Stage</div>
                         <div class="journey-title">Skill Journey</div>
                         <hr class="journey-divider">
                     </div>
