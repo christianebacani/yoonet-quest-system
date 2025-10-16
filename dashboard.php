@@ -2358,7 +2358,7 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
                         <span class="text-lg font-semibold text-green-800">My Quests</span>
                         <span class="text-sm text-green-600 mt-1">Submit work for your active quests</span>
                     </a>
-                    <a href="submitted_quests.php" class="flex flex-col items-center justify-center p-8 bg-yellow-50 border-2 border-yellow-200 rounded-xl shadow hover:bg-yellow-100 transition-all text-center interactive-card">
+                    <a href="pending_reviews.php" class="flex flex-col items-center justify-center p-8 bg-yellow-50 border-2 border-yellow-200 rounded-xl shadow hover:bg-yellow-100 transition-all text-center interactive-card">
                         <svg class="w-10 h-10 mb-3 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
                         </svg>

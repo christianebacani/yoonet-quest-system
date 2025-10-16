@@ -1,25 +1,13 @@
 <?php
 require_once __DIR__ . '/includes/config.php';
 require_once __DIR__ . '/includes/functions.php';
-
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-
-if (!is_logged_in()) {
-    header('Location: login.php');
-    exit();
-}
-
+if (session_status() === PHP_SESSION_NONE) { session_start(); }
+if (!is_logged_in()) { header('Location: login.php'); exit(); }
 $submission_id = isset($_GET['submission_id']) ? (int)$_GET['submission_id'] : 0;
 $error = '';
 $success = '';
 $submission = null;
-
-if ($submission_id <= 0) {
-    $error = 'Missing submission reference.';
-}
-
+if ($submission_id <= 0) { $error = 'Missing submission reference.'; }
 if (empty($error)) {
     try {
         $stmt = $pdo->prepare("SELECT * FROM quest_submissions WHERE id = ?");
@@ -31,8 +19,6 @@ if (empty($error)) {
         error_log('edit_submission: ' . $e->getMessage());
     }
 }
-
-// Ownership and state check
 if (empty($error)) {
     $currentEmployee = $_SESSION['employee_id'] ?? null;
     $role = $_SESSION['role'] ?? '';
@@ -45,37 +31,28 @@ if (empty($error)) {
         $error = 'This submission has already been graded and can no longer be edited.';
     }
 }
-
 if (empty($error) && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $submissionType = $_POST['submission_type'] ?? '';
     $drive_link = trim($_POST['drive_link'] ?? '');
     $update = [];
     $params = [];
     $fileUpdated = false;
-
     try {
         if ($submissionType === 'file' && isset($_FILES['quest_file']) && $_FILES['quest_file']['error'] === UPLOAD_ERR_OK) {
             $allowedExtensions = ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png', 'txt', 'zip'];
             $maxFileSize = 5 * 1024 * 1024; // 5MB
             $file = $_FILES['quest_file'];
             $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-            if (!in_array($ext, $allowedExtensions, true)) {
-                throw new RuntimeException('Invalid file type.');
-            }
-            if ($file['size'] > $maxFileSize) {
-                throw new RuntimeException('File too large.');
-            }
+            if (!in_array($ext, $allowedExtensions, true)) { throw new RuntimeException('Invalid file type.'); }
+            if ($file['size'] > $maxFileSize) { throw new RuntimeException('File too large.'); }
             $uploadDir = rtrim(__DIR__, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'quest_submissions' . DIRECTORY_SEPARATOR;
             if (!is_dir($uploadDir)) { @mkdir($uploadDir, 0777, true); }
             $newName = $submission['employee_id'] . '_' . time() . '.' . $ext;
             $abs = $uploadDir . $newName;
-            if (!move_uploaded_file($file['tmp_name'], $abs)) {
-                throw new RuntimeException('Failed to save file.');
-            }
+            if (!move_uploaded_file($file['tmp_name'], $abs)) { throw new RuntimeException('Failed to save file.'); }
             $relative = 'uploads/quest_submissions/' . $newName;
             $update[] = 'file_path = ?';
             $params[] = $relative;
-            // clear link/text fields if present
             $update[] = 'drive_link = NULL';
             $update[] = 'submission_text = NULL';
             $update[] = 'text_content = NULL';
@@ -87,7 +64,6 @@ if (empty($error) && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $update[] = 'submission_text = NULL';
             $update[] = 'text_content = NULL';
         } else {
-            // Optional text content in case of simple text edits
             $text_content = trim($_POST['text_content'] ?? '');
             if ($text_content !== '') {
                 $update[] = 'text_content = ?';
@@ -96,9 +72,7 @@ if (empty($error) && $_SERVER['REQUEST_METHOD'] === 'POST') {
                 $update[] = 'drive_link = NULL';
             }
         }
-
         if (!empty($update)) {
-            // Reset status to submitted and update timestamp
             $update[] = "status = 'submitted'";
             $update[] = 'submitted_at = NOW()';
             $sql = 'UPDATE quest_submissions SET ' . implode(', ', $update) . ' WHERE id = ?';
@@ -114,86 +88,82 @@ if (empty($error) && $_SERVER['REQUEST_METHOD'] === 'POST') {
         error_log('edit_submission update: ' . $e->getMessage());
     }
 }
-
+// UI Section (Tailwind, card-based, modern)
 ?><!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Edit Submission</title>
-    <link rel="stylesheet" href="assets/css/style.css">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="assets/css/buttons.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        body { background:#f3f4f6; font-family: 'Segoe UI', Arial, sans-serif; }
-        .page { max-width: 900px; margin: 24px auto; padding: 0 16px; }
-        .card { background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:16px; }
-        .title { font-weight:800; font-size:20px; color:#111827; }
-        .meta { color:#6b7280; font-size:12px; }
-        .btn { display:inline-block; padding:8px 12px; border-radius:8px; background:#111827; color:#fff; text-decoration:none; font-weight:600; }
-        input[type=text], textarea { width:100%; border:1px solid #e5e7eb; border-radius:8px; padding:8px; }
-        .row { display:flex; gap:12px; flex-wrap:wrap; }
-        .col { flex:1; min-width:260px; }
-        label { font-weight:600; font-size:12px; color:#374151; }
+        .card { background: #fff; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03); transition: all 0.3s ease; width: 100%; max-width: 100%; }
+        .card:hover { box-shadow: 0 10px 15px -3px rgba(0,0,0,0.07), 0 4px 6px -2px rgba(0,0,0,0.05); }
+        .btn-primary { background-color: #6366f1; transition: all 0.2s ease; color: #fff; }
+        .btn-primary:hover { background-color: #4f46e5; transform: translateY(-1px); }
+        .btn-secondary { background-color: #e0e7ff; color: #4f46e5; transition: all 0.2s ease; }
+        .btn-secondary:hover { background-color: #c7d2fe; }
+        .form-label { font-weight: 600; color: #374151; margin-bottom: 8px; display: block; }
+        .error-message { color: #ef4444; font-size: 0.95em; margin-top: 0.25rem; }
+        .success-message { color: #22c55e; font-size: 1.1em; margin-bottom: 1rem; }
     </style>
-    <script>
-        function backToDashboard(){ window.history.back(); }
-        function toggleSections(type){
-            document.getElementById('fileSec').style.display = (type==='file') ? 'block' : 'none';
-            document.getElementById('linkSec').style.display = (type==='link') ? 'block' : 'none';
-            document.getElementById('textSec').style.display = (type==='text') ? 'block' : 'none';
-        }
-    </script>
-<?php $curType = 'file'; $st = strtolower(trim($submission['status'] ?? 'pending')); if (!empty($submission['drive_link'])) $curType='link'; elseif (!empty($submission['text_content']) || (!empty($submission['submission_text']) && !filter_var($submission['submission_text'], FILTER_VALIDATE_URL))) $curType='text'; ?>
 </head>
-<body>
-<div class="page">
-    <div class="card" style="margin-bottom:12px; display:flex; align-items:center; justify-content:space-between;">
-        <div>
-            <div class="title">Edit Submission</div>
-            <?php if ($submission): ?>
-                <div class="meta">Quest ID: <?php echo (int)$submission['quest_id']; ?> • Status: <?php echo htmlspecialchars($st); ?></div>
+<body class="bg-gray-50 min-h-screen">
+    <div class="max-w-2xl mx-auto px-4 py-10">
+        <div class="flex justify-between items-center mb-8">
+            <h1 class="text-2xl font-bold text-indigo-700 flex items-center gap-2"><i class="fa-solid fa-pen-to-square"></i> Edit Submission</h1>
+            <a href="my_quests.php" class="btn btn-secondary">&larr; Back to My Quests</a>
+        </div>
+        <div class="card p-8">
+            <?php if (!empty($error)): ?>
+                <div class="error-message"><?php echo htmlspecialchars($error); ?></div>
+            <?php elseif (!empty($success)): ?>
+                <div class="success-message"><i class="fa fa-check-circle mr-2"></i><?php echo htmlspecialchars($success); ?></div>
+                <a href="my_quests.php" class="btn btn-primary mt-4">Back to My Quests</a>
+            <?php endif; ?>
+            <?php if (empty($success)): ?>
+            <form method="post" enctype="multipart/form-data" id="submissionForm" class="space-y-6">
+                <div class="mb-4">
+                    <label class="form-label">Submission Type</label>
+                    <div class="flex gap-6">
+                        <?php $curType = 'file';
+                        if (!empty($submission['file_path'])) $curType = 'file';
+                        elseif (!empty($submission['drive_link'])) $curType = 'link';
+                        elseif (!empty($submission['text_content']) || !empty($submission['submission_text'])) $curType = 'text';
+                        ?>
+                        <label class="inline-flex items-center"><input type="radio" name="submission_type" value="file" <?php echo $curType==='file'?'checked':''; ?> onclick="toggleSections('file')"> <span class="ml-2">File</span></label>
+                        <label class="inline-flex items-center"><input type="radio" name="submission_type" value="link" <?php echo $curType==='link'?'checked':''; ?> onclick="toggleSections('link')"> <span class="ml-2">Link/Google Drive</span></label>
+                        <label class="inline-flex items-center"><input type="radio" name="submission_type" value="text" <?php echo $curType==='text'?'checked':''; ?> onclick="toggleSections('text')"> <span class="ml-2">Text</span></label>
+                    </div>
+                </div>
+                <div id="fileSec" class="mb-4" style="display:<?php echo $curType==='file'?'block':'none'; ?>;">
+                    <label class="form-label" for="quest_file">Upload File</label>
+                    <input class="w-full border rounded px-3 py-2" type="file" id="quest_file" name="quest_file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.txt,.zip">
+                    <div class="text-xs text-gray-500 mt-1">PDF, DOC, DOCX, JPG, PNG, TXT, ZIP (Max 5MB)</div>
+                </div>
+                <div id="linkSec" class="mb-4" style="display:<?php echo $curType==='link'?'block':'none'; ?>;">
+                    <label class="form-label" for="drive_link">Drive/URL</label>
+                    <input class="w-full border rounded px-3 py-2" type="text" id="drive_link" name="drive_link" value="<?php echo htmlspecialchars($submission['drive_link'] ?? ''); ?>" placeholder="https://...">
+                </div>
+                <div id="textSec" class="mb-4" style="display:<?php echo $curType==='text'?'block':'none'; ?>;">
+                    <label class="form-label" for="text_content">Text Content</label>
+                    <textarea class="w-full border rounded px-3 py-2" id="text_content" name="text_content" rows="6"><?php echo htmlspecialchars($submission['text_content'] ?? ($submission['submission_text'] ?? '')); ?></textarea>
+                </div>
+                <div class="flex justify-end gap-2 mt-6">
+                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                </div>
+            </form>
             <?php endif; ?>
         </div>
-        <div><a class="btn" href="javascript:backToDashboard()">Back</a></div>
     </div>
-
-    <?php if (!empty($error)): ?>
-        <div class="card" style="background:#FEF2F2; border-color:#FCA5A5; color:#991B1B; margin-bottom:12px;"><?php echo htmlspecialchars($error); ?></div>
-    <?php endif; ?>
-    <?php if (!empty($success)): ?>
-        <div class="card" style="background:#ECFDF5; border-color:#10B981; color:#065F46; margin-bottom:12px;"><?php echo htmlspecialchars($success); ?></div>
-    <?php endif; ?>
-
-    <?php if (empty($error)): ?>
-    <div class="card">
-        <form method="post" enctype="multipart/form-data">
-            <div class="row" style="margin-bottom:8px;">
-                <label><input type="radio" name="submission_type" value="file" <?php echo $curType==='file'?'checked':''; ?> onclick="toggleSections('file')"> File</label>
-                <label><input type="radio" name="submission_type" value="link" <?php echo $curType==='link'?'checked':''; ?> onclick="toggleSections('link')"> Link</label>
-                <label><input type="radio" name="submission_type" value="text" <?php echo $curType==='text'?'checked':''; ?> onclick="toggleSections('text')"> Text</label>
-            </div>
-
-            <div id="fileSec" style="display: <?php echo $curType==='file'?'block':'none'; ?>; margin-bottom:8px;">
-                <label for="quest_file">Upload new file</label>
-                <input type="file" id="quest_file" name="quest_file">
-                <div class="meta">PDF, DOC, DOCX, JPG, PNG, TXT, ZIP (Max 5MB)</div>
-            </div>
-
-            <div id="linkSec" style="display: <?php echo $curType==='link'?'block':'none'; ?>; margin-bottom:8px;">
-                <label for="drive_link">Drive/URL</label>
-                <input type="text" id="drive_link" name="drive_link" value="<?php echo htmlspecialchars($submission['drive_link'] ?? ''); ?>" placeholder="https://...">
-            </div>
-
-            <div id="textSec" style="display: <?php echo $curType==='text'?'block':'none'; ?>; margin-bottom:8px;">
-                <label for="text_content">Text Content</label>
-                <textarea id="text_content" name="text_content" rows="6"><?php echo htmlspecialchars($submission['text_content'] ?? ($submission['submission_text'] ?? '')); ?></textarea>
-            </div>
-
-            <div style="display:flex; justify-content:flex-end; gap:8px;">
-                <button type="submit" class="btn" style="background:#4F46E5;">Save Changes</button>
-            </div>
-        </form>
-    </div>
-    <?php endif; ?>
-    </div>
+    <script>
+    function toggleSections(type) {
+        document.getElementById('fileSec').style.display = (type==='file') ? 'block' : 'none';
+        document.getElementById('linkSec').style.display = (type==='link') ? 'block' : 'none';
+        document.getElementById('textSec').style.display = (type==='text') ? 'block' : 'none';
+    }
+    </script>
 </body>
 </html>

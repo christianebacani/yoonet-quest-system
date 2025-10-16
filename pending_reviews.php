@@ -128,7 +128,6 @@ if (empty($rows)) {
                   'pending' AS status,
                   NOW() AS submitted_at,
                   q.title AS quest_title,
-                  q.description AS quest_description,
                   e.full_name AS employee_name,
                   e.id AS employee_user_id
               FROM user_quests uq

@@ -1,111 +1,145 @@
 <?php
 require_once 'includes/config.php';
-require_once 'includes/functions.php';
-
-if (!is_logged_in()) {
-    header('Location: login.php');
-    exit();
-}
-
-$role = $_SESSION['role'] ?? '';
-
-// Simple role renaming
-if ($role === 'hybrid') {
-    $role = 'learning_architect';
-} elseif ($role === 'quest_giver') {
-    $role = 'learning_architect';
-} elseif ($role === 'contributor') {
-    $role = 'learning_architect';
-}
-
-if (!in_array($role, ['learning_architect'])) { // was ['quest_giver', 'hybrid']
-    header('Location: dashboard.php');
-    exit();
-}
-
-
-
-$error = '';
-$success = '';
-$quest = null;
-$quest_id = $_GET['id'] ?? 0;
-
-// Fetch quest data with all new fields
-try {
-    $stmt = $pdo->prepare("SELECT q.*, 
-                          GROUP_CONCAT(DISTINCT uq.employee_id) as assigned_employees
-                          FROM quests q
-                          LEFT JOIN user_quests uq ON q.id = uq.quest_id
-                          LEFT JOIN users u ON uq.employee_id = u.employee_id
-                          WHERE q.id = ? AND q.created_by = ?
-                          GROUP BY q.id");
-    $stmt->execute([$quest_id, $_SESSION['employee_id']]);
-    $quest = $stmt->fetch();
-    
-    if (!$quest) {
-        header('Location: dashboard.php');
-        exit();
-    }
-    
-    // Fetch subtasks
-    $stmt = $pdo->prepare("SELECT * FROM quest_subtasks WHERE quest_id = ?");
-    $stmt->execute([$quest_id]);
-    $subtasks = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    
-    // Fetch attachments
-    $stmt = $pdo->prepare("SELECT * FROM quest_attachments WHERE quest_id = ?");
-    $stmt->execute([$quest_id]);
-    $attachments = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    
-    // Fetch quest skills for editing
-    $stmt = $pdo->prepare("
-        SELECT qs.skill_id, qs.tier, cs.skill_name, cs.category_id, sc.category_name 
-        FROM quest_skills qs 
-        JOIN comprehensive_skills cs ON qs.skill_id = cs.id 
-        JOIN skill_categories sc ON cs.category_id = sc.id 
-        WHERE qs.quest_id = ?
-    ");
-    $stmt->execute([$quest_id]);
-    $quest_skills = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    
-    // Fetch all available skills grouped by category for the selection interface
-    $stmt = $pdo->prepare("
-        SELECT cs.id as skill_id, cs.skill_name, cs.category_id, sc.category_name, sc.icon_class, sc.color_class 
-        FROM comprehensive_skills cs 
-        JOIN skill_categories sc ON cs.category_id = sc.id 
-        ORDER BY sc.category_name, cs.skill_name
-    ");
-    $stmt->execute();
-    $all_skills = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    
-    // Group skills by category
-    $skills_by_category = [];
-    foreach ($all_skills as $skill) {
-        $skills_by_category[$skill['category_name']][] = $skill;
-    }
-    
-} catch (PDOException $e) {
-    error_log("Database error fetching quest: " . $e->getMessage());
-    $error = 'Error loading quest data';
-}
-
-// Initialize form variables with quest data
-$title = $quest['title'] ?? '';
-$description = $quest['description'] ?? '';
-$xp = $quest['xp'] ?? 10;
-$quest_assignment_type = $quest['quest_assignment_type'] ?? 'optional';
-$due_date = $quest['due_date'] ?? null;
-$status = $quest['status'] ?? 'active';
-$assign_to = !empty($quest['assigned_employees']) ? explode(',', $quest['assigned_employees']) : [];
-$assign_group = null;
-$quest_type = $quest['quest_type'] ?? 'single';
-$visibility = $quest['visibility'] ?? 'public';
-$recurrence_pattern = $quest['recurrence_pattern'] ?? '';
-$recurrence_end_date = $quest['recurrence_end_date'] ?? '';
-$publish_at = $quest['publish_at'] ?? '';
-
-// Fetch employees for assignment
-$employees = [];
+// ...existing code...
+// (all PHP logic and variable setup goes here)
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Edit Quest</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="assets/css/buttons.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <style>
+        #due_date {
+            font-size: 1rem !important;
+            font-weight: 500 !important;
+            color: #4338ca !important;
+            background: #f3f4f6 !important;
+            border-radius: 8px !important;
+            border: 1.2px solid #c7d2fe !important;
+            padding: 8px 14px !important;
+            margin-top: 2px !important;
+            margin-bottom: 2px !important;
+            box-shadow: 0 1px 4px rgba(99,102,241,0.06);
+            transition: border 0.2s, box-shadow 0.2s;
+        }
+        #due_date:focus {
+            border-color: #6366f1 !important;
+            box-shadow: 0 0 0 2px #6366f133;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc;
+        }
+        .card {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+            transition: all 0.3s ease;
+            width: 100%;
+            max-width: 100%;
+        }
+        .card:hover {
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.07), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+        form .card {
+            margin-left: 0;
+            margin-right: 0;
+            width: 100%;
+        }
+        .btn-primary {
+            background-color: #6366f1;
+            transition: all 0.2s ease;
+        }
+        .btn-primary:hover {
+            background-color: #4f46e5;
+            transform: translateY(-1px);
+        }
+        .btn-secondary {
+            background-color: #e0e7ff;
+            color: #4f46e5;
+            transition: all 0.2s ease;
+        }
+        .btn-secondary:hover {
+            background-color: #c7d2fe;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mx-auto py-8 px-4">
+        <div class="max-w-3xl mx-auto card p-8">
+            <h1 class="text-2xl font-bold mb-4 text-indigo-700 flex items-center gap-2"><i class="fa-solid fa-pen-to-square"></i> Edit Quest</h1>
+            <?php if (!empty($error)): ?>
+                <div class="bg-red-100 text-red-700 rounded px-4 py-2 mb-4"><?php echo htmlspecialchars($error); ?></div>
+            <?php elseif (!empty($success)): ?>
+                <div class="bg-green-100 text-green-700 rounded px-4 py-2 mb-4"><?php echo htmlspecialchars($success); ?></div>
+            <?php endif; ?>
+            <form method="post" enctype="multipart/form-data" id="editQuestForm">
+                <div class="mb-4">
+                    <label class="block font-semibold mb-1" for="title">Title</label>
+                    <input type="text" id="title" name="title" class="w-full border rounded px-3 py-2" maxlength="255" value="<?php echo htmlspecialchars($title); ?>" required>
+                </div>
+                <div class="mb-4">
+                    <label class="block font-semibold mb-1" for="description">Description</label>
+                    <textarea id="description" name="description" class="w-full border rounded px-3 py-2" rows="4" maxlength="2000" required><?php echo htmlspecialchars($description); ?></textarea>
+                </div>
+                <div class="mb-4">
+                    <label class="block font-semibold mb-1">Assignment Type</label>
+                    <select name="quest_assignment_type" class="w-full border rounded px-3 py-2">
+                        <option value="mandatory" <?php echo $quest_assignment_type==='mandatory'?'selected':''; ?>>Mandatory</option>
+                        <option value="optional" <?php echo $quest_assignment_type==='optional'?'selected':''; ?>>Optional</option>
+                    </select>
+                </div>
+                <div class="mb-4">
+                    <label class="block font-semibold mb-1" for="due_date">Due Date</label>
+                    <input type="text" id="due_date" name="due_date" class="w-full border rounded px-3 py-2 flatpickr" value="<?php echo htmlspecialchars($due_date); ?>">
+                </div>
+                <div class="mb-4">
+                    <label class="block font-semibold mb-1">Skills</label>
+                    <?php include 'includes/quest_skills_component.php'; ?>
+                </div>
+                <div class="mb-4">
+                    <label class="block font-semibold mb-1">Assign To</label>
+                    <select name="assign_to[]" class="w-full border rounded px-3 py-2 select2" multiple>
+                        <?php foreach ($employees as $emp): ?>
+                            <option value="<?php echo $emp['employee_id']; ?>" <?php echo in_array($emp['employee_id'], $assign_to)?'selected':''; ?>><?php echo htmlspecialchars($emp['full_name']); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="mb-4">
+                    <label class="block font-semibold mb-1">Attachments</label>
+                    <input type="file" name="attachments[]" multiple class="w-full border rounded px-3 py-2">
+                    <?php if (!empty($attachments)): ?>
+                        <ul class="mt-2">
+                        <?php foreach ($attachments as $att): ?>
+                            <li><a href="<?php echo htmlspecialchars($att['file_path']); ?>" target="_blank"><?php echo htmlspecialchars($att['file_name']); ?></a></li>
+                        <?php endforeach; ?>
+                        </ul>
+                    <?php endif; ?>
+                </div>
+                <div class="flex justify-end gap-2 mt-6">
+                    <a href="dashboard.php" class="btn btn-secondary">Cancel</a>
+                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script>
+        $(document).ready(function() {
+            $('.select2').select2();
+            flatpickr('.flatpickr', { enableTime: false, dateFormat: 'Y-m-d' });
+        });
+    </script>
+</body>
+</html>
 try {
     // Get all skill_associates and quest_leads EXCEPT the current user
     $current_user_id = $_SESSION['employee_id'];
