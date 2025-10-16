@@ -1199,8 +1199,13 @@ function getFontSize() {
                         <div class="mb-4">
                             <label for="customSkillTier" class="block text-sm font-medium text-gray-700 mb-1">Skill Tier*</label>
                             <select id="customSkillTier" 
-                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                    onchange="updateCustomSkillTierInfo()">
                                 <!-- Dynamic options will be injected by JS -->
+                            </select>
+                            <div id="customSkillTierInfo" class="mt-2 text-xs text-gray-600 font-semibold flex items-center">
+                                <!-- Tier info will be injected by JS -->
+                            </div>
         // --- DYNAMIC TIER DROPDOWNS BASED ON QUEST TYPE ---
         // Central mapping for base points per tier by quest type
         const questTypeTierPoints = {
@@ -1247,6 +1252,19 @@ function getFontSize() {
             if (customSel) {
                 const selected = parseInt(customSel.value) || 2;
                 customSel.innerHTML = generateTierOptions(selected, questType);
+                updateCustomSkillTierInfo();
+            }
+        }
+
+        // Show tier and base points for custom skill modal
+        function updateCustomSkillTierInfo() {
+            const questType = getCurrentQuestType();
+            const tier = parseInt(document.getElementById('customSkillTier').value) || 2;
+            const names = ['Beginner', 'Intermediate', 'Advanced', 'Expert', 'Master'];
+            const pts = getTierPoints(tier, questType);
+            const infoDiv = document.getElementById('customSkillTierInfo');
+            if (infoDiv) {
+                infoDiv.innerHTML = `<span class="inline-block px-2 py-1 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 mr-2">Tier ${tier} - ${names[tier-1]}</span> <span class="inline-block px-2 py-1 rounded bg-green-50 text-green-700 border border-green-200">${pts} base points</span>`;
             }
         }
 
@@ -1257,15 +1275,15 @@ function getFontSize() {
 
         // When modals open, ensure dropdowns are updated
         window.showCustomSkillModal = function(categoryId, categoryName) {
-            // ...existing code...
             document.getElementById('customSkillModal').classList.remove('hidden');
             document.getElementById('modalCategoryId').value = categoryId;
             document.getElementById('modalCategoryName').textContent = categoryName;
             document.getElementById('customSkillName').value = '';
+            // Always populate the dropdown before setting value
+            updateAllTierDropdowns();
             document.getElementById('customSkillTier').value = '2';
+            updateCustomSkillTierInfo();
             document.getElementById('customSkillName').focus();
-            // Update dropdown in custom modal
-            setTimeout(updateAllTierDropdowns, 0);
         }
 
         // On DOM ready, initialize all tier dropdowns

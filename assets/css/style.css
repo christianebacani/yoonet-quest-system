@@ -1,3 +1,41 @@
+#customSkillModal input:focus, #customSkillModal select:focus {
+    outline: none !important;
+    box-shadow: none !important;
+    border-color: #6366f1;
+}
+/* Remove default focus ring and add custom focus for custom skill modal */
+#customSkillModal input:focus, #customSkillModal select:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px #a5b4fc; /* subtle indigo focus */
+    border-color: #6366f1;
+}
+/* --- Fix for custom skill modal tier dropdown visibility --- */
+#customSkillModal select#customSkillTier {
+    min-height: 2.5rem;
+    height: auto;
+    border: 1.5px solid #6366f1;
+    background: #fff;
+    color: #222;
+    font-size: 1rem;
+    padding: 0.5rem 1rem;
+    border-radius: 0.5rem;
+    box-shadow: 0 1px 4px 0 rgba(0,0,0,0.04);
+    z-index: 1002;
+}
+
+#customSkillModal .modal-content, #customSkillModal > div {
+    overflow: visible !important;
+    z-index: 1001;
+}
+
+#customSkillModal {
+    z-index: 1000 !important;
+    overflow: visible !important;
+}
+
+#customSkillModal select#customSkillTier::-ms-expand {
+    display: block;
+}
 /* Center recurrence pattern buttons visually */
 .recurrence-center {
     display: flex;

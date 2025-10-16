@@ -1391,7 +1391,8 @@ function getFontSize() {
                         
                         <div class="mb-4">
                             <label for="customSkillTier" class="block text-sm font-medium text-gray-700 mb-1">Skill Tier*</label>
-                            <select id="customSkillTier" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"></select>
+                            <select id="customSkillTier" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" onchange="updateCustomSkillTierInfo()"></select>
+                            <div id="customSkillTierInfo" class="mt-2 text-xs text-gray-600 font-semibold flex items-center"></div>
                         </div>
                         
                         <div class="flex gap-3">
@@ -2506,14 +2507,78 @@ function getFontSize() {
         function showCustomSkillModal() {
             // Close skills modal if open
             closeSkillsModal();
-            
             document.getElementById('customSkillModal').classList.remove('hidden');
             document.getElementById('modalCategoryId').value = currentCategory;
             document.getElementById('modalCategoryName').textContent = currentCategoryName;
             document.getElementById('customSkillName').value = '';
+            // Populate dropdown with options
+            updateCustomSkillTierDropdown();
             document.getElementById('customSkillTier').value = '2';
+            updateCustomSkillTierInfo();
             document.getElementById('customSkillName').focus();
         }
+
+        // Helper to get current quest type (radio)
+        function getCurrentQuestType() {
+            const el = document.querySelector('input[name="quest_type"]:checked');
+            return el ? el.value : 'routine';
+        }
+
+        // Central mapping for base points per tier by quest type
+        const questTypeTierPoints = {
+            routine:  [2, 4, 6, 8, 10],      // Routine Task
+            minor:    [5, 10, 15, 20, 25],   // Minor Quest
+            standard: [10, 20, 30, 40, 50],  // Standard Quest
+            major:    [20, 40, 60, 80, 100], // Major Quest
+            project:  [40, 80, 120, 160, 200]// Major Project
+        };
+
+        // Helper to get points for a given tier (1-based) and quest type
+        function getTierPoints(tier, questType) {
+            const arr = questTypeTierPoints[questType] || questTypeTierPoints['routine'];
+            return arr[tier-1] || 0;
+        }
+
+        // Generate tier <option>s for a dropdown
+        function generateTierOptions(selectedTier, questType) {
+            const names = ['Beginner', 'Intermediate', 'Advanced', 'Expert', 'Master'];
+            let opts = '';
+            for (let i=1; i<=5; ++i) {
+                const pts = getTierPoints(i, questType);
+                opts += '<option value="' + i + '"' + (selectedTier==i ? ' selected' : '') + '>Tier ' + i + ' - ' + names[i-1] + ' (' + pts + ' pts)</option>';
+            }
+            return opts;
+        }
+
+        // Populate the custom skill tier dropdown
+        function updateCustomSkillTierDropdown() {
+            const questType = getCurrentQuestType();
+            const customSel = document.getElementById('customSkillTier');
+            if (customSel) {
+                const selected = parseInt(customSel.value) || 2;
+                customSel.innerHTML = generateTierOptions(selected, questType);
+            }
+        }
+
+        // Show tier and base points for custom skill modal
+        function updateCustomSkillTierInfo() {
+            const questType = getCurrentQuestType();
+            const tier = parseInt(document.getElementById('customSkillTier').value) || 2;
+            const names = ['Beginner', 'Intermediate', 'Advanced', 'Expert', 'Master'];
+            const pts = getTierPoints(tier, questType);
+            const infoDiv = document.getElementById('customSkillTierInfo');
+            if (infoDiv) {
+                infoDiv.innerHTML = `<span class="inline-block px-2 py-1 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 mr-2">Tier ${tier} - ${names[tier-1]}</span> <span class="inline-block px-2 py-1 rounded bg-green-50 text-green-700 border border-green-200">${pts} base points</span>`;
+            }
+        }
+
+        // Update dropdown and info when quest type changes
+        document.querySelectorAll('input[name="quest_type"]').forEach(radio => {
+            radio.addEventListener('change', function() {
+                updateCustomSkillTierDropdown();
+                updateCustomSkillTierInfo();
+            });
+        });
         
         // Function to close custom skill modal
         function closeCustomSkillModal() {

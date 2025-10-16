@@ -1,4 +1,5 @@
 // You can add any client-side functionality here
+// (AJAX quest action logic is now in open_quests.php inline script)
 document.addEventListener('DOMContentLoaded', function() {
     // Add any interactive elements here
     // Fix: Ensure anchor tags with .interactive-button are not prevented from navigating
