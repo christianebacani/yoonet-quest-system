@@ -250,17 +250,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             try {
                 $pdo->beginTransaction();
                 
+                // Determine visibility: if assigned to specific users, make private
+                $visibility_value = !empty($assign_to) ? 'private' : 'public';
+
                 // Create the quest
                 $stmt = $pdo->prepare("INSERT INTO quests 
-                    (title, description, status, due_date, created_by, quest_assignment_type, created_at) 
-                    VALUES (?, ?, ?, ?, ?, ?, NOW())");
+                    (title, description, status, due_date, created_by, quest_assignment_type, visibility, created_at) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, NOW())");
                 $stmt->execute([
                     $title, 
                     $description, 
                     $status, 
                     $due_date,
                     $_SESSION['employee_id'],
-                    $quest_assignment_type
+                    $quest_assignment_type,
+                    $visibility_value
                 ]);
                 $quest_id = $pdo->lastInsertId();
                 

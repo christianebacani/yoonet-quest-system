@@ -47,11 +47,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['quest_id'], $_POST['q
             }
         } elseif ($quest_action === 'decline') {
             if (!$uq) {
-                $stmt = $pdo->prepare("INSERT INTO user_quests (employee_id, quest_id, status, assigned_at) VALUES (?, ?, 'cancelled', NOW())");
+                $stmt = $pdo->prepare("INSERT INTO user_quests (employee_id, quest_id, status, assigned_at) VALUES (?, ?, 'declined', NOW())");
                 $stmt->execute([$employee_id, $quest_id]);
                 $_SESSION['success'] = 'Quest declined.';
             } elseif ($uq['status'] === 'assigned') {
-                $stmt = $pdo->prepare("UPDATE user_quests SET status = 'cancelled' WHERE employee_id = ? AND quest_id = ?");
+                $stmt = $pdo->prepare("UPDATE user_quests SET status = 'declined' WHERE employee_id = ? AND quest_id = ?");
                 $stmt->execute([$employee_id, $quest_id]);
                 $_SESSION['success'] = 'Quest declined.';
             } else {

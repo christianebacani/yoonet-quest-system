@@ -18,10 +18,9 @@ if ($role === 'hybrid') {
     $role = 'learning_architect';
 }
 
-if (!in_array($role, ['learning_architect'])) { // was ['quest_giver', 'hybrid']
-    header('Location: dashboard.php');
-    exit();
-}
+// Allow learning_architects to edit any quest. Creators (the user who created the quest)
+// should also be allowed to edit their own quests regardless of role. We'll perform
+// a creator check after loading the quest record below.
 
 
 
@@ -32,17 +31,49 @@ $quest_id = $_GET['id'] ?? 0;
 
 // Fetch quest data with all new fields
 try {
+    // Fetch quest by id first (do not restrict by created_by here) so we can
+    // verify ownership using the multiple created_by formats the app uses.
     $stmt = $pdo->prepare("SELECT q.*, 
                           GROUP_CONCAT(DISTINCT uq.employee_id) as assigned_employees
                           FROM quests q
                           LEFT JOIN user_quests uq ON q.id = uq.quest_id
                           LEFT JOIN users u ON uq.employee_id = u.employee_id
-                          WHERE q.id = ? AND q.created_by = ?
+                          WHERE q.id = ?
                           GROUP BY q.id");
-    $stmt->execute([$quest_id, $_SESSION['employee_id']]);
+    $stmt->execute([$quest_id]);
     $quest = $stmt->fetch();
     
     if (!$quest) {
+        header('Location: dashboard.php');
+        exit();
+    }
+
+    // Permission check: allow if current user is the creator (several stored formats)
+    $createdBy = $quest['created_by'] ?? null;
+    $employee_id = $_SESSION['employee_id'] ?? null;
+    // Get current users.id for comparison (if present)
+    $current_user_id = null;
+    try {
+        if ($employee_id) {
+            $uStmt = $pdo->prepare("SELECT id FROM users WHERE employee_id = ? LIMIT 1");
+            $uStmt->execute([$employee_id]);
+            $uRow = $uStmt->fetch(PDO::FETCH_ASSOC);
+            $current_user_id = $uRow['id'] ?? null;
+        }
+    } catch (PDOException $e) {
+        // ignore, we'll fallback to role check
+    }
+
+    $is_creator = false;
+    if ($createdBy !== null) {
+        $cb = (string)$createdBy;
+        if ($employee_id && $cb === (string)$employee_id) { $is_creator = true; }
+        if ($current_user_id && $cb === (string)$current_user_id) { $is_creator = true; }
+        if ($current_user_id && strtolower(trim($cb)) === strtolower('user_' . (string)$current_user_id)) { $is_creator = true; }
+    }
+
+    // If not creator and not a learning_architect, block access
+    if (!$is_creator && $role !== 'learning_architect') {
         header('Location: dashboard.php');
         exit();
     }
@@ -70,7 +101,7 @@ try {
     
     // Fetch all available skills grouped by category for the selection interface
     $stmt = $pdo->prepare("
-        SELECT cs.id as skill_id, cs.skill_name, cs.category_id, sc.category_name, sc.icon_class, sc.color_class 
+        SELECT cs.id as skill_id, cs.skill_name, cs.category_id, sc.category_name 
         FROM comprehensive_skills cs 
         JOIN skill_categories sc ON cs.category_id = sc.id 
         ORDER BY sc.category_name, cs.skill_name
@@ -85,8 +116,9 @@ try {
     }
     
 } catch (PDOException $e) {
+    // Log and surface the DB error here temporarily to help debugging
     error_log("Database error fetching quest: " . $e->getMessage());
-    $error = 'Error loading quest data';
+    $error = 'Error loading quest data: ' . $e->getMessage();
 }
 
 // Initialize form variables with quest data
@@ -159,11 +191,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $placeholders = implode(',', array_fill(0, count($assign_to), '?'));
                 $stmt = $pdo->prepare("SELECT COUNT(*) FROM users 
                                       WHERE employee_id IN ($placeholders) 
-                                      AND role IN ('skill_seeker', 'learning_architect')
-                                      AND employee_id != ?");
-                $params = $assign_to;
-                $params[] = $_SESSION['employee_id'];
-                $stmt->execute($params);
+                                      AND role IN ('skill_associate', 'quest_lead')");
+                $stmt->execute($assign_to);
                 $count = $stmt->fetchColumn();
                 
                 if ($count != count($assign_to)) {
@@ -221,16 +250,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         // If no validation errors, proceed with database operations
         if (empty($error)) {
+            // Server-side lock: do not allow editing if there are approved submissions
+            try {
+                $acStmt = $pdo->prepare("SELECT COUNT(*) FROM quest_submissions WHERE quest_id = ? AND status = 'approved'");
+                $acStmt->execute([$quest_id]);
+                $approvedCount = (int)$acStmt->fetchColumn();
+                if ($approvedCount > 0) {
+                    $error = 'This quest cannot be edited because it has approved submissions.';
+                }
+            } catch (PDOException $e) {
+                // Log and continue; if this check fails we'll be conservative and allow the edit to proceed
+                error_log('Failed to check approved submissions before edit: ' . $e->getMessage());
+            }
+        }
+
+        if (empty($error)) {
             try {
                 $pdo->beginTransaction();
                 
-                // Update the quest (simplified without XP, visibility, schedule, etc.)
+                // Determine visibility based on assignments (use $assign_to from form)
+                $visibility_value = !empty($assign_to) ? 'private' : 'public';
+
+                // Update the quest (include visibility)
                 $stmt = $pdo->prepare("UPDATE quests SET 
                     title = ?, 
                     description = ?, 
                     status = ?, 
                     due_date = ?, 
                     quest_assignment_type = ?,
+                    visibility = ?,
                     updated_at = NOW()
                     WHERE id = ?");
                 $stmt->execute([
@@ -239,6 +287,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $status, 
                     $due_date,
                     $quest_assignment_type,
+                    $visibility_value,
                     $quest_id
                 ]);
                 

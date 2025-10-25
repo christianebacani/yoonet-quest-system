@@ -339,7 +339,7 @@ CREATE TABLE IF NOT EXISTS `user_quests` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `employee_id` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `quest_id` int(11) NOT NULL,
-  `status` enum('assigned','in_progress','submitted','completed','failed','cancelled') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'assigned',
+  `status` enum('assigned','in_progress','submitted','completed','failed','cancelled','declined') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'assigned',
   `assigned_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `started_at` timestamp NULL DEFAULT NULL,
   `completed_at` timestamp NULL DEFAULT NULL,
@@ -370,10 +370,10 @@ CREATE TABLE IF NOT EXISTS `quest_submissions` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `employee_id` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `quest_id` int(11) NOT NULL,
-  `submission_type` enum('file','link','text') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `file_path` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `drive_link` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `text_content` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `comments` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `status` enum('pending','approved','rejected','needs_revision') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
   `feedback` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `reviewed_by` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -392,6 +392,8 @@ CREATE TABLE IF NOT EXISTS `quest_submissions` (
 
 -- Add missing columns to quest_submissions table if they don't exist
 ALTER TABLE `quest_submissions` 
+ADD COLUMN IF NOT EXISTS `drive_link` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+ADD COLUMN IF NOT EXISTS `comments` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
 ADD COLUMN IF NOT EXISTS `additional_xp` int(11) DEFAULT 0,
 ADD COLUMN IF NOT EXISTS `grade` enum('A','B','C','D','F') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
 ADD COLUMN IF NOT EXISTS `text_content` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL;

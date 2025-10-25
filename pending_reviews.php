@@ -37,26 +37,26 @@ $items_per_page = 20;
 $page = isset($_GET['page']) ? max(1, (int)$_GET['page']) : 1;
 $offset = ($page - 1) * $items_per_page;
 
-// Gather full list of quests created by this user to avoid created_by formatting mismatches
+// Get quests created by this user (handle different created_by formats)
 $createdQuestIds = [];
-if ($is_admin) {
-  // Admin can see everything; no need to build list
-} else {
-  try {
-    $stmt = $pdo->prepare("SELECT id FROM quests WHERE (created_by = ? OR created_by = ? OR LOWER(TRIM(created_by)) = LOWER(?))");
-    $stmt->execute([$employee_id, (string)$user_id, 'user_' . (string)$user_id]);
-    $createdQuestIds = array_map(function($r){ return (int)$r['id']; }, $stmt->fetchAll(PDO::FETCH_ASSOC));
-  } catch (PDOException $e) {
+try {
+    if (!$is_admin) {
+        $stmt = $pdo->prepare("SELECT id FROM quests WHERE (created_by = ? OR created_by = ? OR LOWER(TRIM(created_by)) = LOWER(?))");
+        $stmt->execute([$employee_id, (string)$user_id, 'user_' . (string)$user_id]);
+        $createdQuestIds = array_map(function($r){ return (int)$r['id']; }, $stmt->fetchAll(PDO::FETCH_ASSOC));
+    }
+} catch (PDOException $e) {
     error_log('pending_reviews: error fetching created quest ids: ' . $e->getMessage());
     $createdQuestIds = [];
-  }
 }
 
-// Build filter: prefer quest_id IN (...) for non-admins
+// Fetch rows: admin sees recent submissions; creators see their created quests with aggregated info
+$rows = [];
 if ($is_admin) {
-  $total = (int)$pdo->query("SELECT COUNT(*) FROM quest_submissions WHERE status IN ('pending','under_review','approved','rejected','needs_revision')")->fetchColumn();
-  $total_pages = $total > 0 ? (int)ceil($total / $items_per_page) : 1;
-  $stmt = $pdo->prepare("SELECT qs.id, qs.employee_id, qs.quest_id, qs.file_path, qs.submission_text, qs.status, qs.submitted_at,
+    $total = (int)$pdo->query("SELECT COUNT(*) FROM quest_submissions WHERE status IN ('pending','under_review','approved','rejected','needs_revision')")->fetchColumn();
+    $total_pages = $total > 0 ? (int)ceil($total / $items_per_page) : 1;
+
+    $stmt = $pdo->prepare("SELECT qs.id, qs.employee_id, qs.quest_id, qs.file_path, qs.text_content AS submission_text, qs.status, qs.submitted_at,
                   q.title AS quest_title, q.description AS quest_description,
                   e.full_name AS employee_name, e.id AS employee_user_id
                FROM quest_submissions qs
@@ -65,87 +65,39 @@ if ($is_admin) {
                WHERE qs.status IN ('pending','under_review','approved','rejected','needs_revision')
                ORDER BY qs.submitted_at DESC
                LIMIT ? OFFSET ?");
-  $stmt->bindValue(1, $items_per_page, PDO::PARAM_INT);
-  $stmt->bindValue(2, $offset, PDO::PARAM_INT);
-  $stmt->execute();
-  $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $stmt->bindValue(1, $items_per_page, PDO::PARAM_INT);
+    $stmt->bindValue(2, $offset, PDO::PARAM_INT);
+    $stmt->execute();
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
 } else {
-  if (!empty($createdQuestIds)) {
-    $ph = implode(',', array_fill(0, count($createdQuestIds), '?'));
-  $countSql = "SELECT COUNT(*) FROM quest_submissions WHERE status IN ('pending','under_review','approved','rejected','needs_revision') AND quest_id IN ($ph)";
-    $stmt = $pdo->prepare($countSql);
-    foreach ($createdQuestIds as $i => $qid) { $stmt->bindValue($i+1, $qid, PDO::PARAM_INT); }
-    $stmt->execute();
-    $total = (int)$stmt->fetchColumn();
-    $total_pages = $total > 0 ? (int)ceil($total / $items_per_page) : 1;
+    if (!empty($createdQuestIds)) {
+        $total = count($createdQuestIds);
+        $total_pages = $total > 0 ? (int)ceil($total / $items_per_page) : 1;
+        $ph = implode(',', array_fill(0, count($createdQuestIds), '?'));
 
-    $dataSql = "SELECT qs.id, qs.employee_id, qs.quest_id, qs.file_path, qs.submission_text, qs.status, qs.submitted_at,
-               q.title AS quest_title, q.description AS quest_description,
-               e.full_name AS employee_name, e.id AS employee_user_id
-          FROM quest_submissions qs
-          JOIN quests q ON qs.quest_id = q.id
-          LEFT JOIN users e ON qs.employee_id = e.employee_id
-      WHERE qs.status IN ('pending','under_review','approved','rejected','needs_revision') AND qs.quest_id IN ($ph)
-          ORDER BY qs.submitted_at DESC
-          LIMIT ? OFFSET ?";
-    $stmt = $pdo->prepare($dataSql);
-    $bind = 1;
-    foreach ($createdQuestIds as $qid) { $stmt->bindValue($bind++, $qid, PDO::PARAM_INT); }
-    $stmt->bindValue($bind++, $items_per_page, PDO::PARAM_INT);
-    $stmt->bindValue($bind, $offset, PDO::PARAM_INT);
-    $stmt->execute();
-    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-  } else {
-    // If creator has no quests, no rows to show
-    $total = 0;
-    $total_pages = 1;
-    $rows = [];
-  }
-}
-
-// Fallback: surface user_quests submitted if nothing found
-if (empty($rows)) {
-    $fbParams = [];
-  // Prefer quest_id IN (...) fallback if we know the list of created quests
-  if ($is_admin) {
-    $fbWhere = "WHERE uq.status = 'submitted'";
-  } else if (!empty($createdQuestIds)) {
-    $fbWhere = "WHERE uq.status = 'submitted' AND uq.quest_id IN (" . implode(',', array_fill(0, count($createdQuestIds), '?')) . ")";
-    foreach ($createdQuestIds as $qid) { $fbParams[] = $qid; }
-  } else {
-    $fbWhere = "WHERE uq.status = 'submitted' AND (UPPER(TRIM(q.created_by)) = UPPER(?) OR UPPER(TRIM(q.created_by)) = UPPER(?) OR UPPER(TRIM(q.created_by)) = UPPER(?))";
-    $fbParams[] = (string)$employee_id;
-    $fbParams[] = (string)$user_id;
-    $fbParams[] = 'user_' . (string)$user_id;
-  }
-
-    $fbSql = "SELECT 
-                  NULL AS id,
-                  uq.employee_id,
-                  uq.quest_id,
-                  '' AS file_path,
-                  '' AS submission_text,
-                  'pending' AS status,
-                  NOW() AS submitted_at,
-                  q.title AS quest_title,
-                  q.description AS quest_description,
-                  e.full_name AS employee_name,
-                  e.id AS employee_user_id
-              FROM user_quests uq
-              JOIN quests q ON uq.quest_id = q.id
-              LEFT JOIN users e ON uq.employee_id = e.employee_id
-              $fbWhere
-              ORDER BY q.id DESC
+        $dataSql = "SELECT q.id AS quest_id, q.title AS quest_title, q.description AS quest_description,
+                    (SELECT COUNT(*) FROM quest_submissions qs2 WHERE qs2.quest_id = q.id AND qs2.status IN ('pending','under_review')) AS pending_count,
+                    (SELECT qs2.id FROM quest_submissions qs2 WHERE qs2.quest_id = q.id ORDER BY qs2.submitted_at DESC LIMIT 1) AS latest_submission_id,
+                    (SELECT qs2.employee_id FROM quest_submissions qs2 WHERE qs2.quest_id = q.id ORDER BY qs2.submitted_at DESC LIMIT 1) AS latest_employee_id,
+                    (SELECT qs2.file_path FROM quest_submissions qs2 WHERE qs2.quest_id = q.id ORDER BY qs2.submitted_at DESC LIMIT 1) AS latest_file_path,
+                    (SELECT qs2.text_content FROM quest_submissions qs2 WHERE qs2.quest_id = q.id ORDER BY qs2.submitted_at DESC LIMIT 1) AS latest_text_content,
+                    (SELECT qs2.status FROM quest_submissions qs2 WHERE qs2.quest_id = q.id ORDER BY qs2.submitted_at DESC LIMIT 1) AS latest_status,
+                    (SELECT qs2.submitted_at FROM quest_submissions qs2 WHERE qs2.quest_id = q.id ORDER BY qs2.submitted_at DESC LIMIT 1) AS latest_submitted_at
+              FROM quests q
+              WHERE q.id IN ($ph)
+              ORDER BY q.created_at DESC
               LIMIT ? OFFSET ?";
-    $stmt = $pdo->prepare($fbSql);
-    $idx = 1;
-  foreach ($fbParams as $p) {
-    $stmt->bindValue($idx++, $is_admin ? $p : (is_int($p) ? $p : $p), is_int($p) ? PDO::PARAM_INT : PDO::PARAM_STR);
-  }
-    $stmt->bindValue($idx++, $items_per_page, PDO::PARAM_INT);
-    $stmt->bindValue($idx, $offset, PDO::PARAM_INT);
-    $stmt->execute();
-    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $stmt = $pdo->prepare($dataSql);
+        $bind = 1;
+        foreach ($createdQuestIds as $qid) { $stmt->bindValue($bind++, $qid, PDO::PARAM_INT); }
+        $stmt->bindValue($bind++, $items_per_page, PDO::PARAM_INT);
+        $stmt->bindValue($bind, $offset, PDO::PARAM_INT);
+        $stmt->execute();
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } else {
+        $total = 0; $total_pages = 1; $rows = [];
+    }
 }
 
 ?>
@@ -174,10 +126,8 @@ if (empty($rows)) {
 <body>
   <div class="container">
     <div class="topbar">
-  <h2>Submitted Quest</h2>
-      <div>
-        <a class="btn" href="dashboard.php">Back to Dashboard</a>
-      </div>
+      <h2>Submitted Quest</h2>
+      <div><a class="btn" href="dashboard.php">Back to Dashboard</a></div>
     </div>
 
     <?php if (!empty($rows)): ?>
@@ -186,9 +136,6 @@ if (empty($rows)) {
           <thead>
             <tr>
               <th>Quest</th>
-              <th>Submitted By</th>
-              <th>Status</th>
-              <th>Submitted At</th>
               <th>Action</th>
             </tr>
           </thead>
@@ -198,33 +145,24 @@ if (empty($rows)) {
               <td>
                 <strong><?php echo htmlspecialchars($r['quest_title'] ?? 'Untitled'); ?></strong>
                 <div class="meta">Quest ID: <?php echo (int)($r['quest_id'] ?? 0); ?></div>
+                <?php
+                  // Get pending users for this quest (assigned but not submitted)
+                  $pendingStmt = $pdo->prepare("SELECT uq.employee_id FROM user_quests uq LEFT JOIN quest_submissions qs ON uq.employee_id = qs.employee_id AND uq.quest_id = qs.quest_id WHERE uq.quest_id = ? AND (qs.id IS NULL OR qs.file_path IS NULL OR qs.file_path = '')");
+                  $pendingStmt->execute([(int)$r['quest_id']]);
+                  $pendingUsers = $pendingStmt->fetchAll(PDO::FETCH_COLUMN);
+                  $pendingCount = count($pendingUsers);
+                ?>
+                <div class="meta" style="margin-top:6px;">
+                  <span class="badge badge-pending">PENDING: <?php echo $pendingCount; ?></span>
+                  <?php if ($pendingCount > 0): ?>
+                    <span style="font-size:11px; color:#6B7280; margin-left:8px;">IDs: <?php echo implode(', ', $pendingUsers); ?></span>
+                  <?php endif; ?>
+                </div>
               </td>
               <td>
-                <?php echo htmlspecialchars($r['employee_name'] ?? ($r['employee_id'] ?? 'Unknown')); ?>
-                <div class="meta">Employee ID: <?php echo htmlspecialchars($r['employee_id'] ?? ''); ?></div>
-              </td>
-              <td>
-                <?php $st = strtolower($r['status'] ?? 'pending'); ?>
-                <?php if ($st === 'under_review'): ?>
-                  <span class="badge badge-under">Under Review</span>
-                <?php elseif ($st === 'approved'): ?>
-                  <span class="badge" style="background:#D1FAE5;color:#065F46;border:1px solid #10B981;">Graded</span>
-                <?php elseif ($st === 'rejected'): ?>
-                  <span class="badge" style="background:#FEE2E2;color:#991B1B;border:1px solid #EF4444;">Declined</span>
-                <?php elseif ($st === 'needs_revision'): ?>
-                  <span class="badge" style="background:#FEF3C7;color:#92400E;border:1px solid #F59E0B;">Needs Revision</span>
-                <?php else: ?>
-                  <span class="badge badge-pending">Pending</span>
-                <?php endif; ?>
-              </td>
-              <td><?php echo htmlspecialchars(date('Y-m-d H:i', strtotime($r['submitted_at'] ?? 'now'))); ?></td>
-              <td>
-                <?php if (!empty($r['employee_user_id'])): ?>
-                  <?php $label = (in_array($st, ['approved','rejected'], true)) ? 'View' : 'Review'; ?>
-                  <a class="btn" href="quest_assessment.php?quest_id=<?php echo urlencode((string)$r['quest_id']); ?>&user_id=<?php echo urlencode((string)$r['employee_user_id']); ?>&employee_id=<?php echo urlencode((string)($r['employee_id'] ?? '')); ?><?php echo !empty($r['id']) ? '&submission_id=' . urlencode((string)$r['id']) : ''; ?>"><?php echo $label; ?></a>
-                <?php else: ?>
-                  <span class="meta">No user link</span>
-                <?php endif; ?>
+                <a class="btn" href="view_submitters.php?quest_id=<?php echo urlencode((string)$r['quest_id']); ?>">View Submitters</a>
+                <a class="btn" style="background:#991b1b; margin-left:8px;" href="missed_submitters.php?quest_id=<?php echo urlencode((string)$r['quest_id']); ?>">Missed</a>
+                <a class="btn" style="background:#f59e42; margin-left:8px;" href="declined_submitters.php?quest_id=<?php echo urlencode((string)$r['quest_id']); ?>">Declined</a>
               </td>
             </tr>
           <?php endforeach; ?>
@@ -253,3 +191,4 @@ if (empty($rows)) {
   </div>
 </body>
 </html>
+

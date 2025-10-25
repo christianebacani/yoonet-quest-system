@@ -21,7 +21,8 @@ if ($role === 'quest_taker' || $role === 'participant') {
 // Fetch all active quests for this user: (1) accepted non-mandatory (in_progress), (2) assigned mandatory (status 'assigned'), (3) in_progress mandatory
 $my_quests = [];
 try {
-    $sql = "SELECT uq.*, q.title, q.description, q.due_date, q.quest_assignment_type, q.id as quest_id FROM user_quests uq JOIN quests q ON uq.quest_id = q.id WHERE uq.employee_id = ? AND uq.status IN ('in_progress','assigned','accepted','started') AND q.status = 'active' ORDER BY q.due_date ASC, q.created_at DESC";
+    // Exclude 'assigned' status here: assigned quests should be shown in Open Quests until the user accepts
+    $sql = "SELECT uq.*, q.title, q.description, q.due_date, q.quest_assignment_type, q.id as quest_id FROM user_quests uq JOIN quests q ON uq.quest_id = q.id WHERE uq.employee_id = ? AND uq.status IN ('in_progress','accepted','started','submitted','completed') AND q.status = 'active' ORDER BY q.due_date ASC, q.created_at DESC";
     $stmt = $pdo->prepare($sql);
     $stmt->execute([$employee_id]);
     $my_quests = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -105,76 +106,77 @@ if (isset($_GET['debug'])) {
 </head>
 <body>
     <div class="container">
-        <div class="topbar">
-            <h2>My Quests</h2>
-            <div>
-                <a class="btn" href="dashboard.php">Back to Dashboard</a>
-            </div>
+        <div class="topbar" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;">
+            <h2 style="font-size:2rem;font-weight:700;color:#222;margin:0;">My Quests</h2>
+            <a class="btn" href="dashboard.php" style="background:#6366f1;padding:12px 28px;font-size:1.1em;border-radius:10px;box-shadow:0 2px 8px #6366f133;">Back to Dashboard</a>
         </div>
         <?php if (count($my_quests) > 0): ?>
-            <div class="card">
-                <table>
+            <div class="card" style="padding:0 0 18px 0;box-shadow:0 2px 8px #e0e7ef33;border-radius:14px;">
+                <table style="width:100%;border-collapse:separate;border-spacing:0 0.5em;">
                     <thead>
-                        <tr>
-                            <th>Quest</th>
-                            <th>Description</th>
-                            <th>Status</th>
-                            <th>Due</th>
-                            <th>Action</th>
+                        <tr style="background:#f9fafb;">
+                            <th style="padding:12px 8px;font-size:1em;font-weight:700;color:#222;border:none;text-align:left;">Quest</th>
+                            <th style="padding:12px 8px;font-size:1em;font-weight:700;color:#222;border:none;text-align:left;">Description</th>
+                            
+                            <th style="padding:12px 8px;font-size:1em;font-weight:700;color:#222;border:none;text-align:left;">Status</th>
+                            <th style="padding:12px 8px;font-size:1em;font-weight:700;color:#222;border:none;text-align:left;">Due Date</th>
+                            <th style="padding:12px 8px;font-size:1em;font-weight:700;color:#222;border:none;text-align:left;">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
                     <?php foreach ($my_quests as $q): ?>
-                        <tr>
-                            <td><span class="badge badge-quest"><?php echo htmlspecialchars($q['title'] ?? 'Untitled'); ?></span></td>
-                            <td style="color:#334155;">
+                        <?php
+                        $stmtSub = $pdo->prepare("SELECT * FROM quest_submissions WHERE quest_id = ? AND employee_id = ? ORDER BY submitted_at DESC LIMIT 1");
+                        $stmtSub->execute([$q['quest_id'], $employee_id]);
+                        $submission = $stmtSub->fetch(PDO::FETCH_ASSOC);
+                        $status = strtolower($q['status']);
+                        $subStatus = strtolower($submission['status'] ?? '');
+                        $uqStatus = strtolower($q['status']);
+                        $isGraded = in_array($subStatus, ['approved','graded','rejected']);
+                        $isSubmitted = (!empty($submission) && in_array($subStatus, ['submitted','pending','needs_revision','approved','graded','rejected'])) || $uqStatus === 'submitted';
+                        ?>
+                        <tr style="background:#fff;border-radius:10px;box-shadow:0 1px 4px #e0e7ef11;">
+                            <td style="padding:10px 8px;font-weight:600;color:#3730a3;max-width:180px;vertical-align:middle;">
+                                <?php echo htmlspecialchars($q['title'] ?? 'Untitled'); ?>
+                            </td>
+                            <td style="padding:10px 8px;color:#334155;max-width:260px;vertical-align:middle;">
                                 <?php echo htmlspecialchars($q['description'] ?? '—'); ?>
-                                <?php if (!empty($q['skills'])): ?>
-                                    <div style="margin-top:6px; display:flex; flex-wrap:wrap; gap:6px;">
-                                        <?php foreach ($q['skills'] as $skill): ?>
-                                            <span class="badge" style="background:#f0fdf4;color:#166534;border:1px solid #34d399;">
-                                                <?php echo htmlspecialchars($skill['skill_name']); ?>
-                                            </span>
-                                        <?php endforeach; ?>
-                                    </div>
-                                <?php endif; ?>
                             </td>
-                            <td>
+
+                            <td style="padding:10px 8px;vertical-align:middle;">
                                 <?php
-                                // Fetch submission for this quest and user
-                                $stmtSub = $pdo->prepare("SELECT * FROM quest_submissions WHERE quest_id = ? AND employee_id = ? ORDER BY submitted_at DESC LIMIT 1");
-                                $stmtSub->execute([$q['quest_id'], $employee_id]);
-                                $submission = $stmtSub->fetch(PDO::FETCH_ASSOC);
-                                $status = strtolower($q['status']);
-                                $subStatus = strtolower($submission['status'] ?? '');
-                                $isGraded = in_array($subStatus, ['approved','graded','rejected']);
-                                $isSubmitted = in_array($subStatus, ['submitted','pending','needs_revision','approved','graded','rejected']);
                                 if ($isGraded) {
-                                    echo '<span class="badge" style="background:#f0fdf4;color:#166534;border:1px solid #34d399;">Graded</span>';
+                                    echo '<span style="background:#f0fdf4;color:#166534;border:1.5px solid #34d399;border-radius:12px;padding:5px 16px;font-size:0.98em;font-weight:600;">Graded</span>';
                                 } elseif ($isSubmitted) {
-                                    echo '<span class="badge" style="background:#fef9c3;color:#92400e;border:1px solid #fde68a;">Submitted</span>';
+                                    echo '<span style="background:#fef9c3;color:#92400e;border:1.5px solid #fde68a;border-radius:12px;padding:5px 16px;font-size:0.98em;font-weight:600;">Submitted</span>';
                                 } else {
-                                    echo '<span class="badge" style="background:#e0e7ff;color:#3730a3;border:1px solid #6366f1;">Pending</span>';
+                                    echo '<span style="background:#e0e7ff;color:#3730a3;border:1.5px solid #6366f1;border-radius:12px;padding:5px 16px;font-size:0.98em;font-weight:600;">Pending</span>';
                                 }
                                 ?>
                             </td>
-                            <td><span class="badge badge-due"><?php echo !empty($q['due_date']) ? htmlspecialchars(date('Y-m-d', strtotime($q['due_date']))) : '—'; ?></span></td>
-                            <td>
+                            <td style="padding:10px 8px;vertical-align:middle;">
+                                <span style="background:#fef3c7;color:#92400e;border:1.5px solid #f59e0b;border-radius:12px;padding:5px 16px;font-size:0.98em;font-weight:600;display:inline-block;min-width:90px;text-align:center;">
+                                    <?php echo !empty($q['due_date']) ? htmlspecialchars(date('Y-m-d', strtotime($q['due_date']))) : '—'; ?>
+                                </span>
+                            </td>
+                            <td style="padding:10px 8px;vertical-align:middle;">
+                                <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-start;">
                                 <?php
-                                // Action buttons
                                 if (!$isSubmitted) {
-                                    // Not yet submitted
-                                    echo '<a class="btn" href="submit_quest.php?quest_id=' . (int)$q['quest_id'] . '">Submit</a>';
-                                } elseif (!$isGraded) {
-                                    // Submitted but not graded
-                                    echo '<a class="btn" href="edit_submission.php?submission_id=' . (int)($submission['id'] ?? 0) . '">Edit Submission</a> ';
-                                    echo '<a class="btn" href="view_submission.php?submission_id=' . (int)($submission['id'] ?? 0) . '" style="background:#6366f1;">View Submission</a>';
+                                    echo '<a class="btn" href="submit_quest.php?quest_id=' . (int)$q['quest_id'] . '" style="background:linear-gradient(90deg,#6366f1 0%,#4f46e5 100%);color:#fff;font-weight:600;font-size:0.98em;padding:7px 18px;border-radius:8px;box-shadow:0 2px 8px #6366f133;">Submit</a>';
+                                } elseif ($isGraded) {
+                                    // Graded: show View Submission and View Grade
+                                    echo '<a class="btn" href="view_submission.php?submission_id=' . (int)($submission['id'] ?? 0) . '" style="background:linear-gradient(90deg,#6366f1 0%,#4f46e5 100%);color:#fff;font-weight:600;font-size:0.98em;padding:7px 18px;border-radius:8px;box-shadow:0 2px 8px #6366f133;">View Submission</a>';
+                                    echo '<a class="btn" href="view_grade.php?submission_id=' . (int)($submission['id'] ?? 0) . '" style="background:#f59e42;color:#fff;font-weight:600;font-size:0.98em;padding:7px 18px;border-radius:8px;box-shadow:0 2px 8px #f59e4233;">View Grade</a>';
+                                } elseif (!empty($submission['id'])) {
+                                    // Submitted but not graded: show View Submission and Edit Submission
+                                    echo '<a class="btn" href="view_submission.php?submission_id=' . (int)($submission['id']) . '" style="background:linear-gradient(90deg,#6366f1 0%,#4f46e5 100%);color:#fff;font-weight:600;font-size:0.98em;padding:7px 18px;border-radius:8px;box-shadow:0 2px 8px #6366f133;">View Submission</a>';
+                                    echo '<a class="btn" href="edit_submission.php?submission_id=' . (int)($submission['id']) . '" style="background:linear-gradient(90deg,#6366f1 0%,#4f46e5 100%);color:#fff;font-weight:600;font-size:0.98em;padding:7px 18px;border-radius:8px;box-shadow:0 2px 8px #6366f133;">Edit Submission</a>';
                                 } else {
-                                    // Graded
-                                    echo '<a class="btn" href="view_submission.php?submission_id=' . (int)($submission['id'] ?? 0) . '" style="background:#6366f1;">View Submission</a> ';
-                                    echo '<a class="btn" href="view_grade.php?submission_id=' . (int)($submission['id'] ?? 0) . '" style="background:#f59e42;">View Grade</a>';
+                                    echo '<span class="btn" style="background:#e5e7eb;color:#6366f1;cursor:not-allowed;font-weight:600;font-size:0.98em;padding:7px 18px;border-radius:8px;">Submitted</span>';
                                 }
                                 ?>
+                                </div>
                             </td>
                         </tr>
                     <?php endforeach; ?>
@@ -182,9 +184,9 @@ if (isset($_GET['debug'])) {
                 </table>
             </div>
         <?php else: ?>
-            <div class="card empty">
-                <p>No quests found.</p>
-                <p class="meta">Once a quest taker accepts a non-mandatory quest or Quest creator assigned a mandatory quest. They will appear here.</p>
+            <div class="card empty" style="text-align:center;padding:48px 0;">
+                <p style="font-size:1.2em;color:#6B7280;">No quests found.</p>
+                <p class="meta" style="color:#64748b;">Once a quest taker accepts a non-mandatory quest or Quest creator assigned a mandatory quest. They will appear here.</p>
             </div>
         <?php endif; ?>
     </div>
