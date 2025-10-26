@@ -56,6 +56,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $quest_id && $employee_id) {
         }
     }
 
+    // Block submission if user's quest status is 'missed'
+    try {
+        $uqStmt = $pdo->prepare("SELECT status FROM user_quests WHERE quest_id = ? AND employee_id = ? LIMIT 1");
+        $uqStmt->execute([$quest_id, $employee_id]);
+        $uqRow = $uqStmt->fetch(PDO::FETCH_ASSOC);
+        if ($uqRow && isset($uqRow['status']) && $uqRow['status'] === 'missed') {
+            $error = 'You cannot submit for this quest. The quest is marked as missed.';
+            $valid = false;
+        }
+    } catch (PDOException $e) {
+        // ignore DB check errors, rely on due_date check above
+        error_log('submit_quest: failed to check user_quests status: ' . $e->getMessage());
+    }
+
     // Helper: convert php.ini size like "8M" to bytes
     $phpSizeToBytes = function($val) {
         $val = trim($val);

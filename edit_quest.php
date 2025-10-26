@@ -156,6 +156,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $description = trim($_POST['description'] ?? '');
     $quest_assignment_type = isset($_POST['quest_assignment_type']) ? $_POST['quest_assignment_type'] : 'optional';
     $due_date = !empty($_POST['due_date']) ? $_POST['due_date'] : null;
+
+    // If client sent an ISO timestamp (with timezone) convert it to server local time string
+    if (!empty($due_date) && (strpos($due_date, 'T') !== false || strpos($due_date, 'Z') !== false)) {
+        try {
+            $dt = new DateTime($due_date);
+            $dt->setTimezone(new DateTimeZone(date_default_timezone_get()));
+            $due_date = $dt->format('Y-m-d H:i:s');
+        } catch (Exception $e) {
+            // leave as-is; validation will catch invalid formats
+        }
+    }
     $assign_to = isset($_POST['assign_to']) ? $_POST['assign_to'] : [];
     $assign_group = null;
     $status = $_POST['status'] ?? 'active';
@@ -2725,10 +2736,10 @@ function applyDateTime() {
     }
     
     const minuteStr = minute.toString().padStart(2, '0');
-    const dateTimeStr = `${selectedDate} ${hour24.toString().padStart(2, '0')}:${minuteStr}:00`;
-    document.getElementById('due_date').value = dateTimeStr;
-    
-    updateDateDisplay(dateTimeStr);
+    // Build local Date then send ISO (UTC) to server; server will convert to local timezone
+    const localDate = new Date(`${selectedDate}T${hour24.toString().padStart(2, '0')}:${minuteStr}:00`);
+    document.getElementById('due_date').value = localDate.toISOString();
+    updateDateDisplay(localDate.toString());
     closeCalendarBox();
 }
 

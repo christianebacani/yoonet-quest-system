@@ -71,6 +71,25 @@ if ($is_admin) {
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 } else {
+  // Ensure user_quests rows are marked 'missed' when the quest due_date has passed
+  try {
+    $markMissedSql = "UPDATE user_quests uq 
+      JOIN quests q ON uq.quest_id = q.id
+      SET uq.status = 'missed'
+      WHERE q.due_date IS NOT NULL
+        AND q.due_date < NOW()
+        AND uq.status IN ('assigned','in_progress','accepted','started')
+        AND NOT EXISTS (
+          SELECT 1 FROM quest_submissions qs
+          WHERE qs.quest_id = uq.quest_id
+          AND qs.employee_id = uq.employee_id
+          AND ((qs.file_path IS NOT NULL AND qs.file_path <> '') OR (qs.text_content IS NOT NULL AND qs.text_content <> ''))
+        )";
+    $pdo->exec($markMissedSql);
+  } catch (PDOException $e) {
+    // don't block page render on update failure; log and continue
+    error_log('pending_reviews: failed to mark missed: ' . $e->getMessage());
+  }
     if (!empty($createdQuestIds)) {
         $total = count($createdQuestIds);
         $total_pages = $total > 0 ? (int)ceil($total / $items_per_page) : 1;
@@ -174,19 +193,10 @@ if ($is_admin) {
                   $declinedStmt->execute([(int)$r['quest_id']]);
                   $declinedCount = (int)$declinedStmt->fetchColumn();
 
-                  // Missed: assigned, not declined, no submission, and due_date passed
-                  $missedStmt = $pdo->prepare(
-                    "SELECT uq.employee_id FROM user_quests uq 
-                     LEFT JOIN quest_submissions qs ON uq.employee_id = qs.employee_id AND uq.quest_id = qs.quest_id 
-                     JOIN quests q ON uq.quest_id = q.id 
-                     WHERE uq.quest_id = ? 
-                       AND (qs.id IS NULL OR qs.file_path IS NULL OR qs.file_path = '') 
-                       AND (uq.status IS NULL OR uq.status NOT IN ('declined')) 
-                       AND q.due_date IS NOT NULL AND q.due_date < NOW()"
-                  );
+                  // Missed: rely on explicit user_quests.status = 'missed' which is set centrally above
+                  $missedStmt = $pdo->prepare("SELECT COUNT(*) FROM user_quests WHERE quest_id = ? AND status = 'missed'");
                   $missedStmt->execute([(int)$r['quest_id']]);
-                  $missedUsers = $missedStmt->fetchAll(PDO::FETCH_COLUMN);
-                  $missedCount = count($missedUsers);
+                  $missedCount = (int)$missedStmt->fetchColumn();
                 ?>
                 <div class="meta" style="margin-top:6px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
                   <span class="badge badge-pending">Pending: <?php echo $pendingCount; ?></span>
