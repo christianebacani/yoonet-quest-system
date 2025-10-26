@@ -157,6 +157,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    // If the value is a date-only string (YYYY-MM-DD) then assume end of day
+    // to avoid storing midnight which would immediately appear as missed.
+    if (!empty($due_date) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $due_date)) {
+        // Treat as end of day in server timezone
+        $due_date = $due_date . ' 23:59:59';
+    }
+
     // Final validation: ensure due_date parses to a valid timestamp; otherwise null it
     if (!empty($due_date)) {
         $ts = strtotime($due_date);

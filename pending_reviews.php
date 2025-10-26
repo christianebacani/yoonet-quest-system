@@ -70,38 +70,39 @@ if ($is_admin) {
     $stmt->execute();
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // NOTE: removed automatic DB mutation that marked user_quests as 'missed'.
-    // Missed counts are now computed on-the-fly (based on quest due_date < NOW()
-    // and absence of a submission). This avoids race/timezone issues and
-    // prevents premature 'missed' state when creating/editing quests.
-    
-    if (!empty($createdQuestIds)) {
-        $total = count($createdQuestIds);
-        $total_pages = $total > 0 ? (int)ceil($total / $items_per_page) : 1;
-        $ph = implode(',', array_fill(0, count($createdQuestIds), '?'));
+  // NOTE: removed automatic DB mutation that marked user_quests as 'missed'.
+  // Missed counts are now computed on-the-fly (based on quest due_date < NOW()
+  // and absence of a submission). This avoids race/timezone issues and
+  // prevents premature 'missed' state when creating/editing quests.
+}
+else {
+  if (!empty($createdQuestIds)) {
+    $total = count($createdQuestIds);
+    $total_pages = $total > 0 ? (int)ceil($total / $items_per_page) : 1;
+    $ph = implode(',', array_fill(0, count($createdQuestIds), '?'));
 
-        $dataSql = "SELECT q.id AS quest_id, q.title AS quest_title, q.description AS quest_description,
-                    (SELECT COUNT(*) FROM quest_submissions qs2 WHERE qs2.quest_id = q.id AND qs2.status IN ('pending','under_review')) AS pending_count,
-                    (SELECT qs2.id FROM quest_submissions qs2 WHERE qs2.quest_id = q.id ORDER BY qs2.submitted_at DESC LIMIT 1) AS latest_submission_id,
-                    (SELECT qs2.employee_id FROM quest_submissions qs2 WHERE qs2.quest_id = q.id ORDER BY qs2.submitted_at DESC LIMIT 1) AS latest_employee_id,
-                    (SELECT qs2.file_path FROM quest_submissions qs2 WHERE qs2.quest_id = q.id ORDER BY qs2.submitted_at DESC LIMIT 1) AS latest_file_path,
-                    (SELECT qs2.text_content FROM quest_submissions qs2 WHERE qs2.quest_id = q.id ORDER BY qs2.submitted_at DESC LIMIT 1) AS latest_text_content,
-                    (SELECT qs2.status FROM quest_submissions qs2 WHERE qs2.quest_id = q.id ORDER BY qs2.submitted_at DESC LIMIT 1) AS latest_status,
-                    (SELECT qs2.submitted_at FROM quest_submissions qs2 WHERE qs2.quest_id = q.id ORDER BY qs2.submitted_at DESC LIMIT 1) AS latest_submitted_at
-              FROM quests q
-              WHERE q.id IN ($ph)
-              ORDER BY q.created_at DESC
-              LIMIT ? OFFSET ?";
-        $stmt = $pdo->prepare($dataSql);
-        $bind = 1;
-        foreach ($createdQuestIds as $qid) { $stmt->bindValue($bind++, $qid, PDO::PARAM_INT); }
-        $stmt->bindValue($bind++, $items_per_page, PDO::PARAM_INT);
-        $stmt->bindValue($bind, $offset, PDO::PARAM_INT);
-        $stmt->execute();
-        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    } else {
-        $total = 0; $total_pages = 1; $rows = [];
-    }
+    $dataSql = "SELECT q.id AS quest_id, q.title AS quest_title, q.description AS quest_description,
+          (SELECT COUNT(*) FROM quest_submissions qs2 WHERE qs2.quest_id = q.id AND qs2.status IN ('pending','under_review')) AS pending_count,
+          (SELECT qs2.id FROM quest_submissions qs2 WHERE qs2.quest_id = q.id ORDER BY qs2.submitted_at DESC LIMIT 1) AS latest_submission_id,
+          (SELECT qs2.employee_id FROM quest_submissions qs2 WHERE qs2.quest_id = q.id ORDER BY qs2.submitted_at DESC LIMIT 1) AS latest_employee_id,
+          (SELECT qs2.file_path FROM quest_submissions qs2 WHERE qs2.quest_id = q.id ORDER BY qs2.submitted_at DESC LIMIT 1) AS latest_file_path,
+          (SELECT qs2.text_content FROM quest_submissions qs2 WHERE qs2.quest_id = q.id ORDER BY qs2.submitted_at DESC LIMIT 1) AS latest_text_content,
+          (SELECT qs2.status FROM quest_submissions qs2 WHERE qs2.quest_id = q.id ORDER BY qs2.submitted_at DESC LIMIT 1) AS latest_status,
+          (SELECT qs2.submitted_at FROM quest_submissions qs2 WHERE qs2.quest_id = q.id ORDER BY qs2.submitted_at DESC LIMIT 1) AS latest_submitted_at
+        FROM quests q
+        WHERE q.id IN ($ph)
+        ORDER BY q.created_at DESC
+        LIMIT ? OFFSET ?";
+    $stmt = $pdo->prepare($dataSql);
+    $bind = 1;
+    foreach ($createdQuestIds as $qid) { $stmt->bindValue($bind++, $qid, PDO::PARAM_INT); }
+    $stmt->bindValue($bind++, $items_per_page, PDO::PARAM_INT);
+    $stmt->bindValue($bind, $offset, PDO::PARAM_INT);
+    $stmt->execute();
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+  } else {
+    $total = 0; $total_pages = 1; $rows = [];
+  }
 }
 
 ?>
@@ -110,7 +111,7 @@ if ($is_admin) {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Submitted Quest</title>
+  <title>Submitted Quest</title>cls
   <link rel="stylesheet" href="assets/css/style.css" />
   <style>
     .container { max-width: 1100px; margin: 28px auto; padding: 0 16px; }
@@ -162,7 +163,11 @@ if ($is_admin) {
                      WHERE uq.quest_id = ? 
                        AND (qs.id IS NULL OR qs.file_path IS NULL OR qs.file_path = '') 
                        AND (uq.status IS NULL OR uq.status NOT IN ('declined')) 
-                       AND (q.due_date IS NULL OR q.due_date = '0000-00-00 00:00:00' OR q.due_date >= NOW())"
+                         AND (
+                           q.due_date IS NULL
+                           OR q.due_date = '0000-00-00 00:00:00'
+                           OR (CASE WHEN TIME(q.due_date) = '00:00:00' THEN DATE_ADD(q.due_date, INTERVAL 86399 SECOND) ELSE q.due_date END) >= NOW()
+                         )"
                   );
                   $pendingStmt->execute([(int)$r['quest_id']]);
                   $pendingUsers = $pendingStmt->fetchAll(PDO::FETCH_COLUMN);
@@ -189,7 +194,7 @@ if ($is_admin) {
                        AND (uq.status IS NULL OR uq.status NOT IN ('declined','submitted'))
                        AND q.due_date IS NOT NULL
                        AND q.due_date <> '0000-00-00 00:00:00'
-                       AND q.due_date < NOW()
+                       AND (CASE WHEN TIME(q.due_date) = '00:00:00' THEN DATE_ADD(q.due_date, INTERVAL 86399 SECOND) ELSE q.due_date END) < NOW()
                        AND qs.id IS NULL"
                   );
                   $missedStmt->execute([(int)$r['quest_id']]);

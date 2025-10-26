@@ -21,8 +21,30 @@ if ($role === 'quest_taker' || $role === 'participant') {
 // Fetch all active quests for this user: (1) accepted non-mandatory (in_progress), (2) assigned mandatory (status 'assigned'), (3) in_progress mandatory
 $my_quests = [];
 try {
+    // Before fetching, mark any of this user's quests as 'missed' if the due_date has passed
+    // and they have not submitted. This is a per-user, idempotent update to keep the
+    // dashboard accurate without requiring a global scheduled job.
+    try {
+        $markSql = "UPDATE user_quests uq
+            JOIN quests q ON uq.quest_id = q.id
+            LEFT JOIN quest_submissions qs ON qs.quest_id = uq.quest_id AND qs.employee_id = uq.employee_id
+                AND ((qs.file_path IS NOT NULL AND qs.file_path <> '') OR (qs.text_content IS NOT NULL AND qs.text_content <> ''))
+            SET uq.status = 'missed'
+            WHERE uq.employee_id = ?
+              AND uq.status IN ('assigned','in_progress','accepted','started')
+              AND qs.id IS NULL
+              AND q.due_date IS NOT NULL
+              AND q.due_date <> '0000-00-00 00:00:00'
+              AND (CASE WHEN TIME(q.due_date) = '00:00:00' THEN DATE_ADD(q.due_date, INTERVAL 23 HOUR 59 MINUTE 59 SECOND) ELSE q.due_date END) < NOW()";
+        $stmtMark = $pdo->prepare($markSql);
+        $stmtMark->execute([$employee_id]);
+    } catch (PDOException $e) {
+        error_log('my_quests: failed to mark missed for employee ' . $employee_id . ': ' . $e->getMessage());
+    }
+
     // Exclude 'assigned' status here: assigned quests should be shown in Open Quests until the user accepts
-    $sql = "SELECT uq.*, q.title, q.description, q.due_date, q.quest_assignment_type, q.id as quest_id FROM user_quests uq JOIN quests q ON uq.quest_id = q.id WHERE uq.employee_id = ? AND uq.status IN ('in_progress','accepted','started','submitted','completed') AND q.status = 'active' ORDER BY q.due_date ASC, q.created_at DESC";
+    // Include 'assigned' and 'missed' so pending and missed items appear in the user's dashboard
+    $sql = "SELECT uq.*, q.title, q.description, q.due_date, q.quest_assignment_type, q.id as quest_id FROM user_quests uq JOIN quests q ON uq.quest_id = q.id WHERE uq.employee_id = ? AND uq.status IN ('assigned','in_progress','accepted','started','submitted','completed','missed') AND q.status = 'active' ORDER BY q.due_date ASC, q.created_at DESC";
     $stmt = $pdo->prepare($sql);
     $stmt->execute([$employee_id]);
     $my_quests = $stmt->fetchAll(PDO::FETCH_ASSOC);
