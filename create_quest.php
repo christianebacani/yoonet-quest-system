@@ -3086,12 +3086,14 @@ function getFontSize() {
             }
             
             const minuteStr = minute.toString().padStart(2, '0');
-            // Create a local Date object and send ISO (UTC) to the server; server converts to local timezone
+            // Create a local Date object and send a server-friendly local datetime string
+            // We avoid using toISOString() to prevent UTC shifts; store as 'YYYY-MM-DD HH:MM:SS'
             const localDate = new Date(`${selectedDate}T${hour24.toString().padStart(2, '0')}:${minuteStr}:00`);
-            // Use ISO string (UTC) for storage/transfer
-            document.getElementById('due_date').value = localDate.toISOString();
+            const pad = (n) => n.toString().padStart(2, '0');
+            const formattedLocal = `${localDate.getFullYear()}-${pad(localDate.getMonth()+1)}-${pad(localDate.getDate())} ${pad(localDate.getHours())}:${pad(localDate.getMinutes())}:00`;
+            document.getElementById('due_date').value = formattedLocal;
 
-            updateDateDisplay(localDate.toString());
+            updateDateDisplay(formattedLocal);
             closeCalendarBox();
         }
         

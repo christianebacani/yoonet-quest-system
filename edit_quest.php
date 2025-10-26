@@ -2753,10 +2753,12 @@ function applyDateTime() {
     }
     
     const minuteStr = minute.toString().padStart(2, '0');
-    // Build local Date then send ISO (UTC) to server; server will convert to local timezone
+    // Build local Date then send a server-friendly local datetime string
     const localDate = new Date(`${selectedDate}T${hour24.toString().padStart(2, '0')}:${minuteStr}:00`);
-    document.getElementById('due_date').value = localDate.toISOString();
-    updateDateDisplay(localDate.toString());
+    const pad = (n) => n.toString().padStart(2, '0');
+    const formattedLocal = `${localDate.getFullYear()}-${pad(localDate.getMonth()+1)}-${pad(localDate.getDate())} ${pad(localDate.getHours())}:${pad(localDate.getMinutes())}:00`;
+    document.getElementById('due_date').value = formattedLocal;
+    updateDateDisplay(formattedLocal);
     closeCalendarBox();
 }
 

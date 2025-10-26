@@ -111,7 +111,7 @@ else {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Submitted Quest</title>cls
+  <title>Submitted Quest</title>
   <link rel="stylesheet" href="assets/css/style.css" />
   <style>
     .container { max-width: 1100px; margin: 28px auto; padding: 0 16px; }
