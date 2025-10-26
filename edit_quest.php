@@ -184,6 +184,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $due_date = date('Y-m-d H:i:s', $ts);
         }
     }
+    // Enforce minimum lead time to avoid immediate missed marking when editing.
+    $minLeadSeconds = 300; // 5 minutes
+    if (!empty($due_date)) {
+        $dueTs = strtotime($due_date);
+        if ($dueTs !== false && $dueTs <= (time() + $minLeadSeconds)) {
+            $error = 'Due date must be at least ' . ($minLeadSeconds/60) . ' minutes in the future. Please select a later date/time.';
+        }
+    }
     $assign_to = isset($_POST['assign_to']) ? $_POST['assign_to'] : [];
     $assign_group = null;
     $status = $_POST['status'] ?? 'active';
@@ -2755,6 +2763,12 @@ function applyDateTime() {
     const minuteStr = minute.toString().padStart(2, '0');
     // Build local Date then send a server-friendly local datetime string
     const localDate = new Date(`${selectedDate}T${hour24.toString().padStart(2, '0')}:${minuteStr}:00`);
+    // Client-side minimum lead time check (ms) — mirrors server-side rule
+    const MIN_LEAD_MS = <?php echo (isset($minLeadSeconds) ? ($minLeadSeconds * 1000) : 300000); ?>;
+    if (localDate.getTime() <= (Date.now() + MIN_LEAD_MS)) {
+        showErrorMessage('Please select a due date at least ' + (MIN_LEAD_MS/60000) + ' minutes in the future.');
+        return;
+    }
     const pad = (n) => n.toString().padStart(2, '0');
     const formattedLocal = `${localDate.getFullYear()}-${pad(localDate.getMonth()+1)}-${pad(localDate.getDate())} ${pad(localDate.getHours())}:${pad(localDate.getMinutes())}:00`;
     document.getElementById('due_date').value = formattedLocal;

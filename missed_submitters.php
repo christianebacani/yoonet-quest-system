@@ -32,6 +32,28 @@ $stmt->execute([$quest_id]);
 $quest = $stmt->fetch(PDO::FETCH_ASSOC);
 $due_date = $quest['due_date'] ?? null;
 
+// Before rendering, ensure any assigned/accepted user_quests for this quest are
+// marked 'missed' if the due date passed and they have no submission. This is
+// a scoped, idempotent update so creators see missed submitters immediately
+// without a global scheduler.
+try {
+  $updateSql = "UPDATE user_quests uq
+    JOIN quests q ON uq.quest_id = q.id
+    LEFT JOIN quest_submissions qs ON uq.quest_id = qs.quest_id AND uq.employee_id = qs.employee_id
+    SET uq.status = 'missed'
+    WHERE uq.quest_id = ?
+      AND uq.status IN ('assigned','in_progress','accepted','started')
+      AND qs.id IS NULL
+      AND q.due_date IS NOT NULL
+      AND (
+         CASE WHEN TIME(q.due_date) = '00:00:00' THEN DATE_ADD(q.due_date, INTERVAL 86399 SECOND) ELSE q.due_date END
+      ) < NOW()";
+  $uStmt = $pdo->prepare($updateSql);
+  $uStmt->execute([$quest_id]);
+} catch (PDOException $e) {
+  error_log('missed_submitters: failed to mark missed for quest ' . $quest_id . ': ' . $e->getMessage());
+}
+
 // Get all assigned users for this quest (include those who accepted or were assigned)
 $stmt = $pdo->prepare("SELECT uq.employee_id, u.full_name, uq.status FROM user_quests uq LEFT JOIN users u ON uq.employee_id = u.employee_id WHERE uq.quest_id = ?");
 $stmt->execute([$quest_id]);

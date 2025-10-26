@@ -25,17 +25,20 @@ try {
     // and they have not submitted. This is a per-user, idempotent update to keep the
     // dashboard accurate without requiring a global scheduled job.
     try {
-        $markSql = "UPDATE user_quests uq
-            JOIN quests q ON uq.quest_id = q.id
-            LEFT JOIN quest_submissions qs ON qs.quest_id = uq.quest_id AND qs.employee_id = uq.employee_id
-                AND ((qs.file_path IS NOT NULL AND qs.file_path <> '') OR (qs.text_content IS NOT NULL AND qs.text_content <> ''))
-            SET uq.status = 'missed'
-            WHERE uq.employee_id = ?
-              AND uq.status IN ('assigned','in_progress','accepted','started')
-              AND qs.id IS NULL
-              AND q.due_date IS NOT NULL
-              AND q.due_date <> '0000-00-00 00:00:00'
-              AND (CASE WHEN TIME(q.due_date) = '00:00:00' THEN DATE_ADD(q.due_date, INTERVAL 23 HOUR 59 MINUTE 59 SECOND) ELSE q.due_date END) < NOW()";
+                // More robust missed-marking: consider any quest_submissions row as a submission
+                // and treat date-only values as end-of-day by adding 86399 seconds.
+                $markSql = "UPDATE user_quests uq
+                        JOIN quests q ON uq.quest_id = q.id
+                        LEFT JOIN quest_submissions qs ON qs.quest_id = uq.quest_id AND qs.employee_id = uq.employee_id
+                        SET uq.status = 'missed'
+                        WHERE uq.employee_id = ?
+                            AND uq.status IN ('assigned','in_progress','accepted','started')
+                            AND qs.id IS NULL
+                            AND q.due_date IS NOT NULL
+                            AND q.due_date <> '0000-00-00'
+                            AND (
+                                        CASE WHEN TIME(q.due_date) = '00:00:00' THEN DATE_ADD(q.due_date, INTERVAL 86399 SECOND) ELSE q.due_date END
+                                    ) < NOW()";
         $stmtMark = $pdo->prepare($markSql);
         $stmtMark->execute([$employee_id]);
     } catch (PDOException $e) {
@@ -151,9 +154,8 @@ if (isset($_GET['debug'])) {
                         $stmtSub = $pdo->prepare("SELECT * FROM quest_submissions WHERE quest_id = ? AND employee_id = ? ORDER BY submitted_at DESC LIMIT 1");
                         $stmtSub->execute([$q['quest_id'], $employee_id]);
                         $submission = $stmtSub->fetch(PDO::FETCH_ASSOC);
-                        $status = strtolower($q['status']);
                         $subStatus = strtolower($submission['status'] ?? '');
-                        $uqStatus = strtolower($q['status']);
+                        $uqStatus = strtolower($q['status'] ?? '');
                         $isGraded = in_array($subStatus, ['approved','graded','rejected']);
                         $isSubmitted = (!empty($submission) && in_array($subStatus, ['submitted','pending','needs_revision','approved','graded','rejected'])) || $uqStatus === 'submitted';
                         ?>
@@ -167,8 +169,11 @@ if (isset($_GET['debug'])) {
 
                             <td style="padding:10px 8px;vertical-align:middle;">
                                 <?php
+                                // Show explicit Missed state when uq.status is 'missed'
                                 if ($isGraded) {
                                     echo '<span style="background:#f0fdf4;color:#166534;border:1.5px solid #34d399;border-radius:12px;padding:5px 16px;font-size:0.98em;font-weight:600;">Graded</span>';
+                                } elseif ($uqStatus === 'missed') {
+                                    echo '<span style="background:#fee2e2;color:#991b1b;border:1.5px solid #fca5a5;border-radius:12px;padding:5px 16px;font-size:0.98em;font-weight:600;">Missed</span>';
                                 } elseif ($isSubmitted) {
                                     echo '<span style="background:#fef9c3;color:#92400e;border:1.5px solid #fde68a;border-radius:12px;padding:5px 16px;font-size:0.98em;font-weight:600;">Submitted</span>';
                                 } else {
@@ -184,7 +189,10 @@ if (isset($_GET['debug'])) {
                             <td style="padding:10px 8px;vertical-align:middle;">
                                 <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-start;">
                                 <?php
-                                if (!$isSubmitted) {
+                                // If the quest is marked missed, do not show submit button
+                                if ($uqStatus === 'missed') {
+                                    echo '<span style="background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;border-radius:8px;padding:7px 18px;font-weight:600;font-size:0.98em;display:inline-block;">Missed</span>';
+                                } elseif (!$isSubmitted) {
                                     echo '<a class="btn" href="submit_quest.php?quest_id=' . (int)$q['quest_id'] . '" style="background:linear-gradient(90deg,#6366f1 0%,#4f46e5 100%);color:#fff;font-weight:600;font-size:0.98em;padding:7px 18px;border-radius:8px;box-shadow:0 2px 8px #6366f133;">Submit</a>';
                                 } elseif ($isGraded) {
                                     // Graded: show View Submission and View Grade
