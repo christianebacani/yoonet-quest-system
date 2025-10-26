@@ -70,26 +70,11 @@ if ($is_admin) {
     $stmt->execute();
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-} else {
-  // Ensure user_quests rows are marked 'missed' when the quest due_date has passed
-  try {
-    $markMissedSql = "UPDATE user_quests uq 
-      JOIN quests q ON uq.quest_id = q.id
-      SET uq.status = 'missed'
-      WHERE q.due_date IS NOT NULL
-        AND q.due_date < NOW()
-        AND uq.status IN ('assigned','in_progress','accepted','started')
-        AND NOT EXISTS (
-          SELECT 1 FROM quest_submissions qs
-          WHERE qs.quest_id = uq.quest_id
-          AND qs.employee_id = uq.employee_id
-          AND ((qs.file_path IS NOT NULL AND qs.file_path <> '') OR (qs.text_content IS NOT NULL AND qs.text_content <> ''))
-        )";
-    $pdo->exec($markMissedSql);
-  } catch (PDOException $e) {
-    // don't block page render on update failure; log and continue
-    error_log('pending_reviews: failed to mark missed: ' . $e->getMessage());
-  }
+    // NOTE: removed automatic DB mutation that marked user_quests as 'missed'.
+    // Missed counts are now computed on-the-fly (based on quest due_date < NOW()
+    // and absence of a submission). This avoids race/timezone issues and
+    // prevents premature 'missed' state when creating/editing quests.
+    
     if (!empty($createdQuestIds)) {
         $total = count($createdQuestIds);
         $total_pages = $total > 0 ? (int)ceil($total / $items_per_page) : 1;
@@ -177,7 +162,7 @@ if ($is_admin) {
                      WHERE uq.quest_id = ? 
                        AND (qs.id IS NULL OR qs.file_path IS NULL OR qs.file_path = '') 
                        AND (uq.status IS NULL OR uq.status NOT IN ('declined')) 
-                       AND (q.due_date IS NULL OR q.due_date >= NOW())"
+                       AND (q.due_date IS NULL OR q.due_date = '0000-00-00 00:00:00' OR q.due_date >= NOW())"
                   );
                   $pendingStmt->execute([(int)$r['quest_id']]);
                   $pendingUsers = $pendingStmt->fetchAll(PDO::FETCH_COLUMN);
@@ -193,8 +178,20 @@ if ($is_admin) {
                   $declinedStmt->execute([(int)$r['quest_id']]);
                   $declinedCount = (int)$declinedStmt->fetchColumn();
 
-                  // Missed: rely on explicit user_quests.status = 'missed' which is set centrally above
-                  $missedStmt = $pdo->prepare("SELECT COUNT(*) FROM user_quests WHERE quest_id = ? AND status = 'missed'");
+                  // Missed: compute dynamically — users assigned (not declined/submitted)
+                  // whose quest due_date has passed and who have NO submission recorded.
+                  $missedStmt = $pdo->prepare(
+                    "SELECT COUNT(DISTINCT uq.employee_id) FROM user_quests uq
+                     LEFT JOIN quests q ON q.id = uq.quest_id
+                     LEFT JOIN quest_submissions qs ON qs.quest_id = uq.quest_id AND qs.employee_id = uq.employee_id
+                       AND ((qs.file_path IS NOT NULL AND qs.file_path <> '') OR (qs.text_content IS NOT NULL AND qs.text_content <> ''))
+                     WHERE uq.quest_id = ?
+                       AND (uq.status IS NULL OR uq.status NOT IN ('declined','submitted'))
+                       AND q.due_date IS NOT NULL
+                       AND q.due_date <> '0000-00-00 00:00:00'
+                       AND q.due_date < NOW()
+                       AND qs.id IS NULL"
+                  );
                   $missedStmt->execute([(int)$r['quest_id']]);
                   $missedCount = (int)$missedStmt->fetchColumn();
                 ?>

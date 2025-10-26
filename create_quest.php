@@ -156,6 +156,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // leave as-is; validation will catch invalid formats
         }
     }
+
+    // Final validation: ensure due_date parses to a valid timestamp; otherwise null it
+    if (!empty($due_date)) {
+        $ts = strtotime($due_date);
+        if ($ts === false || $ts <= 0) {
+            $due_date = null;
+        } else {
+            // normalize format
+            $due_date = date('Y-m-d H:i:s', $ts);
+        }
+    }
     $assign_to = isset($_POST['assign_to']) ? $_POST['assign_to'] : [];
     $assign_group = null;
     $status = 'active';

@@ -47,12 +47,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $quest_id && $employee_id) {
     $allowed_exts = ['pdf','doc','docx','jpg','jpeg','png','txt','zip'];
     $max_size = 5 * 1024 * 1024;
 
-    // Deadline check: block submission if past due_date
+    // Deadline check: block submission if past due_date (only if due_date is valid)
     if (!empty($quest['due_date'])) {
-        $now = date('Y-m-d H:i:s');
-        if ($now > $quest['due_date']) {
-            $error = 'You cannot submit for this quest. The deadline has passed.';
-            $valid = false;
+        $due_ts = strtotime($quest['due_date']);
+        if ($due_ts !== false && $due_ts > 0) {
+            $now_ts = time();
+            if ($now_ts > $due_ts) {
+                $error = 'You cannot submit for this quest. The deadline has passed.';
+                $valid = false;
+            }
         }
     }
 
