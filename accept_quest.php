@@ -43,20 +43,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit();
         }
 
-        // Check if user already has this quest (in any status)
-        $stmt = $pdo->prepare("SELECT id FROM user_quests WHERE employee_id = ? AND quest_id = ?");
-        $stmt->execute([$employee_id, $quest_id]);
-        $existing = $stmt->fetch();
+    // Check if user already has this quest (in any status)
+    $stmt = $pdo->prepare("SELECT id FROM user_quests WHERE employee_id = ? AND quest_id = ?");
+    $stmt->execute([$employee_id, $quest_id]);
+    $existing = $stmt->fetch();
         
         if ($existing) {
             echo json_encode(['success' => false, 'error' => 'You already have this quest']);
             exit();
         }
 
-        // Accept the quest
+        // Determine whether the quest is already past due. If so, mark as 'missed'
+        $dueStmt = $pdo->prepare("SELECT due_date FROM quests WHERE id = ? LIMIT 1");
+        $dueStmt->execute([$quest_id]);
+        $qrow = $dueStmt->fetch(PDO::FETCH_ASSOC);
+        $due_date = $qrow['due_date'] ?? null;
+        $statusToInsert = 'in_progress';
+        if (!empty($due_date)) {
+            // compute effective due datetime: treat midnight-only times as end-of-day
+            $ts = strtotime($due_date);
+            if ($ts !== false) {
+                // if original stored time is 00:00:00, assume end of day
+                $timePart = date('H:i:s', $ts);
+                if ($timePart === '00:00:00') {
+                    $ts += 86399; // add 23:59:59
+                }
+                if (time() > $ts) {
+                    $statusToInsert = 'missed';
+                }
+            }
+        }
+
+        // Accept the quest (or mark missed if accepting after deadline)
         $stmt = $pdo->prepare("INSERT INTO user_quests (employee_id, quest_id, status, assigned_at) 
-                             VALUES (?, ?, 'in_progress', NOW())");
-        $stmt->execute([$employee_id, $quest_id]);
+                             VALUES (?, ?, ?, NOW())");
+        $stmt->execute([$employee_id, $quest_id, $statusToInsert]);
         
         echo json_encode(['success' => true]);
     } catch (PDOException $e) {

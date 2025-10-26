@@ -32,8 +32,8 @@ $stmt->execute([$quest_id]);
 $quest = $stmt->fetch(PDO::FETCH_ASSOC);
 $due_date = $quest['due_date'] ?? null;
 
-// Get all assigned users for this quest
-$stmt = $pdo->prepare("SELECT uq.employee_id, u.full_name FROM user_quests uq LEFT JOIN users u ON uq.employee_id = u.employee_id WHERE uq.quest_id = ?");
+// Get all assigned users for this quest (include those who accepted or were assigned)
+$stmt = $pdo->prepare("SELECT uq.employee_id, u.full_name, uq.status FROM user_quests uq LEFT JOIN users u ON uq.employee_id = u.employee_id WHERE uq.quest_id = ?");
 $stmt->execute([$quest_id]);
 $assigned = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -45,14 +45,20 @@ $submitted_ids = array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'employee_id');
 // Filter assigned users who have NOT submitted and missed the deadline
 $missed = [];
 if ($due_date) {
-    $now = date('Y-m-d H:i:s');
-    if ($now > $due_date) {
-        foreach ($assigned as $a) {
-            if (!in_array($a['employee_id'], $submitted_ids)) {
-                $missed[] = $a;
-            }
-        }
+  $now = time();
+  $due_ts = strtotime($due_date);
+  // If due_date had only date portion, treat as end-of-day
+  if ($due_ts !== false && date('H:i:s', $due_ts) === '00:00:00') {
+    $due_ts += 86399; // end of day
+  }
+  if ($due_ts !== false && $now > $due_ts) {
+    foreach ($assigned as $a) {
+      if (!in_array($a['employee_id'], $submitted_ids)) {
+        // Include anyone assigned or who accepted after deadline; status may vary
+        $missed[] = $a;
+      }
     }
+  }
 }
 
 ?>

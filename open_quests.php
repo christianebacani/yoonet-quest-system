@@ -211,7 +211,19 @@ $past_quests = [];
                                             <?php echo $label; ?>
                                         </span>
                                     <?php else: ?>
-                                        <div class="quest-action-btns" data-quest-id="<?php echo (int)$qid; ?>">
+                                        <?php
+                                            // compute a JS-friendly timestamp for the due date (ms)
+                                            $dueTs = null;
+                                            if (!empty($q['due_date'])) {
+                                                $ts = strtotime($q['due_date']);
+                                                if ($ts !== false) {
+                                                    // treat midnight-only values as end-of-day (migration may have handled most)
+                                                    if (date('H:i:s', $ts) === '00:00:00') $ts += 86399;
+                                                    $dueTs = $ts * 1000;
+                                                }
+                                            }
+                                        ?>
+                                        <div class="quest-action-btns" data-quest-id="<?php echo (int)$qid; ?>" data-due-ts="<?php echo $dueTs !== null ? (int)$dueTs : ''; ?>">
                                             <button type="button" class="btn btn-accept" style="margin-right:6px;min-width:70px;">Accept</button>
                                             <button type="button" class="btn btn-decline" style="background:#f3f4f6;color:#1e3a8a;border:1px solid #cbd5e1;min-width:70px;">Decline</button>
                                         </div>
@@ -244,16 +256,26 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         msgDiv.innerHTML = `<div class="${success ? 'bg-green-50 border-green-500 text-green-800' : 'bg-red-50 border-red-500 text-red-800'} border-l-4 p-4 mb-4 rounded-lg flex items-center"><i class="fas ${success ? 'fa-check-circle text-green-500' : 'fa-exclamation-circle text-red-500'} mr-3"></i><span class="font-semibold">${msg}</span></div>`;
     }
-    document.querySelectorAll('.quest-action-btns').forEach(function(btns) {
+        document.querySelectorAll('.quest-action-btns').forEach(function(btns) {
         const qid = btns.getAttribute('data-quest-id');
         btns.querySelector('.btn-accept').addEventListener('click', function() {
+            // If quest appears to be past due, confirm before sending accept
+            const dueTsAttr = btns.getAttribute('data-due-ts');
+            if (dueTsAttr) {
+                const dueTs = parseInt(dueTsAttr, 10);
+                // small grace window not used here; compare current time to due
+                if (!isNaN(dueTs) && Date.now() > dueTs) {
+                    const ok = confirm('This quest is past its due date. If you accept it now it will be marked as "Missed" in your My Quests and you will not be able to submit for it. Do you want to accept anyway?');
+                    if (!ok) return;
+                }
+            }
             handleQuestAction(qid, 'accept', btns);
         });
         btns.querySelector('.btn-decline').addEventListener('click', function() {
             handleQuestAction(qid, 'decline', btns);
         });
     });
-    function handleQuestAction(qid, action, btns) {
+        function handleQuestAction(qid, action, btns) {
         btns.querySelectorAll('button').forEach(b => b.disabled = true);
         fetch('quest_action.php', {
             method: 'POST',
@@ -266,7 +288,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Remove the quest row
                 const row = btns.closest('tr');
                 if (row) row.remove();
-                showQuestMessage(data.message, true);
+                // If server indicates accepted_as_missed, use a warning-style message
+                if (data.accepted_as_missed) {
+                    showQuestMessage(data.message || 'Accepted (marked as Missed).', false);
+                } else {
+                    showQuestMessage(data.message || 'Success.', true);
+                }
             } else {
                 showQuestMessage(data.message, false);
                 btns.querySelectorAll('button').forEach(b => b.disabled = false);

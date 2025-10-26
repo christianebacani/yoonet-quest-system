@@ -20,15 +20,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['quest_id'], $_POST['q
         $stmt->execute([$employee_id, $quest_id]);
         $uq = $stmt->fetch(PDO::FETCH_ASSOC);
         if ($quest_action === 'accept') {
+            // Determine effective due datetime for this quest. If the due date has passed,
+            // accepting will insert a 'missed' status instead of 'in_progress'.
+            $dueStmt = $pdo->prepare("SELECT due_date FROM quests WHERE id = ? LIMIT 1");
+            $dueStmt->execute([$quest_id]);
+            $qrow = $dueStmt->fetch(PDO::FETCH_ASSOC);
+            $due_date = $qrow['due_date'] ?? null;
+            $statusToInsert = 'in_progress';
+            $acceptedAsMissed = false;
+            if (!empty($due_date)) {
+                $ts = strtotime($due_date);
+                if ($ts !== false) {
+                    // if stored time is midnight, treat as end-of-day
+                    $timePart = date('H:i:s', $ts);
+                    if ($timePart === '00:00:00') {
+                        $ts += 86399;
+                    }
+                    if (time() > $ts) {
+                        $statusToInsert = 'missed';
+                        $acceptedAsMissed = true;
+                    }
+                }
+            }
+
             if (!$uq) {
-                $stmt = $pdo->prepare("INSERT INTO user_quests (employee_id, quest_id, status, assigned_at, started_at) VALUES (?, ?, 'in_progress', NOW(), NOW())");
-                $stmt->execute([$employee_id, $quest_id]);
-                echo json_encode(['success' => true, 'message' => 'Quest accepted!']);
+                $stmt = $pdo->prepare("INSERT INTO user_quests (employee_id, quest_id, status, assigned_at, started_at) VALUES (?, ?, ?, NOW(), NOW())");
+                $stmt->execute([$employee_id, $quest_id, $statusToInsert]);
+                $msg = $acceptedAsMissed ? 'Quest accepted but it is past due and has been marked as Missed.' : 'Quest accepted!';
+                echo json_encode(['success' => true, 'message' => $msg, 'accepted_as_missed' => $acceptedAsMissed]);
                 exit();
             } elseif ($uq['status'] === 'assigned') {
-                $stmt = $pdo->prepare("UPDATE user_quests SET status = 'in_progress', started_at = NOW() WHERE employee_id = ? AND quest_id = ?");
-                $stmt->execute([$employee_id, $quest_id]);
-                echo json_encode(['success' => true, 'message' => 'Quest accepted!']);
+                // Update to the computed status
+                $stmt = $pdo->prepare("UPDATE user_quests SET status = ?, started_at = NOW() WHERE employee_id = ? AND quest_id = ?");
+                $stmt->execute([$statusToInsert, $employee_id, $quest_id]);
+                $msg = $acceptedAsMissed ? 'Quest accepted but it is past due and has been marked as Missed.' : 'Quest accepted!';
+                echo json_encode(['success' => true, 'message' => $msg, 'accepted_as_missed' => $acceptedAsMissed]);
                 exit();
             } else {
                 echo json_encode(['success' => false, 'message' => 'You have already interacted with this quest.']);
