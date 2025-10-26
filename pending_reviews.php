@@ -111,9 +111,12 @@ if ($is_admin) {
   <style>
     .container { max-width: 1100px; margin: 28px auto; padding: 0 16px; }
     .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
-    .badge { display: inline-block; padding: 2px 8px; font-size: 12px; border-radius: 9999px; }
-    .badge-pending { background: #FEF3C7; color: #92400E; border: 1px solid #F59E0B; }
-    .badge-under { background: #DBEAFE; color: #1E40AF; border: 1px solid #3B82F6; }
+  .badge { display: inline-block; padding: 2px 8px; font-size: 12px; border-radius: 9999px; }
+  .badge-pending { background: #FEF3C7; color: #92400E; border: 1px solid #F59E0B; }
+  .badge-submitted { background: #DCFCE7; color: #065F46; border: 1px solid #10B981; }
+  .badge-missed { background: #FEE2E2; color: #7F1D1D; border: 1px solid #EF4444; }
+  .badge-declined { background: #FFF7ED; color: #7C2D12; border: 1px solid #F97316; }
+  .badge-under { background: #DBEAFE; color: #1E40AF; border: 1px solid #3B82F6; }
     .meta { color: #6B7280; font-size: 12px; }
     .topbar { display:flex; align-items:center; justify-content:space-between; margin-bottom: 16px; }
     .btn { display:inline-block; padding: 8px 12px; border-radius: 6px; background:#4F46E5; color:#fff; text-decoration:none; }
@@ -146,17 +149,51 @@ if ($is_admin) {
                 <strong><?php echo htmlspecialchars($r['quest_title'] ?? 'Untitled'); ?></strong>
                 <div class="meta">Quest ID: <?php echo (int)($r['quest_id'] ?? 0); ?></div>
                 <?php
-                  // Get pending users for this quest (assigned but not submitted)
-                  $pendingStmt = $pdo->prepare("SELECT uq.employee_id FROM user_quests uq LEFT JOIN quest_submissions qs ON uq.employee_id = qs.employee_id AND uq.quest_id = qs.quest_id WHERE uq.quest_id = ? AND (qs.id IS NULL OR qs.file_path IS NULL OR qs.file_path = '')");
+                  // Get counts for statuses. We ensure users who declined are not counted as pending/missed.
+                  // Pending: assigned (user_quests) with no submission, not declined, and not past due
+                  $pendingStmt = $pdo->prepare(
+                    "SELECT uq.employee_id FROM user_quests uq 
+                     LEFT JOIN quest_submissions qs ON uq.employee_id = qs.employee_id AND uq.quest_id = qs.quest_id 
+                     LEFT JOIN quests q ON uq.quest_id = q.id 
+                     WHERE uq.quest_id = ? 
+                       AND (qs.id IS NULL OR qs.file_path IS NULL OR qs.file_path = '') 
+                       AND (uq.status IS NULL OR uq.status NOT IN ('declined')) 
+                       AND (q.due_date IS NULL OR q.due_date >= NOW())"
+                  );
                   $pendingStmt->execute([(int)$r['quest_id']]);
                   $pendingUsers = $pendingStmt->fetchAll(PDO::FETCH_COLUMN);
                   $pendingCount = count($pendingUsers);
+
+                  // Submitted: distinct submitters who provided file/text
+                  $submittedStmt = $pdo->prepare("SELECT COUNT(DISTINCT employee_id) FROM quest_submissions WHERE quest_id = ? AND ((file_path IS NOT NULL AND file_path <> '') OR (text_content IS NOT NULL AND text_content <> ''))");
+                  $submittedStmt->execute([(int)$r['quest_id']]);
+                  $submittedCount = (int)$submittedStmt->fetchColumn();
+
+                  // Declined: explicit declined entries in user_quests
+                  $declinedStmt = $pdo->prepare("SELECT COUNT(*) FROM user_quests WHERE quest_id = ? AND status = 'declined'");
+                  $declinedStmt->execute([(int)$r['quest_id']]);
+                  $declinedCount = (int)$declinedStmt->fetchColumn();
+
+                  // Missed: assigned, not declined, no submission, and due_date passed
+                  $missedStmt = $pdo->prepare(
+                    "SELECT uq.employee_id FROM user_quests uq 
+                     LEFT JOIN quest_submissions qs ON uq.employee_id = qs.employee_id AND uq.quest_id = qs.quest_id 
+                     JOIN quests q ON uq.quest_id = q.id 
+                     WHERE uq.quest_id = ? 
+                       AND (qs.id IS NULL OR qs.file_path IS NULL OR qs.file_path = '') 
+                       AND (uq.status IS NULL OR uq.status NOT IN ('declined')) 
+                       AND q.due_date IS NOT NULL AND q.due_date < NOW()"
+                  );
+                  $missedStmt->execute([(int)$r['quest_id']]);
+                  $missedUsers = $missedStmt->fetchAll(PDO::FETCH_COLUMN);
+                  $missedCount = count($missedUsers);
                 ?>
-                <div class="meta" style="margin-top:6px;">
-                  <span class="badge badge-pending">PENDING: <?php echo $pendingCount; ?></span>
-                  <?php if ($pendingCount > 0): ?>
-                    <span style="font-size:11px; color:#6B7280; margin-left:8px;">IDs: <?php echo implode(', ', $pendingUsers); ?></span>
-                  <?php endif; ?>
+                <div class="meta" style="margin-top:6px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                  <span class="badge badge-pending">Pending: <?php echo $pendingCount; ?></span>
+                  <span class="badge badge-submitted">Submitted: <?php echo $submittedCount; ?></span>
+                  <span class="badge badge-missed">Missed: <?php echo $missedCount; ?></span>
+                  <span class="badge badge-declined">Declined: <?php echo $declinedCount; ?></span>
+                  <!-- IDs listing removed per request: only show badges now -->
                 </div>
               </td>
               <td>
