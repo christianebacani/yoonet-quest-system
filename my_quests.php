@@ -66,6 +66,15 @@ try {
     $stmt2 = $pdo->prepare("SELECT cs.skill_name FROM quest_skills qs JOIN comprehensive_skills cs ON qs.skill_id = cs.id WHERE qs.quest_id = ?");
     $stmt2->execute([$q['quest_id']]);
     $q['skills'] = $stmt2->fetchAll(PDO::FETCH_ASSOC);
+    
+    // Use shared helper to determine missed state for display (non-destructive)
+    try {
+        if (function_exists('is_user_missed') && is_user_missed($pdo, (int)$q['quest_id'], $employee_id)) {
+            $q['status'] = 'missed';
+        }
+    } catch (Exception $e) {
+        error_log('my_quests: is_user_missed check failed for quest ' . ($q['quest_id'] ?? 'unknown') . ': ' . $e->getMessage());
+    }
     }
     unset($q);
 } catch (PDOException $e) {
