@@ -63,24 +63,28 @@ $assigned = $stmt->fetchAll(PDO::FETCH_ASSOC);
 $stmt = $pdo->prepare("SELECT DISTINCT employee_id FROM quest_submissions WHERE quest_id = ?");
 $stmt->execute([$quest_id]);
 $submitted_ids = array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'employee_id');
-
-// Filter assigned users who have NOT submitted and missed the deadline
+// Fetch missed submitters using the same DB logic used by pending_reviews so
+// the list of names matches the Missed badge. This avoids inconsistencies
+// when different date formats or submission representations exist.
+// Use shared helper to get missed submitters so the list matches pending_reviews
 $missed = [];
-if ($due_date) {
-  $now = time();
-  $due_ts = strtotime($due_date);
-  // If due_date had only date portion, treat as end-of-day
-  if ($due_ts !== false && date('H:i:s', $due_ts) === '00:00:00') {
-    $due_ts += 86399; // end of day
-  }
-  if ($due_ts !== false && $now > $due_ts) {
-    foreach ($assigned as $a) {
-      if (!in_array($a['employee_id'], $submitted_ids)) {
-        // Include anyone assigned or who accepted after deadline; status may vary
-        $missed[] = $a;
+try {
+  if (function_exists('get_missed_submitters')) {
+    $missed = get_missed_submitters($pdo, (int)$quest_id);
+  } else {
+    // fallback to previous PHP-side filter
+    $now = time();
+    $due_ts = strtotime($due_date);
+    if ($due_ts !== false && date('H:i:s', $due_ts) === '00:00:00') { $due_ts += 86399; }
+    if ($due_ts !== false && $now > $due_ts) {
+      foreach ($assigned as $a) {
+        if (!in_array($a['employee_id'], $submitted_ids)) { $missed[] = $a; }
       }
     }
   }
+} catch (Exception $e) {
+  error_log('missed_submitters: helper get_missed_submitters failed: ' . $e->getMessage());
+  $missed = [];
 }
 
 ?>
