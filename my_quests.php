@@ -45,9 +45,15 @@ try {
         error_log('my_quests: failed to mark missed for employee ' . $employee_id . ': ' . $e->getMessage());
     }
 
-    // Exclude 'assigned' status here: assigned quests should be shown in Open Quests until the user accepts
-    // Include 'assigned' and 'missed' so pending and missed items appear in the user's dashboard
-    $sql = "SELECT uq.*, q.title, q.description, q.due_date, q.quest_assignment_type, q.id as quest_id FROM user_quests uq JOIN quests q ON uq.quest_id = q.id WHERE uq.employee_id = ? AND uq.status IN ('assigned','in_progress','accepted','started','submitted','completed','missed') AND q.status = 'active' ORDER BY q.due_date ASC, q.created_at DESC";
+        // Select all assignments for this user except explicit declines/deletions so
+        // the dashboard continues to show quests even after due date. We rely on
+        // display-time logic to present 'Missed' where appropriate.
+        $sql = "SELECT uq.*, q.title, q.description, q.due_date, q.quest_assignment_type, q.id as quest_id
+                        FROM user_quests uq
+                        JOIN quests q ON uq.quest_id = q.id
+                        WHERE uq.employee_id = ?
+                            AND (uq.status IS NULL OR uq.status NOT IN ('declined','deleted'))
+                        ORDER BY q.due_date ASC, q.created_at DESC";
     $stmt = $pdo->prepare($sql);
     $stmt->execute([$employee_id]);
     $my_quests = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -199,10 +205,12 @@ if (isset($_GET['debug'])) {
                                 <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-start;">
                                 <?php
                                 // If the quest is marked missed, do not show submit button
-                                if ($uqStatus === 'missed') {
-                                    echo '<span style="background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;border-radius:8px;padding:7px 18px;font-weight:600;font-size:0.98em;display:inline-block;">Missed</span>';
-                                } elseif (!$isSubmitted) {
-                                    echo '<a class="btn" href="submit_quest.php?quest_id=' . (int)$q['quest_id'] . '" style="background:linear-gradient(90deg,#6366f1 0%,#4f46e5 100%);color:#fff;font-weight:600;font-size:0.98em;padding:7px 18px;border-radius:8px;box-shadow:0 2px 8px #6366f133;">Submit</a>';
+                                                        if ($uqStatus === 'missed') {
+                                                            // Show a submit-looking button but disabled so users see the familiar affordance
+                                                            // while being unable to act. This mirrors classroom behaviour (grayed/disabled).
+                                                            echo '<button class="btn disabled" disabled title="Deadline passed — submissions are closed" aria-disabled="true" style="background:#e5e7eb;color:#9ca3af;cursor:not-allowed;font-weight:600;font-size:0.98em;padding:7px 18px;border-radius:8px;box-shadow:none;border:1px solid #d1d5db;">Submit</button>';
+                                                        } elseif (!$isSubmitted) {
+                                                            echo '<a class="btn" href="submit_quest.php?quest_id=' . (int)$q['quest_id'] . '" style="background:linear-gradient(90deg,#6366f1 0%,#4f46e5 100%);color:#fff;font-weight:600;font-size:0.98em;padding:7px 18px;border-radius:8px;box-shadow:0 2px 8px #6366f133;">Submit</a>';
                                 } elseif ($isGraded) {
                                     // Graded: show View Submission and View Grade
                                     echo '<a class="btn" href="view_submission.php?submission_id=' . (int)($submission['id'] ?? 0) . '" style="background:linear-gradient(90deg,#6366f1 0%,#4f46e5 100%);color:#fff;font-weight:600;font-size:0.98em;padding:7px 18px;border-radius:8px;box-shadow:0 2px 8px #6366f133;">View Submission</a>';
