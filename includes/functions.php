@@ -302,4 +302,106 @@ function format_availability($availability, $with_icon = true) {
         htmlspecialchars($option['subtitle'])
     );
 }
+
+/**
+ * Check whether a quest submission exists for a given user and quest.
+ * Considers both file_path and text_content as valid submissions.
+ * @param PDO|null $pdo
+ * @param int $quest_id
+ * @param string|int $employee_id
+ * @return bool
+ */
+function has_submission($pdo = null, $quest_id, $employee_id) {
+    if ($pdo === null) {
+        global $pdo;
+    }
+    try {
+        $stmt = $pdo->prepare("SELECT id FROM quest_submissions WHERE quest_id = ? AND employee_id = ? AND ((file_path IS NOT NULL AND file_path <> '') OR (text_content IS NOT NULL AND text_content <> '')) LIMIT 1");
+        $stmt->execute([(int)$quest_id, $employee_id]);
+        return (bool)$stmt->fetchColumn();
+    } catch (PDOException $e) {
+        error_log('has_submission error: ' . $e->getMessage());
+        return false;
+    }
+}
+
+/**
+ * Determine whether a specific user_quest should be considered 'missed'.
+ * Uses the same criteria as pending_reviews/missed_submitters: assigned (not declined/submitted), due_date passed, and no submission.
+ * @param PDO|null $pdo
+ * @param int $quest_id
+ * @param string|int $employee_id
+ * @return bool
+ */
+function is_user_missed($pdo = null, $quest_id, $employee_id) {
+    if ($pdo === null) {
+        global $pdo;
+    }
+    try {
+        $stmt = $pdo->prepare(
+            "SELECT COUNT(*) FROM user_quests uq
+             LEFT JOIN quests q ON q.id = uq.quest_id
+             LEFT JOIN quest_submissions qs ON qs.quest_id = uq.quest_id AND qs.employee_id = uq.employee_id
+               AND ((qs.file_path IS NOT NULL AND qs.file_path <> '') OR (qs.text_content IS NOT NULL AND qs.text_content <> ''))
+             WHERE uq.quest_id = ? AND uq.employee_id = ?
+               AND (uq.status IS NULL OR uq.status NOT IN ('declined','submitted'))
+               AND q.due_date IS NOT NULL
+               AND q.due_date <> '0000-00-00 00:00:00'
+               AND (CASE WHEN TIME(q.due_date) = '00:00:00' THEN DATE_ADD(q.due_date, INTERVAL 86399 SECOND) ELSE q.due_date END) < NOW()
+               AND qs.id IS NULL"
+        );
+        $stmt->execute([(int)$quest_id, $employee_id]);
+        return ((int)$stmt->fetchColumn()) > 0;
+    } catch (PDOException $e) {
+        error_log('is_user_missed error: ' . $e->getMessage());
+        // Fallback to PHP-side check: due_date vs now and has_submission
+        try {
+            $qstmt = $pdo->prepare("SELECT due_date FROM quests WHERE id = ?");
+            $qstmt->execute([(int)$quest_id]);
+            $row = $qstmt->fetch(PDO::FETCH_ASSOC);
+            $due_date = $row['due_date'] ?? null;
+            if (empty($due_date)) return false;
+            $due_ts = strtotime($due_date);
+            if ($due_ts !== false && date('H:i:s', $due_ts) === '00:00:00') { $due_ts += 86399; }
+            if ($due_ts !== false && time() > $due_ts) {
+                return !has_submission($pdo, $quest_id, $employee_id);
+            }
+        } catch (Exception $ex) {
+            error_log('is_user_missed fallback error: ' . $ex->getMessage());
+        }
+        return false;
+    }
+}
+
+/**
+ * Return an array of missed submitters for a given quest_id. Each entry contains employee_id, full_name, status.
+ * @param PDO|null $pdo
+ * @param int $quest_id
+ * @return array
+ */
+function get_missed_submitters($pdo = null, $quest_id) {
+    if ($pdo === null) {
+        global $pdo;
+    }
+    try {
+        $missedStmt = $pdo->prepare(
+            "SELECT uq.employee_id, u.full_name, uq.status FROM user_quests uq
+             LEFT JOIN quests q ON q.id = uq.quest_id
+             LEFT JOIN quest_submissions qs ON qs.quest_id = uq.quest_id AND qs.employee_id = uq.employee_id
+               AND ((qs.file_path IS NOT NULL AND qs.file_path <> '') OR (qs.text_content IS NOT NULL AND qs.text_content <> ''))
+             LEFT JOIN users u ON u.employee_id = uq.employee_id
+             WHERE uq.quest_id = ?
+               AND (uq.status IS NULL OR uq.status NOT IN ('declined','submitted'))
+               AND q.due_date IS NOT NULL
+               AND q.due_date <> '0000-00-00 00:00:00'
+               AND (CASE WHEN TIME(q.due_date) = '00:00:00' THEN DATE_ADD(q.due_date, INTERVAL 86399 SECOND) ELSE q.due_date END) < NOW()
+               AND qs.id IS NULL"
+        );
+        $missedStmt->execute([(int)$quest_id]);
+        return $missedStmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        error_log('get_missed_submitters error: ' . $e->getMessage());
+        return [];
+    }
+}
 ?>
