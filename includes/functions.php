@@ -316,7 +316,7 @@ function has_submission($pdo = null, $quest_id, $employee_id) {
         global $pdo;
     }
     try {
-        $stmt = $pdo->prepare("SELECT id FROM quest_submissions WHERE quest_id = ? AND employee_id = ? AND ((file_path IS NOT NULL AND file_path <> '') OR (text_content IS NOT NULL AND text_content <> '')) LIMIT 1");
+    $stmt = $pdo->prepare("SELECT id FROM quest_submissions WHERE quest_id = ? AND employee_id = ? AND ((file_path IS NOT NULL AND file_path <> '') OR (drive_link IS NOT NULL AND drive_link <> '') OR (text_content IS NOT NULL AND text_content <> '')) LIMIT 1");
         $stmt->execute([(int)$quest_id, $employee_id]);
         return (bool)$stmt->fetchColumn();
     } catch (PDOException $e) {
@@ -338,18 +338,30 @@ function is_user_missed($pdo = null, $quest_id, $employee_id) {
         global $pdo;
     }
     try {
-        $stmt = $pdo->prepare(
-            "SELECT COUNT(*) FROM user_quests uq
-             LEFT JOIN quests q ON q.id = uq.quest_id
-             LEFT JOIN quest_submissions qs ON qs.quest_id = uq.quest_id AND qs.employee_id = uq.employee_id
-               AND ((qs.file_path IS NOT NULL AND qs.file_path <> '') OR (qs.text_content IS NOT NULL AND qs.text_content <> ''))
-             WHERE uq.quest_id = ? AND uq.employee_id = ?
-               AND (uq.status IS NULL OR uq.status NOT IN ('declined','submitted'))
-               AND q.due_date IS NOT NULL
-               AND q.due_date <> '0000-00-00 00:00:00'
-               AND (CASE WHEN TIME(q.due_date) = '00:00:00' THEN DATE_ADD(q.due_date, INTERVAL 86399 SECOND) ELSE q.due_date END) < NOW()
-               AND qs.id IS NULL"
-        );
+                $stmt = $pdo->prepare(
+                        "SELECT COUNT(*) FROM user_quests uq
+                         LEFT JOIN quests q ON q.id = uq.quest_id
+                         LEFT JOIN (
+                             SELECT qs1.* FROM quest_submissions qs1
+                             JOIN (
+                                 SELECT quest_id, employee_id, MAX(submitted_at) AS maxt
+                                 FROM quest_submissions
+                                 GROUP BY quest_id, employee_id
+                             ) qmax ON qs1.quest_id = qmax.quest_id AND qs1.employee_id = qmax.employee_id AND qs1.submitted_at = qmax.maxt
+                         ) qs ON qs.quest_id = uq.quest_id AND qs.employee_id = uq.employee_id
+                         WHERE uq.quest_id = ? AND uq.employee_id = ?
+                             AND (uq.status IS NULL OR uq.status NOT IN ('declined','submitted'))
+                             AND q.due_date IS NOT NULL
+                             AND q.due_date <> '0000-00-00 00:00:00'
+                             AND (CASE WHEN TIME(q.due_date) = '00:00:00' THEN DATE_ADD(q.due_date, INTERVAL 86399 SECOND) ELSE q.due_date END) < NOW()
+                             AND (
+                                 qs.id IS NULL OR (
+                                     (qs.file_path IS NULL OR qs.file_path = '')
+                                     AND (qs.drive_link IS NULL OR qs.drive_link = '')
+                                     AND (qs.text_content IS NULL OR qs.text_content = '')
+                                 )
+                             )"
+                );
         $stmt->execute([(int)$quest_id, $employee_id]);
         return ((int)$stmt->fetchColumn()) > 0;
     } catch (PDOException $e) {
@@ -384,19 +396,31 @@ function get_missed_submitters($pdo = null, $quest_id) {
         global $pdo;
     }
     try {
-        $missedStmt = $pdo->prepare(
-            "SELECT uq.employee_id, u.full_name, uq.status FROM user_quests uq
-             LEFT JOIN quests q ON q.id = uq.quest_id
-             LEFT JOIN quest_submissions qs ON qs.quest_id = uq.quest_id AND qs.employee_id = uq.employee_id
-               AND ((qs.file_path IS NOT NULL AND qs.file_path <> '') OR (qs.text_content IS NOT NULL AND qs.text_content <> ''))
-             LEFT JOIN users u ON u.employee_id = uq.employee_id
-             WHERE uq.quest_id = ?
-               AND (uq.status IS NULL OR uq.status NOT IN ('declined','submitted'))
-               AND q.due_date IS NOT NULL
-               AND q.due_date <> '0000-00-00 00:00:00'
-               AND (CASE WHEN TIME(q.due_date) = '00:00:00' THEN DATE_ADD(q.due_date, INTERVAL 86399 SECOND) ELSE q.due_date END) < NOW()
-               AND qs.id IS NULL"
-        );
+                $missedStmt = $pdo->prepare(
+                        "SELECT uq.employee_id, u.full_name, uq.status FROM user_quests uq
+                         LEFT JOIN quests q ON q.id = uq.quest_id
+                         LEFT JOIN (
+                             SELECT qs1.* FROM quest_submissions qs1
+                             JOIN (
+                                 SELECT quest_id, employee_id, MAX(submitted_at) AS maxt
+                                 FROM quest_submissions
+                                 GROUP BY quest_id, employee_id
+                             ) qmax ON qs1.quest_id = qmax.quest_id AND qs1.employee_id = qmax.employee_id AND qs1.submitted_at = qmax.maxt
+                         ) qs ON qs.quest_id = uq.quest_id AND qs.employee_id = uq.employee_id
+                         LEFT JOIN users u ON u.employee_id = uq.employee_id
+                         WHERE uq.quest_id = ?
+                             AND (uq.status IS NULL OR uq.status NOT IN ('declined','submitted'))
+                             AND q.due_date IS NOT NULL
+                             AND q.due_date <> '0000-00-00 00:00:00'
+                             AND (CASE WHEN TIME(q.due_date) = '00:00:00' THEN DATE_ADD(q.due_date, INTERVAL 86399 SECOND) ELSE q.due_date END) < NOW()
+                             AND (
+                                 qs.id IS NULL OR (
+                                     (qs.file_path IS NULL OR qs.file_path = '')
+                                     AND (qs.drive_link IS NULL OR qs.drive_link = '')
+                                     AND (qs.text_content IS NULL OR qs.text_content = '')
+                                 )
+                             )"
+                );
         $missedStmt->execute([(int)$quest_id]);
         return $missedStmt->fetchAll(PDO::FETCH_ASSOC);
     } catch (PDOException $e) {
