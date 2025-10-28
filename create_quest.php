@@ -1300,7 +1300,7 @@ function getFontSize() {
                         <!-- Quest Skills Selection -->
                         <div id="skillsSection">
                             <div class="flex items-center justify-between mb-2">
-                                <label class="block text-sm font-medium text-gray-700">Required Skills* (Select or Add 1-8)</label>
+                                <label class="block text-sm font-medium text-gray-700">Required Skills* (Select or Add 1-5)</label>
                                 <div class="text-sm text-gray-600">
                                     <span id="skill-counter" class="font-semibold text-indigo-600">0</span>/5 selected
                                 </div>
@@ -2302,8 +2302,18 @@ function getFontSize() {
         let currentCategoryName = '';
         let tempSelectedSkills = new Set(); // Temporary storage for modal selections
         
-        // Skills data from PHP
-        const allSkills = <?php echo json_encode($skills); ?>;
+        // Skills data from PHP (deduplicated client-side to guard against duplicate rows)
+        let allSkills = <?php echo json_encode($skills); ?>;
+        // Dedupe by normalized category+skill_name in case the DB returned duplicates (defensive)
+        (function(){
+            const seen = new Set();
+            const uniq = [];
+            for (const s of allSkills) {
+                const key = ((s.category_name || '') + '::' + (s.skill_name || '')).toString().trim().toLowerCase();
+                if (!seen.has(key)) { seen.add(key); uniq.push(s); }
+            }
+            allSkills = uniq;
+        })();
 
         // Insert focus efficiency helper after DOM loaded
         document.addEventListener('DOMContentLoaded', () => {
@@ -2683,17 +2693,25 @@ function getFontSize() {
             const badgesContainer = document.getElementById('selected-skills-badges');
             const counter = document.getElementById('skill-counter');
             
+            // Build unique list (dedupe by id) because selectedSkills may contain object duplicates
+            function getUniqueSelectedSkills() {
+                const map = new Map();
+                selectedSkills.forEach(s => { const id = String(s.id); if (!map.has(id)) map.set(id, s); });
+                return Array.from(map.values());
+            }
+            const uniqueSkills = getUniqueSelectedSkills();
+
             // Update counter
-            counter.textContent = selectedSkills.size;
+            counter.textContent = uniqueSkills.length;
             
             // Clear current badges
             badgesContainer.innerHTML = '';
             
-            if (selectedSkills.size === 0) {
+            if (uniqueSkills.length === 0) {
                 badgesContainer.innerHTML = '<div class="text-xs text-blue-600 italic">No skills selected yet</div>';
             } else {
                 // Create badges for selected skills
-                selectedSkills.forEach(skill => {
+                uniqueSkills.forEach(skill => {
                     const badgeHTML = `
                         <div class="inline-flex items-center px-3 py-1 bg-indigo-100 text-indigo-800 text-xs rounded-full border border-indigo-200">
                             <span class="font-medium">${skill.name}</span>
@@ -2709,8 +2727,8 @@ function getFontSize() {
                 });
             }
             
-            // Update hidden inputs
-            updateHiddenInputs();
+            // Update hidden inputs (use unique list)
+            updateHiddenInputs(uniqueSkills);
         }
         
         // Unified function to remove a skill (custom or predefined)
@@ -2750,7 +2768,14 @@ function getFontSize() {
         }
         
         // Function to update hidden inputs for form submission
-        function updateHiddenInputs() {
+        function updateHiddenInputs(skillsList) {
+            // If no explicit list passed, build a deduplicated list from selectedSkills
+            if (!Array.isArray(skillsList)) {
+                const map = new Map();
+                selectedSkills.forEach(s => { const id = String(s.id); if (!map.has(id)) map.set(id, s); });
+                skillsList = Array.from(map.values());
+            }
+
             // Remove existing hidden inputs
             const existingInputs = document.querySelectorAll('input[name^="quest_skills"], input[name^="skill_tiers"], input[name^="custom_skill"]');
             existingInputs.forEach(input => input.remove());
@@ -2762,10 +2787,10 @@ function getFontSize() {
                 return;
             }
             
-            console.log('DEBUG: Updating hidden inputs for', selectedSkills.size, 'skills');
-            
+            console.log('DEBUG: Updating hidden inputs for', skillsList.length, 'skills');
+
             // Add hidden inputs for each selected skill
-            selectedSkills.forEach(skill => {
+            skillsList.forEach(skill => {
                 console.log('DEBUG: Creating hidden inputs for skill:', skill);
                 
                 // Create skill ID input
