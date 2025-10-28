@@ -145,6 +145,15 @@ if (isset($_GET['debug'])) {
             th, td { padding: 8px 4px; font-size: 0.95rem; }
             .btn { padding: 8px 12px; font-size:0.95rem; }
         }
+        /* Consistent action button styles used for submission/view actions */
+    .action-btn { display:inline-flex; align-items:center; justify-content:center; padding:0 18px; border-radius:8px; font-weight:600; font-size:0.98em; width:100%; text-align:center; text-decoration:none; line-height:1.2; height:44px; box-sizing:border-box; }
+        .action-primary { background:linear-gradient(90deg,#6366f1 0%,#4f46e5 100%); color:#fff; border:none; box-shadow:0 2px 8px rgba(99,102,241,0.12); }
+        .action-secondary { background:#f3f4f6; color:#1e293b; border:1px solid #cbd5e1; box-shadow:none; }
+        .action-accent { background:#f59e42; color:#fff; border:none; box-shadow:0 2px 8px rgba(245,158,66,0.12); }
+        .action-disabled { background:#e5e7eb; color:#9ca3af; cursor:not-allowed; border:1px solid #d1d5db; box-shadow:none; }
+        .action-small { min-width:90px; padding:7px 12px; }
+        /* Button group layout: always stacked vertically (desktop & mobile) */
+        .action-group { display:flex; flex-direction:column; gap:8px; align-items:stretch; }
     </style>
 </head>
 <body>
@@ -205,26 +214,31 @@ if (isset($_GET['debug'])) {
                                 </span>
                             </td>
                             <td style="padding:10px 8px;vertical-align:middle;">
-                                <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-start;">
+                                <div class="action-group">
                                 <?php
                                 // If the quest is marked missed, do not show submit button
                                                         if ($uqStatus === 'missed') {
                                                             // Show a submit-looking button but disabled so users see the familiar affordance
                                                             // while being unable to act. This mirrors classroom behaviour (grayed/disabled).
-                                                            echo '<button class="btn disabled" disabled title="Deadline passed — submissions are closed" aria-disabled="true" style="background:#e5e7eb;color:#9ca3af;cursor:not-allowed;font-weight:600;font-size:0.98em;padding:7px 18px;border-radius:8px;box-shadow:none;border:1px solid #d1d5db;">Submit</button>';
+                                                            echo '<button class="action-btn action-disabled action-small" disabled title="Deadline passed — submissions are closed" aria-disabled="true">Submit</button>';
                                                         } elseif (!$isSubmitted) {
-                                                            echo '<a class="btn" href="submit_quest.php?quest_id=' . (int)$q['quest_id'] . '" style="background:linear-gradient(90deg,#6366f1 0%,#4f46e5 100%);color:#fff;font-weight:600;font-size:0.98em;padding:7px 18px;border-radius:8px;box-shadow:0 2px 8px #6366f133;">Submit</a>';
+                                                            echo '<a class="action-btn action-primary" href="submit_quest.php?quest_id=' . (int)$q['quest_id'] . '" role="button">Submit</a>';
                                 } elseif ($isGraded) {
                                     // Graded: show View Submission and View Grade
-                                    echo '<a class="btn" href="view_submission.php?submission_id=' . (int)($submission['id'] ?? 0) . '" style="background:linear-gradient(90deg,#6366f1 0%,#4f46e5 100%);color:#fff;font-weight:600;font-size:0.98em;padding:7px 18px;border-radius:8px;box-shadow:0 2px 8px #6366f133;">View Submission</a>';
-                                    echo '<a class="btn" href="view_grade.php?submission_id=' . (int)($submission['id'] ?? 0) . '" style="background:#f59e42;color:#fff;font-weight:600;font-size:0.98em;padding:7px 18px;border-radius:8px;box-shadow:0 2px 8px #f59e4233;">View Grade</a>';
+                                    echo '<a class="action-btn action-primary" href="view_submission.php?submission_id=' . (int)($submission['id'] ?? 0) . '" role="button">View Submission</a>';
+                                    echo '<a class="action-btn action-accent" href="view_grade.php?submission_id=' . (int)($submission['id'] ?? 0) . '" role="button">View Grade</a>';
                                 } elseif (!empty($submission['id'])) {
                                     // Submitted but not graded: show View Submission and Edit Submission
-                                    echo '<a class="btn" href="view_submission.php?submission_id=' . (int)($submission['id']) . '" style="background:linear-gradient(90deg,#6366f1 0%,#4f46e5 100%);color:#fff;font-weight:600;font-size:0.98em;padding:7px 18px;border-radius:8px;box-shadow:0 2px 8px #6366f133;">View Submission</a>';
-                                    echo '<a class="btn" href="edit_submission.php?submission_id=' . (int)($submission['id']) . '" style="background:linear-gradient(90deg,#6366f1 0%,#4f46e5 100%);color:#fff;font-weight:600;font-size:0.98em;padding:7px 18px;border-radius:8px;box-shadow:0 2px 8px #6366f133;">Edit Submission</a>';
+                                    echo '<a class="action-btn action-primary" href="view_submission.php?submission_id=' . (int)($submission['id']) . '" role="button">View Submission</a>';
+                                    echo '<a class="action-btn action-primary" href="edit_submission.php?submission_id=' . (int)($submission['id']) . '" role="button">Edit Submission</a>';
                                 } else {
-                                    echo '<span class="btn" style="background:#e5e7eb;color:#6366f1;cursor:not-allowed;font-weight:600;font-size:0.98em;padding:7px 18px;border-radius:8px;">Submitted</span>';
+                                    echo '<span class="action-btn action-secondary action-small" aria-hidden="true">Submitted</span>';
                                 }
+                                
+                                // end action buttons
+                                
+                                
+                                
                                 ?>
                                 </div>
                             </td>
