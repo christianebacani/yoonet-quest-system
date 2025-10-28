@@ -39,11 +39,24 @@ $due_date = $quest['due_date'] ?? null;
 try {
   $updateSql = "UPDATE user_quests uq
     JOIN quests q ON uq.quest_id = q.id
-    LEFT JOIN quest_submissions qs ON uq.quest_id = qs.quest_id AND uq.employee_id = qs.employee_id
+    LEFT JOIN (
+      SELECT qs1.* FROM quest_submissions qs1
+      JOIN (
+        SELECT quest_id, employee_id, MAX(submitted_at) AS maxt
+        FROM quest_submissions
+        GROUP BY quest_id, employee_id
+      ) qmax ON qs1.quest_id = qmax.quest_id AND qs1.employee_id = qmax.employee_id AND qs1.submitted_at = qmax.maxt
+    ) qs ON uq.quest_id = qs.quest_id AND uq.employee_id = qs.employee_id
     SET uq.status = 'missed'
     WHERE uq.quest_id = ?
       AND uq.status IN ('assigned','in_progress','accepted','started')
-      AND qs.id IS NULL
+      AND (
+        qs.id IS NULL OR (
+          (qs.file_path IS NULL OR qs.file_path = '')
+          AND (qs.drive_link IS NULL OR qs.drive_link = '')
+          AND (qs.text_content IS NULL OR qs.text_content = '')
+        )
+      )
       AND q.due_date IS NOT NULL
       AND (
          CASE WHEN TIME(q.due_date) = '00:00:00' THEN DATE_ADD(q.due_date, INTERVAL 86399 SECOND) ELSE q.due_date END
