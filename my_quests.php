@@ -45,14 +45,17 @@ try {
         error_log('my_quests: failed to mark missed for employee ' . $employee_id . ': ' . $e->getMessage());
     }
 
-        // Select all assignments for this user except explicit declines/deletions so
-        // the dashboard continues to show quests even after due date. We rely on
-        // display-time logic to present 'Missed' where appropriate.
+        // Select user_quests for this employee but only allow an explicit set
+        // of statuses to appear on the "My Quests" dashboard. This whitelist
+        // prevents optional 'assigned' entries from showing until the user
+        // accepts them (they become 'in_progress').
+        // Allowed statuses chosen to cover typical lifecycle states.
         $sql = "SELECT uq.*, q.title, q.description, q.due_date, q.quest_assignment_type, q.id as quest_id
                         FROM user_quests uq
                         JOIN quests q ON uq.quest_id = q.id
-                        WHERE uq.employee_id = ?
-                            AND (uq.status IS NULL OR uq.status NOT IN ('declined','deleted'))
+                    WHERE uq.employee_id = ?
+                                -- Allow NULL/empty status (pending) as well as explicit lifecycle statuses.
+                                AND (uq.status IS NULL OR uq.status = '' OR uq.status IN ('in_progress','accepted','started','submitted','completed','missed','failed','cancelled','approved','graded'))
                         ORDER BY q.due_date ASC, q.created_at DESC";
     $stmt = $pdo->prepare($sql);
     $stmt->execute([$employee_id]);
