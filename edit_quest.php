@@ -108,6 +108,20 @@ try {
     ");
     $stmt->execute();
     $all_skills = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    // Defensive dedupe in case DB returned duplicate skill rows: normalize by category+skill_name
+    $seen_keys = [];
+    $unique_all_skills = [];
+    foreach ($all_skills as $s) {
+        $cat = isset($s['category_name']) ? trim($s['category_name']) : '';
+        $name = isset($s['skill_name']) ? trim($s['skill_name']) : '';
+        if ($name === '') continue;
+        $key = strtolower($cat . '::' . $name);
+        if (!isset($seen_keys[$key])) {
+            $seen_keys[$key] = true;
+            $unique_all_skills[] = $s;
+        }
+    }
+    $all_skills = $unique_all_skills;
     
     // Group skills by category
     $skills_by_category = [];
