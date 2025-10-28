@@ -150,7 +150,7 @@ else {
           <tbody>
           <?php foreach ($rows as $r): ?>
             <tr>
-              <td>#991b1b
+              <td>
                 <strong><?php echo htmlspecialchars($r['quest_title'] ?? 'Untitled'); ?></strong>
                 <div class="meta">Quest ID: <?php echo (int)($r['quest_id'] ?? 0); ?></div>
                 <?php
