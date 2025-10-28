@@ -156,12 +156,23 @@ else {
                 <?php
                   // Get counts for statuses. We ensure users who declined are not counted as pending/missed.
                   // Pending: assigned (user_quests) with no submission, not declined, and not past due
+                  // Pending = assigned users who do NOT have any submission record
+                  // with either a file_path or text_content. Previously this only
+                  // checked file_path which caused text-only submissions (e.g.
+                  // pasted text or links stored in text_content) to be counted as
+                  // still pending. We check both file_path and text_content now.
                   $pendingStmt = $pdo->prepare(
                     "SELECT uq.employee_id FROM user_quests uq 
                      LEFT JOIN quest_submissions qs ON uq.employee_id = qs.employee_id AND uq.quest_id = qs.quest_id 
                      LEFT JOIN quests q ON uq.quest_id = q.id 
                      WHERE uq.quest_id = ? 
-                       AND (qs.id IS NULL OR qs.file_path IS NULL OR qs.file_path = '') 
+                       AND (
+                         qs.id IS NULL
+                         OR (
+                           (qs.file_path IS NULL OR qs.file_path = '')
+                           AND (qs.text_content IS NULL OR qs.text_content = '')
+                         )
+                       )
                        AND (uq.status IS NULL OR uq.status NOT IN ('declined')) 
                          AND (
                            q.due_date IS NULL
