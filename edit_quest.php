@@ -188,7 +188,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $minLeadSeconds = 300; // 5 minutes
     if (!empty($due_date)) {
         $dueTs = strtotime($due_date);
-        if ($dueTs !== false && $dueTs <= (time() + $minLeadSeconds)) {
+        // Accept due dates that are exactly $minLeadSeconds in the future.
+        if ($dueTs !== false && $dueTs < (time() + $minLeadSeconds)) {
             $error = 'Due date must be at least ' . ($minLeadSeconds/60) . ' minutes in the future. Please select a later date/time.';
         }
     }
