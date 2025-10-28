@@ -126,6 +126,10 @@ if (empty($error) && $_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
             $fileUpdated = true;
+            // set submission_type to file if column exists
+            if (empty($qsCols) || in_array('submission_type', $qsCols, true)) {
+                $update[] = "submission_type = 'file'";
+            }
         } elseif ($submissionType === 'link' && $drive_link !== '' && filter_var($drive_link, FILTER_VALIDATE_URL)) {
             if (empty($qsCols) || in_array('drive_link', $qsCols, true)) {
                 $update[] = 'drive_link = ?';
@@ -135,6 +139,9 @@ if (empty($error) && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $nullify = ['submission_text','text_content','text'];
             foreach ($nullify as $col) {
                 if (empty($qsCols) || in_array($col, $qsCols, true)) { $update[] = "$col = NULL"; }
+            }
+            if (empty($qsCols) || in_array('submission_type', $qsCols, true)) {
+                $update[] = "submission_type = 'link'";
             }
         } else {
             // Optional text content in case of simple text edits
@@ -147,6 +154,9 @@ if (empty($error) && $_SERVER['REQUEST_METHOD'] === 'POST') {
                     // fallback to submission_text if text_content doesn't exist
                     $update[] = 'submission_text = ?';
                     $params[] = $text_content;
+                }
+                if (empty($qsCols) || in_array('submission_type', $qsCols, true)) {
+                    $update[] = "submission_type = 'text'";
                 }
                 if (empty($qsCols) || in_array('file_path', $qsCols, true)) { $update[] = 'file_path = NULL'; }
                 if (empty($qsCols) || in_array('drive_link', $qsCols, true)) { $update[] = 'drive_link = NULL'; }
