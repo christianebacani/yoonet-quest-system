@@ -150,42 +150,50 @@ else {
           <tbody>
           <?php foreach ($rows as $r): ?>
             <tr>
-              <td>
+              <td>#991b1b
                 <strong><?php echo htmlspecialchars($r['quest_title'] ?? 'Untitled'); ?></strong>
                 <div class="meta">Quest ID: <?php echo (int)($r['quest_id'] ?? 0); ?></div>
                 <?php
                   // Get counts for statuses. We ensure users who declined are not counted as pending/missed.
-                  // Pending: assigned (user_quests) with no submission, not declined, and not past due
-                  // Pending = assigned users who do NOT have any submission record
-                  // with either a file_path or text_content. Previously this only
-                  // checked file_path which caused text-only submissions (e.g.
-                  // pasted text or links stored in text_content) to be counted as
-                  // still pending. We check both file_path and text_content now.
+                  // Pending = assigned users who do NOT have any VALID latest
+                  // submission (file_path OR drive_link OR text_content). Join
+                  // to the most recent submission per user+quest to avoid older
+                  // empty submissions causing a false pending count.
                   $pendingStmt = $pdo->prepare(
-                    "SELECT uq.employee_id FROM user_quests uq 
-                     LEFT JOIN quest_submissions qs ON uq.employee_id = qs.employee_id AND uq.quest_id = qs.quest_id 
-                     LEFT JOIN quests q ON uq.quest_id = q.id 
-                     WHERE uq.quest_id = ? 
+                    "SELECT uq.employee_id FROM user_quests uq
+                     LEFT JOIN (
+                        SELECT qs1.* FROM quest_submissions qs1
+                        JOIN (
+                          SELECT quest_id, employee_id, MAX(submitted_at) AS maxt
+                          FROM quest_submissions
+                          GROUP BY quest_id, employee_id
+                        ) qmax ON qs1.quest_id = qmax.quest_id AND qs1.employee_id = qmax.employee_id AND qs1.submitted_at = qmax.maxt
+                     ) qs ON uq.employee_id = qs.employee_id AND uq.quest_id = qs.quest_id
+                     LEFT JOIN quests q ON uq.quest_id = q.id
+                     WHERE uq.quest_id = ?
                        AND (
                          qs.id IS NULL
                          OR (
                            (qs.file_path IS NULL OR qs.file_path = '')
+                           AND (qs.drive_link IS NULL OR qs.drive_link = '')
                            AND (qs.text_content IS NULL OR qs.text_content = '')
                          )
                        )
-                       AND (uq.status IS NULL OR uq.status NOT IN ('declined')) 
-                         AND (
+                       AND (uq.status IS NULL OR uq.status NOT IN ('declined'))
+                       AND (
                            q.due_date IS NULL
                            OR q.due_date = '0000-00-00 00:00:00'
                            OR (CASE WHEN TIME(q.due_date) = '00:00:00' THEN DATE_ADD(q.due_date, INTERVAL 86399 SECOND) ELSE q.due_date END) >= NOW()
-                         )"
+                       )"
                   );
                   $pendingStmt->execute([(int)$r['quest_id']]);
                   $pendingUsers = $pendingStmt->fetchAll(PDO::FETCH_COLUMN);
+                  // Use array_unique in case of duplicates
+                  $pendingUsers = array_values(array_unique($pendingUsers));
                   $pendingCount = count($pendingUsers);
 
                   // Submitted: distinct submitters who provided file/text
-                  $submittedStmt = $pdo->prepare("SELECT COUNT(DISTINCT employee_id) FROM quest_submissions WHERE quest_id = ? AND ((file_path IS NOT NULL AND file_path <> '') OR (text_content IS NOT NULL AND text_content <> ''))");
+                  $submittedStmt = $pdo->prepare("SELECT COUNT(DISTINCT employee_id) FROM quest_submissions WHERE quest_id = ? AND ((file_path IS NOT NULL AND file_path <> '') OR (drive_link IS NOT NULL AND drive_link <> '') OR (text_content IS NOT NULL AND text_content <> ''))");
                   $submittedStmt->execute([(int)$r['quest_id']]);
                   $submittedCount = (int)$submittedStmt->fetchColumn();
 
@@ -199,14 +207,26 @@ else {
                   $missedStmt = $pdo->prepare(
                     "SELECT COUNT(DISTINCT uq.employee_id) FROM user_quests uq
                      LEFT JOIN quests q ON q.id = uq.quest_id
-                     LEFT JOIN quest_submissions qs ON qs.quest_id = uq.quest_id AND qs.employee_id = uq.employee_id
-                       AND ((qs.file_path IS NOT NULL AND qs.file_path <> '') OR (qs.text_content IS NOT NULL AND qs.text_content <> ''))
+                     LEFT JOIN (
+                       SELECT qs1.* FROM quest_submissions qs1
+                       JOIN (
+                         SELECT quest_id, employee_id, MAX(submitted_at) AS maxt
+                         FROM quest_submissions
+                         GROUP BY quest_id, employee_id
+                       ) qmax ON qs1.quest_id = qmax.quest_id AND qs1.employee_id = qmax.employee_id AND qs1.submitted_at = qmax.maxt
+                     ) qs ON qs.quest_id = uq.quest_id AND qs.employee_id = uq.employee_id
                      WHERE uq.quest_id = ?
                        AND (uq.status IS NULL OR uq.status NOT IN ('declined','submitted'))
                        AND q.due_date IS NOT NULL
                        AND q.due_date <> '0000-00-00 00:00:00'
                        AND (CASE WHEN TIME(q.due_date) = '00:00:00' THEN DATE_ADD(q.due_date, INTERVAL 86399 SECOND) ELSE q.due_date END) < NOW()
-                       AND qs.id IS NULL"
+                       AND (
+                         qs.id IS NULL OR (
+                           (qs.file_path IS NULL OR qs.file_path = '')
+                           AND (qs.drive_link IS NULL OR qs.drive_link = '')
+                           AND (qs.text_content IS NULL OR qs.text_content = '')
+                         )
+                       )"
                   );
                   $missedStmt->execute([(int)$r['quest_id']]);
                   $missedCount = (int)$missedStmt->fetchColumn();
