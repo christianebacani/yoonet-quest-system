@@ -373,6 +373,7 @@ CREATE TABLE IF NOT EXISTS `quest_submissions` (
   `file_path` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `drive_link` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `text_content` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `submission_type` enum('file','link','text') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `comments` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `status` enum('pending','approved','rejected','needs_revision') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
   `feedback` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
@@ -399,8 +400,8 @@ ADD COLUMN IF NOT EXISTS `grade` enum('A','B','C','D','F') CHARACTER SET utf8mb4
 ADD COLUMN IF NOT EXISTS `text_content` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL;
 
 -- Update submission_type enum to include 'text' if not already present
-ALTER TABLE `quest_submissions` 
-MODIFY COLUMN `submission_type` enum('file','link','text') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL;
+ALTER TABLE `quest_submissions`
+ADD COLUMN IF NOT EXISTS `submission_type` enum('file','link','text') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL;
 
 -- Update status enum to include 'needs_revision' if not already present
 ALTER TABLE `quest_submissions` 
