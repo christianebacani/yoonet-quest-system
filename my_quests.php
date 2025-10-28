@@ -27,18 +27,31 @@ try {
     try {
                 // More robust missed-marking: consider any quest_submissions row as a submission
                 // and treat date-only values as end-of-day by adding 86399 seconds.
-                $markSql = "UPDATE user_quests uq
-                        JOIN quests q ON uq.quest_id = q.id
-                        LEFT JOIN quest_submissions qs ON qs.quest_id = uq.quest_id AND qs.employee_id = uq.employee_id
-                        SET uq.status = 'missed'
-                        WHERE uq.employee_id = ?
-                            AND uq.status IN ('assigned','in_progress','accepted','started')
-                            AND qs.id IS NULL
-                            AND q.due_date IS NOT NULL
-                            AND q.due_date <> '0000-00-00'
-                            AND (
-                                        CASE WHEN TIME(q.due_date) = '00:00:00' THEN DATE_ADD(q.due_date, INTERVAL 86399 SECOND) ELSE q.due_date END
-                                    ) < NOW()";
+                                $markSql = "UPDATE user_quests uq
+                                                JOIN quests q ON uq.quest_id = q.id
+                                                LEFT JOIN (
+                                                    SELECT qs1.* FROM quest_submissions qs1
+                                                    JOIN (
+                                                        SELECT quest_id, employee_id, MAX(submitted_at) AS maxt
+                                                        FROM quest_submissions
+                                                        GROUP BY quest_id, employee_id
+                                                    ) qmax ON qs1.quest_id = qmax.quest_id AND qs1.employee_id = qmax.employee_id AND qs1.submitted_at = qmax.maxt
+                                                ) qs ON qs.quest_id = uq.quest_id AND qs.employee_id = uq.employee_id
+                                                SET uq.status = 'missed'
+                                                WHERE uq.employee_id = ?
+                                                        AND uq.status IN ('assigned','in_progress','accepted','started')
+                                                        AND (
+                                                            qs.id IS NULL OR (
+                                                                (qs.file_path IS NULL OR qs.file_path = '')
+                                                                AND (qs.drive_link IS NULL OR qs.drive_link = '')
+                                                                AND (qs.text_content IS NULL OR qs.text_content = '')
+                                                            )
+                                                        )
+                                                        AND q.due_date IS NOT NULL
+                                                        AND q.due_date <> '0000-00-00'
+                                                        AND (
+                                                                                CASE WHEN TIME(q.due_date) = '00:00:00' THEN DATE_ADD(q.due_date, INTERVAL 86399 SECOND) ELSE q.due_date END
+                                                                        ) < NOW()";
         $stmtMark = $pdo->prepare($markSql);
         $stmtMark->execute([$employee_id]);
     } catch (PDOException $e) {
