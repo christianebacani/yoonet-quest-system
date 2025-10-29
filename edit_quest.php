@@ -72,8 +72,9 @@ try {
         if ($current_user_id && strtolower(trim($cb)) === strtolower('user_' . (string)$current_user_id)) { $is_creator = true; }
     }
 
-    // If not creator and not a learning_architect, block access
-    if (!$is_creator && $role !== 'learning_architect') {
+    // If not creator and not in an allowed role, block access
+    $allowed_roles = ['learning_architect', 'quest_lead', 'admin'];
+    if (!$is_creator && !in_array($role, $allowed_roles, true)) {
         header('Location: dashboard.php');
         exit();
     }
@@ -90,7 +91,7 @@ try {
     
     // Fetch quest skills for editing
     $stmt = $pdo->prepare("
-        SELECT qs.skill_id, qs.tier, cs.skill_name, cs.category_id, sc.category_name 
+        SELECT qs.skill_id, qs.tier_level AS tier, cs.skill_name, cs.category_id, sc.category_name 
         FROM quest_skills qs 
         JOIN comprehensive_skills cs ON qs.skill_id = cs.id 
         JOIN skill_categories sc ON cs.category_id = sc.id 
@@ -346,9 +347,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt = $pdo->prepare("DELETE FROM quest_skills WHERE quest_id = ?");
                 $stmt->execute([$quest_id]);
                 
-                // Add new quest skills
+                // Add new quest skills (store tier in tier_level column)
                 if (!empty($quest_skills)) {
-                    $stmt = $pdo->prepare("INSERT INTO quest_skills (quest_id, skill_id, tier) VALUES (?, ?, ?)");
+                    $stmt = $pdo->prepare("INSERT INTO quest_skills (quest_id, skill_id, tier_level) VALUES (?, ?, ?)");
                     foreach ($quest_skills as $skill) {
                         $stmt->execute([$quest_id, $skill['skill_id'], $skill['tier']]);
                     }
@@ -1113,35 +1114,7 @@ function getFontSize() {
                     </div>
                 </div>
 
-                <!-- Quest Type Selection -->
-                <div class="card p-6">
-                    <h2 class="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b border-gray-100">
-                        <i class="fas fa-layer-group text-indigo-500 mr-2"></i> Quest Type
-                    </h2>
-                    <div class="flex gap-4 mb-4">
-                        <label class="flex items-center cursor-pointer">
-                            <input type="radio" name="quest_type" value="routine" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500" checked>
-                            <span class="ml-2 text-sm font-medium text-gray-700">Routine Task</span>
-                        </label>
-                        <label class="flex items-center cursor-pointer">
-                            <input type="radio" name="quest_type" value="minor" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500">
-                            <span class="ml-2 text-sm font-medium text-gray-700">Minor Quest</span>
-                        </label>
-                        <label class="flex items-center cursor-pointer">
-                            <input type="radio" name="quest_type" value="standard" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500">
-                            <span class="ml-2 text-sm font-medium text-gray-700">Standard Quest</span>
-                        </label>
-                        <label class="flex items-center cursor-pointer">
-                            <input type="radio" name="quest_type" value="major" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500">
-                            <span class="ml-2 text-sm font-medium text-gray-700">Major Quest</span>
-                        </label>
-                        <label class="flex items-center cursor-pointer">
-                            <input type="radio" name="quest_type" value="project" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500">
-                            <span class="ml-2 text-sm font-medium text-gray-700">Major Project</span>
-                        </label>
-                    </div>
-                    <p class="mt-1 text-xs text-gray-500"><i class="fas fa-info-circle mr-1"></i>Quest type affects skill tier base points and recurrence options.</p>
-                </div>
+                <!-- Quest Type selection removed on edit page; use existing quest_type from the DB -->
                 <!-- Skills & Assessment Section -->
                 <div class="card p-6">
                     <h2 class="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b border-gray-100">
@@ -1316,10 +1289,10 @@ function getFontSize() {
             project:  [40, 80, 120, 160, 200]// Major Project
         };
 
-        // Helper to get current quest type (radio)
+        // Use the quest_type stored on the server for this quest (edit page should not change it)
+        const serverQuestType = <?php echo json_encode($quest['quest_type'] ?? 'single'); ?>;
         function getCurrentQuestType() {
-            const el = document.querySelector('input[name="quest_type"]:checked');
-            return el ? el.value : 'routine';
+            return serverQuestType;
         }
 
         // Helper to get points for a given tier (1-based) and quest type
@@ -1368,10 +1341,7 @@ function getFontSize() {
             }
         }
 
-        // On quest type change, update all dropdowns
-        document.querySelectorAll('input[name="quest_type"]').forEach(radio => {
-            radio.addEventListener('change', updateAllTierDropdowns);
-        });
+        // Quest type is not changeable on the edit page; use serverQuestType instead.
 
         // When modals open, ensure dropdowns are updated
         window.showCustomSkillModal = function(categoryId, categoryName) {
@@ -1472,9 +1442,7 @@ function getFontSize() {
                             <div class="assignment-tab active flex-1 text-center py-2 px-3 border-b-2 border-indigo-500 text-indigo-600 text-sm font-medium cursor-pointer" data-tab="individual">
                                 <i class="fas fa-user mr-1"></i>Individuals
                             </div>
-                            <div class="assignment-tab flex-1 text-center py-2 px-3 border-b-2 border-transparent text-gray-500 hover:text-gray-700 text-sm font-medium cursor-pointer" data-tab="group">
-                                <i class="fas fa-users mr-1"></i>Group
-                            </div>
+                            <!-- Group assignment removed (not used) -->
                         </div>
                         
                         <!-- Individual Assignment Tab Content -->
@@ -1583,15 +1551,7 @@ function getFontSize() {
             }
         });
 
-        // Hide End Date and clear value if no pattern is selected
-        $(document).on('change', 'input[name="quest_type"]', function() {
-            if ($(this).val() !== 'recurring') {
-                $('#recurrence_end_date').val('');
-                $('#recurrence_end_date').closest('div').hide();
-                $('input[name="recurrence_pattern"]').prop('checked', false);
-                $('.recurrence-pattern').removeClass('selected');
-            }
-        });
+        // Quest type is fixed on the edit page; no dynamic change handler needed for quest_type
 
         // On page load, hide End Date box unless a pattern is selected
         $(document).ready(function() {
@@ -2082,19 +2042,8 @@ function getFontSize() {
             // Make searchEmployees function globally available
             window.searchEmployees = searchEmployees;
 
-            // Show/hide recurring options based on quest type
-            $('input[name="quest_type"]').change(function() {
-                if ($(this).val() === 'recurring') {
-                    $('#recurringOptions').addClass('visible');
-                    $('.recurrence-patterns').css('display', 'grid');
-                } else {
-                    $('#recurringOptions').removeClass('visible');
-                    $('.recurrence-patterns').css('display', 'none');
-                }
-            });
-
-            // On page load, ensure recurringOptions and recurrence-patterns visibility matches selected quest_type
-            if ($('input[name="quest_type"]:checked').val() === 'recurring') {
+            // Show/hide recurring options based on the quest_type stored on the server for this quest
+            if (<?php echo json_encode($quest['quest_type'] ?? 'single'); ?> === 'recurring') {
                 $('#recurringOptions').addClass('visible');
                 $('.recurrence-patterns').css('display', 'grid');
             } else {
