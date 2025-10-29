@@ -212,11 +212,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $assign_group = null;
     $status = $_POST['status'] ?? 'active';
     
-    // Handle quest skills
-    $quest_skills_data = $_POST['quest_skills'] ?? '';
+    // Handle quest skills: accept either the JSON payload (legacy) or the
+    // form-style inputs used by the create page (quest_skills[] + skill_tiers + custom_skill_names).
     $quest_skills = [];
-    if (!empty($quest_skills_data)) {
-        $quest_skills = json_decode($quest_skills_data, true) ?: [];
+    if (isset($_POST['quest_skills'])) {
+        // If it's an array (form-style), convert to internal structure
+        if (is_array($_POST['quest_skills'])) {
+            foreach ($_POST['quest_skills'] as $skillVal) {
+                $tier = 2;
+                // tier may be keyed by skill id or name
+                if (isset($_POST['skill_tiers'][$skillVal])) {
+                    $tierRaw = $_POST['skill_tiers'][$skillVal];
+                } elseif (isset($_POST['skill_tiers'][strval($skillVal)])) {
+                    $tierRaw = $_POST['skill_tiers'][strval($skillVal)];
+                } else {
+                    $tierRaw = null;
+                }
+
+                // Normalize tier to integer 1-5. Support values like 'T2' or '2'
+                if (!empty($tierRaw)) {
+                    if (is_string($tierRaw) && preg_match('/T?(\d)/i', $tierRaw, $m)) {
+                        $tier = intval($m[1]);
+                    } else {
+                        $tier = intval($tierRaw);
+                    }
+                    if ($tier < 1 || $tier > 5) $tier = 2;
+                }
+
+                // Normalize into consistent array entries
+                $quest_skills[] = [
+                    'skill_id' => $skillVal,
+                    'tier' => $tier
+                ];
+            }
+        } else {
+            // Fallback: accept JSON string as before
+            $quest_skills_data = $_POST['quest_skills'] ?? '';
+            if (!empty($quest_skills_data)) {
+                $quest_skills = json_decode($quest_skills_data, true) ?: [];
+            }
+        }
     }
 
     // Validate input
@@ -346,12 +381,77 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // Delete existing quest skills
                 $stmt = $pdo->prepare("DELETE FROM quest_skills WHERE quest_id = ?");
                 $stmt->execute([$quest_id]);
-                
-                // Add new quest skills (store tier in tier_level column)
+
+                // Prepare to insert new quest skills. Support both existing skill IDs and
+                // custom skills submitted from the create-style component (custom_skill_names / custom_skill_categories).
                 if (!empty($quest_skills)) {
-                    $stmt = $pdo->prepare("INSERT INTO quest_skills (quest_id, skill_id, tier_level) VALUES (?, ?, ?)");
+                    $insertStmt = $pdo->prepare("INSERT INTO quest_skills (quest_id, skill_id, tier_level) VALUES (?, ?, ?)");
+
                     foreach ($quest_skills as $skill) {
-                        $stmt->execute([$quest_id, $skill['skill_id'], $skill['tier']]);
+                        $skillVal = $skill['skill_id'];
+                        $tier = isset($skill['tier']) ? $skill['tier'] : 2;
+
+                        // If skillVal is numeric, treat as existing skill id
+                        if (is_numeric($skillVal)) {
+                            $insertStmt->execute([$quest_id, intval($skillVal), $tier]);
+                            continue;
+                        }
+
+                        // Otherwise, assume it's a temporary custom skill id (e.g. custom_1)
+                        $tempId = $skillVal;
+
+                        $customNames = $_POST['custom_skill_names'] ?? [];
+                        $customCats = $_POST['custom_skill_categories'] ?? [];
+
+                        // Support both keyed arrays (custom_skill_names[tempId]=name) and
+                        // indexed arrays (custom_skill_names[]). If keyed, use by tempId.
+                        if (isset($customNames[$tempId])) {
+                            $customName = trim($customNames[$tempId]);
+                        } else {
+                            // Fallback: consume next available indexed custom name
+                            $customName = '';
+                            if (!empty($customNames)) {
+                                // Use each in order — maintain pointer in a static variable across loop
+                                if (!isset($__custom_index)) $__custom_index = 0;
+                                $customName = trim($customNames[$__custom_index] ?? '');
+                                $customCat = trim($customCats[$__custom_index] ?? 'General');
+                                $__custom_index++;
+                            }
+                        }
+
+                        if (empty($customName)) {
+                            // Skip invalid custom skill
+                            continue;
+                        }
+
+                        // If category wasn't set via indexed path, try keyed access
+                        if (!isset($customCat) || $customCat === '') {
+                            $customCat = isset($customCats[$tempId]) ? trim($customCats[$tempId]) : 'General';
+                        }
+
+                        // Find or create category
+                        $catStmt = $pdo->prepare("SELECT id FROM skill_categories WHERE category_name = ? LIMIT 1");
+                        $catStmt->execute([$customCat]);
+                        $category_id = $catStmt->fetchColumn();
+                        if (!$category_id) {
+                            $createCat = $pdo->prepare("INSERT INTO skill_categories (category_name) VALUES (?)");
+                            $createCat->execute([$customCat]);
+                            $category_id = $pdo->lastInsertId();
+                        }
+
+                        // Check if a skill with the same name/category already exists to avoid duplicates
+                        $existingSkillStmt = $pdo->prepare("SELECT id FROM comprehensive_skills WHERE skill_name = ? AND category_id = ? LIMIT 1");
+                        $existingSkillStmt->execute([$customName, $category_id]);
+                        $newSkillId = $existingSkillStmt->fetchColumn();
+                        if (!$newSkillId) {
+                            // Create the custom skill in comprehensive_skills
+                            $createSkill = $pdo->prepare("INSERT INTO comprehensive_skills (skill_name, category_id, description, tier_1_points, tier_2_points, tier_3_points, tier_4_points, tier_5_points) VALUES (?, ?, ?, 5, 10, 15, 20, 25)");
+                            $createSkill->execute([$customName, $category_id, "Custom skill: $customName"]);
+                            $newSkillId = $pdo->lastInsertId();
+                        }
+
+                        // Insert into quest_skills with new ID
+                        $insertStmt->execute([$quest_id, $newSkillId, $tier]);
                     }
                 }
                 
