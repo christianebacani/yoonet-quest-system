@@ -1252,102 +1252,9 @@ function getFontSize() {
                         </div>
                     </div>
 
-                    <!-- Skill Categories with Add Custom Skill -->
-                    <div class="border border-gray-200 rounded-lg max-h-96 overflow-y-auto bg-white">
-                        <?php 
-                        $category_colors = [
-                            'Technical Skills' => 'bg-blue-50 border-l-4 border-blue-400',
-                            'Communication Skills' => 'bg-green-50 border-l-4 border-green-400',
-                            'Soft Skills' => 'bg-purple-50 border-l-4 border-purple-400',
-                            'Business Skills' => 'bg-orange-50 border-l-4 border-orange-400'
-                        ];
-                        
-                        $category_ids = [
-                            'Technical Skills' => 'technical',
-                            'Communication Skills' => 'communication',
-                            'Soft Skills' => 'soft',
-                            'Business Skills' => 'business'
-                        ];
-                        
-                        // If no skills exist, show all categories with add custom skill option
-                        if (empty($skills_by_category)):
-                            foreach ($category_ids as $category_name => $cat_id):
-                        ?>
-                            <!-- Category Header (Always Visible) -->
-                            <div class="<?php echo $category_colors[$category_name] ?? 'bg-gray-50'; ?> p-2 font-semibold text-sm text-gray-700 sticky top-0 z-10 flex items-center justify-between">
-                                <div>
-                                    <?php echo htmlspecialchars($category_name); ?> 
-                                    <span class="text-xs font-normal text-gray-500">(0 skills)</span>
-                                </div>
-                                <button type="button" 
-                                        onclick="showCustomSkillModal('<?php echo $cat_id; ?>', '<?php echo htmlspecialchars($category_name); ?>')"
-                                        class="px-3 py-1 text-xs bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors shadow-sm">
-                                    <i class="fas fa-plus mr-1"></i>Add Custom Skill
-                                </button>
-                            </div>
-                            
-                            <!-- No predefined skills message -->
-                            <div class="p-3 text-center text-gray-500 text-xs italic bg-gray-50">
-                                No predefined skills. Click "Add Custom Skill" to add your own.
-                            </div>
-                            
-                            <!-- Container for Custom Skills -->
-                            <div id="custom-skills-<?php echo $cat_id; ?>" class="divide-y divide-gray-100"></div>
-                        <?php 
-                            endforeach;
-                        else:
-                            foreach ($skills_by_category as $category_name => $skills): 
-                                $cat_id = $category_ids[$category_name] ?? strtolower(str_replace(' ', '_', $category_name));
-                        ?>
-                        
-                        <!-- Category Header (Always Visible) -->
-                        <div class="<?php echo $category_colors[$category_name] ?? 'bg-gray-50'; ?> p-2 font-semibold text-sm text-gray-700 sticky top-0 z-10 flex items-center justify-between">
-                            <div>
-                                <?php echo htmlspecialchars($category_name); ?>
-                                <span class="text-xs font-normal text-gray-500">(<?php echo count($skills); ?> skills)</span>
-                            </div>
-                            <button type="button" 
-                                    onclick="showCustomSkillModal('<?php echo $cat_id; ?>', '<?php echo htmlspecialchars($category_name); ?>')"
-                                    class="px-3 py-1 text-xs bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors shadow-sm">
-                                <i class="fas fa-plus mr-1"></i>Add Custom Skill
-                            </button>
-                        </div>
-                        
-                        <!-- Skills List -->
-                        <div class="divide-y divide-gray-100">
-                            <?php foreach ($skills as $skill): ?>
-                                <label class="flex items-start p-2 hover:bg-gray-50 cursor-pointer transition-colors skill-item"
-                                       data-skill-id="<?php echo $skill['skill_id']; ?>"
-                                       data-skill-name="<?php echo htmlspecialchars($skill['skill_name']); ?>"
-                                       data-category="<?php echo $cat_id; ?>"
-                                       data-category-name="<?php echo htmlspecialchars($category_name); ?>">
-                                    <input type="checkbox" 
-                                           class="skill-checkbox mt-1 h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
-                                           data-skill-id="<?php echo $skill['skill_id']; ?>"
-                                           data-skill-name="<?php echo htmlspecialchars($skill['skill_name']); ?>"
-                                           data-category-name="<?php echo htmlspecialchars($category_name); ?>"
-                                           data-is-custom="false"
-                                           onchange="toggleSkillSelection(this)">
-                                    <div class="ml-2 flex-1">
-                                        <div class="text-sm font-medium text-gray-900"><?php echo htmlspecialchars($skill['skill_name']); ?></div>
-                                        
-                                        <!-- Tier Selector (Shown when checked) -->
-                                        <div class="skill-tier-selector hidden mt-1">
-                                            <select class="tier-select text-xs border border-gray-300 rounded px-2 py-1 focus:ring-2 focus:ring-indigo-500 bg-white"
-                                                    onchange="updateSkillTier(this)">
-                                                <!-- Dynamic options will be injected by JS -->
-                                            </select>
-                                        </div>
-                                    </div>
-                                </label>
-                            <?php endforeach; ?>
-                        </div>
-                        
-                        <!-- Container for Custom Skills -->
-                        <div id="custom-skills-<?php echo $cat_id; ?>" class="divide-y divide-gray-100"></div>
-                        
-                        <?php endforeach; ?>
-                        <?php endif; ?>
+                    <!-- Inline skill list removed: use the category buttons above to open the skills picker modal -->
+                    <div class="p-4 border border-gray-200 rounded-lg bg-white">
+                        <p class="text-sm text-gray-700">The inline skill list has been removed to simplify the editor. Use the category buttons above to open the skills picker modal and select skills for this quest. Selected skills will appear in the Selected Skills area and be attached immediately when you update the quest.</p>
                     </div>
 
                     <!-- Skills Modal (Edit page) - copied/adapted from create_quest -->
@@ -2750,22 +2657,27 @@ document.addEventListener('DOMContentLoaded', function() {
     <?php if (!empty($quest_skills)): ?>
     const existingSkills = <?php echo json_encode($quest_skills); ?>;
     existingSkills.forEach(skill => {
-        const skillElement = document.querySelector(`[data-skill-id="${skill.skill_id}"]`);
+        const sid = String(skill.skill_id);
+        const skillElement = document.querySelector(`[data-skill-id="${sid}"]`);
         if (skillElement) {
             const checkbox = skillElement.querySelector('.skill-checkbox');
             if (checkbox) {
                 checkbox.checked = true;
-                selectedSkills.add(String(skill.skill_id));
-                skillTiers[String(skill.skill_id)] = skill.tier;
-                
+                selectedSkills.add(sid);
+                skillTiers[sid] = skill.tier;
+
                 // Show tier selector and set value
                 const tierSelector = skillElement.querySelector('.skill-tier-selector');
-                const tierSelect = tierSelector.querySelector('.tier-select');
+                const tierSelect = tierSelector ? tierSelector.querySelector('.tier-select') : null;
                 if (tierSelector && tierSelect) {
                     tierSelector.classList.remove('hidden');
                     tierSelect.value = skill.tier;
                 }
             }
+        } else {
+            // Inline skill element not present (we removed the long list). Still attach the skill so it appears in the selected badges.
+            selectedSkills.add(sid);
+            skillTiers[sid] = skill.tier;
         }
     });
     <?php endif; ?>
@@ -3190,11 +3102,32 @@ function updateSkillDisplay() {
     if (selectedSkills.size === 0) {
         selectedBadges.innerHTML = '<span class="text-xs text-blue-600 italic" id="noSkillsMessage">No skills selected yet</span>';
     } else {
-        const badges = Array.from(selectedSkills).map(skillId => {
+            const badges = Array.from(selectedSkills).map(skillId => {
             const skillItem = document.querySelector(`[data-skill-id="${skillId}"]`);
-            const skillName = skillItem?.dataset.skillName || 'Unknown Skill';
+            let skillName = 'Unknown Skill';
+            let isCustom = false;
+
+            if (skillItem) {
+                skillName = skillItem.dataset.skillName || skillName;
+                isCustom = (skillItem.querySelector('.skill-checkbox')?.dataset.isCustom === 'true');
+            } else if (typeof allSkills !== 'undefined' && Array.isArray(allSkills)) {
+                const found = allSkills.find(s => String(s.skill_id) === String(skillId));
+                if (found) {
+                    skillName = found.skill_name || skillName;
+                    // if found in allSkills it's not a custom (predefined)
+                    isCustom = false;
+                } else if (String(skillId).startsWith('custom_')) {
+                    // For client-side custom ids, attempt to read any hidden custom name inputs
+                    const customInputs = document.querySelectorAll('input[name="custom_skill_names[]"]');
+                    if (customInputs.length > 0) {
+                        // fallback to first custom name (best-effort)
+                        skillName = customInputs[0].value || skillName;
+                    }
+                    isCustom = true;
+                }
+            }
+
             const tier = skillTiers[skillId] || 2;
-            const isCustom = skillItem?.querySelector('.skill-checkbox')?.dataset.isCustom === 'true';
             
             const tierColors = {
                 1: 'bg-gray-100 text-gray-800 border-gray-300',
