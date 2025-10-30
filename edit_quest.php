@@ -1290,7 +1290,7 @@ function getFontSize() {
                                 <button type="button" onclick="showCustomSkillModal()" class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg border border-gray-300 transition-colors flex items-center"><i class="fas fa-plus mr-2"></i>Add Custom Skill</button>
                                 <div class="flex gap-3">
                                     <button type="button" onclick="closeSkillsModalEdit()" class="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors">Cancel</button>
-                                    <button type="button" onclick="applySelectedSkillsFromModal()" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors">Apply Selected Skills</button>
+                                    <button id="applySkillsBtnEdit" type="button" onclick="applySelectedSkillsFromModal()" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors">Apply Selected Skills</button>
                                 </div>
                             </div>
                         </div>
@@ -2395,7 +2395,10 @@ function showCategorySkills(categoryId, categoryName) {
     });
 
     populateSkillsListEdit(categorySkills);
-    document.getElementById('skillsModalEdit').classList.remove('hidden');
+    const modalEl = document.getElementById('skillsModalEdit');
+    modalEl.classList.remove('hidden');
+    // ensure visible (remove any fade-out class)
+    modalEl.classList.remove('opacity-0');
     document.getElementById('skillSearchInputEdit').value = '';
     document.getElementById('skillSearchInputEdit').focus();
 }
@@ -2496,6 +2499,15 @@ function filterSkillsEdit() {
 }
 
 function applySelectedSkillsFromModal() {
+    const applyBtn = document.getElementById('applySkillsBtnEdit');
+    let origBtnHtml = null;
+    if (applyBtn) {
+        origBtnHtml = applyBtn.innerHTML;
+        applyBtn.disabled = true;
+        applyBtn.innerHTML = 'Applying...';
+    }
+
+    try {
     // Merge tempSelectedSkills into main selectedSkills and skillTiers
     tempSelectedSkills.forEach(s => {
         // ensure not exceeding MAX
@@ -2518,12 +2530,42 @@ function applySelectedSkillsFromModal() {
     updateSkillDisplay();
     updateHiddenInputs = updateHiddenInputs || function(){}; // no-op if not present
     try { if (typeof updateHiddenInputs === 'function') updateHiddenInputs(); } catch(e){}
-    closeSkillsModalEdit();
+    } finally {
+        if (applyBtn) {
+            applyBtn.disabled = false;
+            applyBtn.innerHTML = origBtnHtml;
+        }
+        // Ensure the modal is closed even if an error occurred above
+        try { closeSkillsModalEdit(); } catch (e) { console.error('Error closing skills modal:', e); }
+    }
 }
 
 function closeSkillsModalEdit() {
-    document.getElementById('skillsModalEdit').classList.add('hidden');
-    tempSelectedSkills.clear();
+    const modalEl = document.getElementById('skillsModalEdit');
+    if (!modalEl) return;
+    // Use jQuery fadeOut to reliably hide overlay + content and then add hidden class
+    try {
+        $(modalEl).fadeOut(180, function() {
+            // ensure hidden state and clean up any inline styles
+            modalEl.classList.add('hidden');
+            // remove inline display style set by fadeOut so future opens controlled by classes work
+            $(modalEl).css('display','');
+            tempSelectedSkills.clear();
+            // clear search input
+            const search = document.getElementById('skillSearchInputEdit');
+            if (search) search.value = '';
+        });
+    } catch (err) {
+        // Fallback if jQuery isn't available for some reason
+        modalEl.classList.add('opacity-0', 'transition-opacity', 'duration-200');
+        setTimeout(() => {
+            modalEl.classList.add('hidden');
+            modalEl.classList.remove('opacity-0', 'transition-opacity', 'duration-200');
+            tempSelectedSkills.clear();
+            const search = document.getElementById('skillSearchInputEdit');
+            if (search) search.value = '';
+        }, 180);
+    }
 }
 </script>
 
