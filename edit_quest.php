@@ -2632,8 +2632,10 @@ function removeEmployee(employeeId) {
 }
 
 // Enhanced Skill Management System
+// Using Set for selected skill IDs and a cache for names
 let selectedSkills = new Set(); // Using Set for skill IDs
 let skillTiers = {}; // Store tiers separately: {skillId: tier}
+let skillNamesCache = {}; // Cache skill_id => skill_name for reliable display
 let customSkillCounter = 1000; // Counter for custom skill IDs
 const MAX_SKILLS = 5; // Reduced from 8 to 5 for focused mastery (Bundle 2)
 
@@ -2658,8 +2660,12 @@ document.addEventListener('DOMContentLoaded', function() {
     const existingSkills = <?php echo json_encode($quest_skills); ?>;
     existingSkills.forEach(skill => {
         const sid = String(skill.skill_id);
+        // Cache the server-provided name for reliable display even without DOM elements
+        skillNamesCache[sid] = skill.skill_name || skill.skill_name || '';
         const skillElement = document.querySelector(`[data-skill-id="${sid}"]`);
         if (skillElement) {
+            // Also ensure cache updated from DOM if present
+            skillNamesCache[sid] = skillElement.dataset.skillName || skillNamesCache[sid];
             const checkbox = skillElement.querySelector('.skill-checkbox');
             if (checkbox) {
                 checkbox.checked = true;
@@ -2678,6 +2684,8 @@ document.addEventListener('DOMContentLoaded', function() {
             // Inline skill element not present (we removed the long list). Still attach the skill so it appears in the selected badges.
             selectedSkills.add(sid);
             skillTiers[sid] = skill.tier;
+            // Cache the name from server-provided data so badges can show the skill name
+            skillNamesCache[sid] = skill.skill_name || '';
         }
     });
     <?php endif; ?>
@@ -2781,6 +2789,8 @@ function addCustomSkill() {
     
     // Create unique ID for custom skill
     const customSkillId = `custom_${customSkillCounter++}`;
+    // Cache the custom name so it displays immediately in badges
+    skillNamesCache[customSkillId] = skillName;
     
     // Add to selected skills
     selectedSkills.add(customSkillId);
@@ -3110,20 +3120,25 @@ function updateSkillDisplay() {
             if (skillItem) {
                 skillName = skillItem.dataset.skillName || skillName;
                 isCustom = (skillItem.querySelector('.skill-checkbox')?.dataset.isCustom === 'true');
-            } else if (typeof allSkills !== 'undefined' && Array.isArray(allSkills)) {
-                const found = allSkills.find(s => String(s.skill_id) === String(skillId));
-                if (found) {
-                    skillName = found.skill_name || skillName;
-                    // if found in allSkills it's not a custom (predefined)
-                    isCustom = false;
-                } else if (String(skillId).startsWith('custom_')) {
-                    // For client-side custom ids, attempt to read any hidden custom name inputs
-                    const customInputs = document.querySelectorAll('input[name="custom_skill_names[]"]');
-                    if (customInputs.length > 0) {
-                        // fallback to first custom name (best-effort)
-                        skillName = customInputs[0].value || skillName;
+            } else {
+                // Prefer server-provided cache first
+                if (skillNamesCache && skillNamesCache[String(skillId)]) {
+                    skillName = skillNamesCache[String(skillId)];
+                    isCustom = String(skillId).startsWith('custom_');
+                } else if (typeof allSkills !== 'undefined' && Array.isArray(allSkills)) {
+                    const found = allSkills.find(s => String(s.skill_id) === String(skillId));
+                    if (found) {
+                        skillName = found.skill_name || skillName;
+                        isCustom = false;
+                    } else if (String(skillId).startsWith('custom_')) {
+                        // For client-side custom ids, attempt to read any hidden custom name inputs
+                        const customInputs = document.querySelectorAll('input[name="custom_skill_names[]"]');
+                        if (customInputs.length > 0) {
+                            // fallback to first custom name (best-effort)
+                            skillName = customInputs[0].value || skillName;
+                        }
+                        isCustom = true;
                     }
-                    isCustom = true;
                 }
             }
 
