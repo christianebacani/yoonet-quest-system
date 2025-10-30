@@ -850,63 +850,68 @@ function getFontSize() {
 
         .flatpickr-calendar {
             font-family: 'Inter', sans-serif;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
-            border-radius: 14px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+            border-radius: 12px;
             border: none;
-            padding: 16px 16px 32px 16px;
-            z-index: 100002 !important;
-            min-width: 360px !important;
-            width: 400px !important;
-            max-width: 460px !important;
-            margin-bottom: 32px !important;
+            padding: 12px;
+            z-index: 99999 !important;
+            min-width: 320px !important;
+            width: auto !important;
+            max-width: 400px !important;
         }
 
         .flatpickr-innerContainer {
             overflow: visible !important;
-            min-width: 360px !important;
-            width: 400px !important;
-            max-width: 460px !important;
+            min-width: 320px !important;
+            width: auto !important;
+            max-width: 400px !important;
         }
 
-        .flatpickr-time {
-            z-index: 100003 !important;
-            background: #fff !important;
-            border-radius: 10px !important;
-            box-shadow: 0 4px 16px rgba(0,0,0,0.12);
-            padding: 12px 0 12px 0 !important;
-            margin-top: 8px !important;
-            margin-bottom: 8px !important;
+        .flatpickr-days {
+            width: 100% !important;
+            min-width: 320px !important;
+            max-width: 400px !important;
+            display: block !important;
         }
-        
+
+        .dayContainer {
+            display: grid !important;
+            grid-template-columns: repeat(7, 1fr) !important;
+            gap: 0 !important;
+            width: 100% !important;
+            min-width: 320px !important;
+            max-width: 400px !important;
+        }
+
         .flatpickr-day {
             color: #1e293b !important;
             border-radius: 6px;
             font-weight: 500;
             border: none;
-            max-width: none !important;
-            width: calc(100% / 7) !important;
+            width: 40px !important;
             height: 36px !important;
             line-height: 36px !important;
             margin: 2px 0 !important;
             opacity: 1 !important;
             visibility: visible !important;
+            box-sizing: border-box !important;
         }
-        
-        .flatpickr-day.selected, 
+
+        .flatpickr-day.selected,
         .flatpickr-day.selected:hover {
             background-color: #6366f1 !important;
             color: white !important;
             border-color: #6366f1 !important;
         }
-        
+
         .flatpickr-day.today {
             border-color: #6366f1 !important;
         }
-        
+
         .flatpickr-day.today:hover {
             background-color: #e0e7ff !important;
         }
-        
+
         .flatpickr-day.flatpickr-disabled,
         .flatpickr-day.prevMonthDay,
         .flatpickr-day.nextMonthDay {
@@ -914,33 +919,26 @@ function getFontSize() {
             opacity: 0.5 !important;
             visibility: visible !important;
         }
-        
+
         .flatpickr-day:hover {
             background: #e0e7ff !important;
         }
-        
+
         .flatpickr-weekday {
             color: #64748b !important;
             font-weight: 500;
             width: calc(100% / 7) !important;
             flex: none !important;
         }
-        
+
         .flatpickr-weekdays,
         .flatpickr-days {
             width: 100% !important;
         }
-        
+
         .flatpickr-days {
             width: 100% !important;
             overflow: visible !important;
-        }
-        
-        .dayContainer {
-            width: 100% !important;
-            min-width: 340px !important;
-            max-width: 420px !important;
-            display: block !important;
         }
 
         .dayContainer {
