@@ -1234,6 +1234,24 @@ function getFontSize() {
                         </div>
                     </div>
 
+                    <!-- Category Buttons (copied style from create_quest for faster access) -->
+                    <div class="mb-4">
+                        <div class="flex flex-wrap gap-2">
+                            <button type="button" onclick="showCategorySkills('technical', 'Technical Skills')" class="skill-category-btn px-4 py-2 bg-blue-100 hover:bg-blue-200 text-blue-800 rounded-lg border border-blue-300 transition-colors flex items-center">
+                                <i class="fas fa-code mr-2"></i>Technical Skills
+                            </button>
+                            <button type="button" onclick="showCategorySkills('communication', 'Communication Skills')" class="skill-category-btn px-4 py-2 bg-amber-100 hover:bg-amber-200 text-amber-800 rounded-lg border border-amber-300 transition-colors flex items-center">
+                                <i class="fas fa-comments mr-2"></i>Communication Skills
+                            </button>
+                            <button type="button" onclick="showCategorySkills('soft', 'Soft Skills')" class="skill-category-btn px-4 py-2 bg-rose-100 hover:bg-rose-200 text-rose-800 rounded-lg border border-rose-300 transition-colors flex items-center">
+                                <i class="fas fa-heart mr-2"></i>Soft Skills
+                            </button>
+                            <button type="button" onclick="showCategorySkills('business', 'Business Skills')" class="skill-category-btn px-4 py-2 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 rounded-lg border border-emerald-300 transition-colors flex items-center">
+                                <i class="fas fa-briefcase mr-2"></i>Business Skills
+                            </button>
+                        </div>
+                    </div>
+
                     <!-- Skill Categories with Add Custom Skill -->
                     <div class="border border-gray-200 rounded-lg max-h-96 overflow-y-auto bg-white">
                         <?php 
@@ -1330,6 +1348,45 @@ function getFontSize() {
                         
                         <?php endforeach; ?>
                         <?php endif; ?>
+                    </div>
+
+                    <!-- Skills Modal (Edit page) - copied/adapted from create_quest -->
+                    <div id="skillsModalEdit" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden flex items-center justify-center">
+                        <div class="bg-white rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[80vh] flex flex-col">
+                            <!-- Modal Header -->
+                            <div class="p-6 border-b border-gray-200 flex items-center justify-between">
+                                <h3 class="text-lg font-semibold text-gray-800 flex items-center">
+                                    <span id="modalCategoryIconEdit" class="mr-2"></span>
+                                    <span id="modalCategoryTitleEdit">Select Skills</span>
+                                </h3>
+                                <button type="button" onclick="closeSkillsModalEdit()" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times text-xl"></i></button>
+                            </div>
+
+                            <!-- Search Bar -->
+                            <div class="p-4 border-b border-gray-200">
+                                <div class="relative">
+                                    <input type="text" id="skillSearchInputEdit" placeholder="Search skills..." class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" oninput="filterSkillsEdit()">
+                                    <i class="fas fa-search absolute left-3 top-3 text-gray-400"></i>
+                                </div>
+                            </div>
+
+                            <div class="flex-1 overflow-y-auto p-4">
+                                <div id="skillsListEdit" class="space-y-2"></div>
+                                <div id="noSkillsFoundEdit" class="hidden text-center py-8 text-gray-500">
+                                    <i class="fas fa-search text-3xl mb-2"></i>
+                                    <p>No skills found matching your search.</p>
+                                </div>
+                            </div>
+
+                            <!-- Modal Footer -->
+                            <div class="p-4 border-t border-gray-200 flex items-center justify-between">
+                                <button type="button" onclick="showCustomSkillModal()" class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg border border-gray-300 transition-colors flex items-center"><i class="fas fa-plus mr-2"></i>Add Custom Skill</button>
+                                <div class="flex gap-3">
+                                    <button type="button" onclick="closeSkillsModalEdit()" class="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors">Cancel</button>
+                                    <button type="button" onclick="applySelectedSkillsFromModal()" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors">Apply Selected Skills</button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                     
                     <p class="mt-2 text-xs text-gray-500">
@@ -2357,6 +2414,210 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 });
+</script>
+
+<script>
+// Scroll to category section when category button clicked
+function scrollToCategory(categoryId) {
+    // Look for an element with data-category attribute matching categoryId
+    const el = document.querySelector(`[data-category="${categoryId}"]`);
+    if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // briefly highlight the category header or item
+        const header = el.closest('div').previousElementSibling;
+        if (header) {
+            header.classList.add('ring-2', 'ring-indigo-200');
+            setTimeout(() => header.classList.remove('ring-2', 'ring-indigo-200'), 1400);
+        }
+    }
+}
+</script>
+
+<script>
+// Modal-based skills picker integration (adapted from create_quest)
+let allSkills = <?php echo json_encode($all_skills); ?>;
+// Dedupe defensively
+(function(){
+    const seen = new Set();
+    const uniq = [];
+    for (const s of allSkills) {
+        const key = ((s.category_name || '') + '::' + (s.skill_name || '')).toString().trim().toLowerCase();
+        if (!seen.has(key)) { seen.add(key); uniq.push(s); }
+    }
+    allSkills = uniq;
+})();
+
+let tempSelectedSkills = new Set();
+let currentCategory = '';
+let currentCategoryName = '';
+
+const categoryConfigEdit = {
+    'technical': { name: 'Technical Skills', icon: '<i class="fas fa-code"></i>' },
+    'communication': { name: 'Communication Skills', icon: '<i class="fas fa-comments"></i>' },
+    'soft': { name: 'Soft Skills', icon: '<i class="fas fa-heart"></i>' },
+    'business': { name: 'Business Skills', icon: '<i class="fas fa-briefcase"></i>' }
+};
+
+function showCategorySkills(categoryId, categoryName) {
+    currentCategory = categoryId;
+    currentCategoryName = categoryName;
+
+    const config = categoryConfigEdit[categoryId] || { name: categoryName, icon: '' };
+    document.getElementById('modalCategoryIconEdit').innerHTML = config.icon || '';
+    document.getElementById('modalCategoryTitleEdit').textContent = config.name || categoryName;
+
+    // Filter skills by mapped category name
+    const catMap = {
+        'Technical Skills': 'technical',
+        'Communication Skills': 'communication',
+        'Soft Skills': 'soft',
+        'Business Skills': 'business'
+    };
+    const categorySkills = allSkills.filter(s => {
+        return catMap[s.category_name] === categoryId;
+    });
+
+    // Copy current selectedSkills to tempSelectedSkills (preserve tiers)
+    tempSelectedSkills.clear();
+    selectedSkills.forEach(id => {
+        // find skill in allSkills
+        const skill = allSkills.find(s => String(s.skill_id) === String(id));
+        if (skill) {
+            tempSelectedSkills.add({ id: String(id), name: skill.skill_name, category: skill.category_name, isCustom: false, tier: skillTiers[String(id)] || 2 });
+        }
+    });
+
+    populateSkillsListEdit(categorySkills);
+    document.getElementById('skillsModalEdit').classList.remove('hidden');
+    document.getElementById('skillSearchInputEdit').value = '';
+    document.getElementById('skillSearchInputEdit').focus();
+}
+
+function populateSkillsListEdit(skills) {
+    const list = document.getElementById('skillsListEdit');
+    list.innerHTML = '';
+    if (!skills || skills.length === 0) {
+        document.getElementById('noSkillsFoundEdit').classList.remove('hidden');
+        return;
+    } else {
+        document.getElementById('noSkillsFoundEdit').classList.add('hidden');
+    }
+
+    const tierNames = ['Beginner','Intermediate','Advanced','Expert','Master'];
+
+    skills.forEach(skill => {
+        const isSelected = Array.from(tempSelectedSkills).some(s => String(s.id) === String(skill.skill_id));
+
+        const wrapper = document.createElement('div');
+        wrapper.className = 'skill-item border border-gray-200 rounded-lg p-3 hover:bg-gray-50 transition-colors';
+        wrapper.dataset.skillName = (skill.skill_name || '').toLowerCase();
+        wrapper.dataset.skillId = skill.skill_id;
+
+        const checkedAttr = isSelected ? 'checked' : '';
+        wrapper.innerHTML = `
+            <label class="flex items-start cursor-pointer">
+              <input type="checkbox" class="skill-modal-checkbox mt-1 h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded" data-skill-id="${skill.skill_id}" data-skill-name="${skill.skill_name}" data-category-name="${skill.category_name}" ${isSelected ? 'checked' : ''}>
+              <div class="ml-3 flex-1">
+                <div class="text-sm font-medium text-gray-900">${skill.skill_name}</div>
+                <div class="mt-2 ${isSelected ? '' : 'hidden'}" id="tier-modal-edit-${skill.skill_id}">
+                  <select class="tier-selector-edit text-xs border border-gray-300 rounded px-2 py-1 focus:ring-2 focus:ring-indigo-500 bg-white" data-skill-id="${skill.skill_id}"></select>
+                  <div class="text-xs text-gray-500 mt-1" id="tier-basepoints-edit-${skill.skill_id}"></div>
+                </div>
+              </div>
+            </label>
+        `;
+
+        list.appendChild(wrapper);
+
+        // populate tier select
+        const sel = wrapper.querySelector('.tier-selector-edit');
+        const baseDiv = wrapper.querySelector('#tier-basepoints-edit-' + skill.skill_id);
+        if (sel) {
+            // use existing generateTierOptions and getTierPoints
+            const selectedTier = skillTiers[String(skill.skill_id)] || 2;
+            sel.innerHTML = generateTierOptions(selectedTier, getCurrentQuestType ? getCurrentQuestType() : (typeof serverQuestType !== 'undefined' ? serverQuestType : 'routine'));
+            sel.value = String(selectedTier);
+            const idx = parseInt(sel.value,10)-1;
+            const pts = getTierPoints(idx+1, getCurrentQuestType ? getCurrentQuestType() : serverQuestType);
+            if (baseDiv) baseDiv.textContent = `Base Points: ${pts} (${tierNames[idx]})`;
+            sel.addEventListener('change', function(){
+                const t = parseInt(this.value,10);
+                const pts2 = getTierPoints(t, getCurrentQuestType ? getCurrentQuestType() : serverQuestType);
+                if (baseDiv) baseDiv.textContent = `Base Points: ${pts2} (${tierNames[t-1]})`;
+            });
+        }
+
+        // wire checkbox change
+        const cb = wrapper.querySelector('.skill-modal-checkbox');
+        cb.addEventListener('change', function(){
+            const sid = String(this.dataset.skillId);
+            const sname = this.dataset.skillName;
+            const cname = this.dataset.categoryName;
+            const tsel = wrapper.querySelector('.tier-selector-edit');
+            if (this.checked) {
+                if (selectedSkills.size >= MAX_SKILLS && !Array.from(tempSelectedSkills).some(s=>String(s.id)===sid)) {
+                    alert(`You can only select up to ${MAX_SKILLS} skills per quest (focused mastery).`);
+                    this.checked = false;
+                    return;
+                }
+                tempSelectedSkills.add({ id: sid, name: sname, category: cname, isCustom: false, tier: parseInt(tsel.value||2) });
+                wrapper.querySelector(`#tier-modal-edit-${skill.skill_id}`).classList.remove('hidden');
+            } else {
+                // remove
+                Array.from(tempSelectedSkills).forEach(s => { if (String(s.id) === sid) tempSelectedSkills.delete(s); });
+                wrapper.querySelector(`#tier-modal-edit-${skill.skill_id}`).classList.add('hidden');
+            }
+        });
+
+        // if initially selected, ensure UI shows
+        if (isSelected) {
+            wrapper.querySelector('.skill-modal-checkbox').checked = true;
+        }
+    });
+}
+
+function filterSkillsEdit() {
+    const term = document.getElementById('skillSearchInputEdit').value.toLowerCase();
+    const items = document.querySelectorAll('#skillsListEdit .skill-item');
+    let visible = 0;
+    items.forEach(it => {
+        const name = it.dataset.skillName || '';
+        if (name.includes(term)) { it.style.display = 'block'; visible++; } else { it.style.display = 'none'; }
+    });
+    const no = document.getElementById('noSkillsFoundEdit');
+    if (visible === 0 && term.length > 0) no.classList.remove('hidden'); else no.classList.add('hidden');
+}
+
+function applySelectedSkillsFromModal() {
+    // Merge tempSelectedSkills into main selectedSkills and skillTiers
+    tempSelectedSkills.forEach(s => {
+        // ensure not exceeding MAX
+        if (!selectedSkills.has(String(s.id))) {
+            if (selectedSkills.size >= MAX_SKILLS) return; // skip extras
+            selectedSkills.add(String(s.id));
+        }
+        skillTiers[String(s.id)] = parseInt(s.tier) || 2;
+    });
+
+    // Also read any checked items that might not be in tempSelectedSkills
+    document.querySelectorAll('#skillsListEdit .skill-modal-checkbox:checked').forEach(cb => {
+        const sid = String(cb.dataset.skillId);
+        const sel = document.querySelector(`.tier-selector-edit[data-skill-id="${sid}"]`);
+        const tierVal = sel ? parseInt(sel.value) : 2;
+        selectedSkills.add(sid);
+        skillTiers[sid] = tierVal;
+    });
+
+    updateSkillDisplay();
+    updateHiddenInputs = updateHiddenInputs || function(){}; // no-op if not present
+    try { if (typeof updateHiddenInputs === 'function') updateHiddenInputs(); } catch(e){}
+    closeSkillsModalEdit();
+}
+
+function closeSkillsModalEdit() {
+    document.getElementById('skillsModalEdit').classList.add('hidden');
+    tempSelectedSkills.clear();
+}
 </script>
 
 <!-- Enhanced Skill Selection JavaScript -->
