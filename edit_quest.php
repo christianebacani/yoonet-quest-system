@@ -1379,6 +1379,7 @@ function getFontSize() {
                             <div id="customSkillTierInfo" class="mt-2 text-xs text-gray-600 font-semibold flex items-center">
                                 <!-- Tier info will be injected by JS -->
                             </div>
+                        <script>
         // --- DYNAMIC TIER DROPDOWNS BASED ON QUEST TYPE ---
         // Central mapping for base points per tier by quest type
         const questTypeTierPoints = {
@@ -1456,10 +1457,10 @@ function getFontSize() {
             document.getElementById('customSkillName').focus();
         }
 
-        // On DOM ready, initialize all tier dropdowns
-        document.addEventListener('DOMContentLoaded', updateAllTierDropdowns);
-                            </select>
-                        </div>
+    // On DOM ready, initialize all tier dropdowns
+    document.addEventListener('DOMContentLoaded', updateAllTierDropdowns);
+    </script>
+            </div>
                         
                         <div class="flex gap-3">
                             <button type="button" 
