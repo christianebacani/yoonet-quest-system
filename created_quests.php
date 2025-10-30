@@ -183,15 +183,9 @@ if (isset($_SESSION['error'])) { $error = $_SESSION['error']; unset($_SESSION['e
 
 function statusBadge($s) {
     $status = strtolower(trim((string)$s));
-    $class = 'bg-gray-100 text-gray-800';
-    if ($status === 'active') { $class = 'bg-green-100 text-green-800'; }
-    elseif (in_array($status, ['pending','under_review'])) { $class = 'bg-yellow-100 text-yellow-800'; }
-    elseif (in_array($status, ['approved','completed'])) { $class = 'bg-blue-100 text-blue-800'; }
-    elseif ($status === 'rejected') { $class = 'bg-red-100 text-red-800'; }
-    elseif ($status === 'draft') { $class = 'bg-yellow-50 text-yellow-800'; }
-    elseif ($status === 'inactive') { $class = 'bg-gray-50 text-gray-700'; }
-    elseif ($status === 'deleted') { $class = 'bg-gray-200 text-gray-600'; }
-    return '<span class="px-2 py-1 rounded text-xs font-medium ' . $class . '">' . htmlspecialchars($s) . '</span>';
+    // Render status as a standardized meta-badge with a status modifier class
+    $label = htmlspecialchars($s);
+    return '<span class="meta-badge status-' . htmlspecialchars($status) . '" title="' . $label . '">' . $label . '</span>';
 }
 
 // Minimal header (avoid depending on missing includes/header.php)
@@ -249,14 +243,22 @@ function statusBadge($s) {
         .btn-small { padding:6px 10px; font-size:0.85rem; border-radius:6px; }
 
     /* Small status badges used inside the card meta area */
-    .meta-badge { display:inline-block; padding:3px 8px; border-radius:999px; font-size:0.78rem; font-weight:700; margin:0; vertical-align:middle; line-height:1; }
-    .meta-badge.pending { background:#fef3c7; color:#92400e; border:1px solid #fde68a; }
-    .meta-badge.approved { background:#ecfdf5; color:#065f46; border:1px solid #bbf7d0; }
-    .meta-badge.rejected { background:#fff1f2; color:#9f1239; border:1px solid #fecaca; }
-    .meta-badge.missed { background:#fee2e2; color:#991b1b; border:1px solid #fecaca; }
-    .meta-badge.declined { background:#f3f4f6; color:#6b7280; border:1px solid #e5e7eb; }
-    .meta-badge.assigned { background:#eef2ff; color:#3730a3; border:1px solid #c7d2fe; }
-    .meta-badge.due { background:#fff7ed; color:#92400e; border:1px solid #ffedd5; }
+    .meta-badge { display:inline-block; padding:4px 10px; border-radius:999px; font-size:0.78rem; font-weight:700; margin:0; vertical-align:middle; line-height:1; background:#ffffff; }
+    /* Use white background + colored border and text for clear contrast on any card background */
+    .meta-badge.pending { background:#ffffff; color:#92400e; border:1px solid #f59e0b; }
+    .meta-badge.approved { background:#ffffff; color:#065f46; border:1px solid #10b981; }
+    .meta-badge.rejected { background:#ffffff; color:#9f1239; border:1px solid #ef4444; }
+    .meta-badge.missed { background:#ffffff; color:#991b1b; border:1px solid #ef4444; }
+    .meta-badge.declined { background:#ffffff; color:#374151; border:1px solid #e5e7eb; }
+    .meta-badge.assigned { background:#ffffff; color:#3730a3; border:1px solid #6366f1; }
+    .meta-badge.due { background:#ffffff; color:#92400e; border:1px solid #f59e0b; }
+    /* Status-specific badge styles matching action semantics */
+    .meta-badge.status-active { background:#ffffff; color:#065f46; border:1px solid #10b981; }
+    .meta-badge.status-draft { background:#ffffff; color:#92400e; border:1px solid #f59e0b; }
+    .meta-badge.status-inactive { background:#ffffff; color:#475569; border:1px solid #cbd5e1; }
+    .meta-badge.status-deleted { background:#ffffff; color:#6b7280; border:1px solid #e5e7eb; }
+    .meta-badge.status-pending { background:#ffffff; color:#92400e; border:1px solid #f59e0b; }
+    .meta-badge.status-approved { background:#ffffff; color:#065f46; border:1px solid #10b981; }
     .date-status { display:inline-flex; gap:8px; align-items:center; white-space:nowrap; }
 
         /* small responsive tweaks */
@@ -351,14 +353,14 @@ function statusBadge($s) {
                                         <?php if ((int)$q['approved_count'] > 0): ?>
                                             <span class="meta-badge approved">Approved: <?php echo (int)$q['approved_count']; ?></span>
                                         <?php endif; ?>
-                                        <?php if ((int)$q['rejected_count'] > 0): ?>
-                                            <span class="meta-badge rejected">Rejected: <?php echo (int)$q['rejected_count']; ?></span>
-                                        <?php endif; ?>
                                         <?php if (!empty($q['missed_count']) && (int)$q['missed_count'] > 0): ?>
                                             <span class="meta-badge missed">Missed: <?php echo (int)$q['missed_count']; ?></span>
                                         <?php endif; ?>
                                         <?php if (!empty($q['declined_count']) && (int)$q['declined_count'] > 0): ?>
                                             <span class="meta-badge declined">Declined: <?php echo (int)$q['declined_count']; ?></span>
+                                        <?php endif; ?>
+                                        <?php if ((int)$q['rejected_count'] > 0): ?>
+                                            <span class="meta-badge rejected">Rejected: <?php echo (int)$q['rejected_count']; ?></span>
                                         <?php endif; ?>
                                     </div>
                                 </div>
