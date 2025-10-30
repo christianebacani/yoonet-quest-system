@@ -257,9 +257,13 @@ function statusBadge($s) {
                             </div>
                             <div style="display:flex; flex-direction:column; gap:8px; margin-left:12px;">
                                 <a href="view_quest.php?id=<?php echo (int)$q['id']; ?>&show_accepted=1" class="btn btn-ghost btn-small">View</a>
-                                <?php if (!empty($q['approved_count']) && (int)$q['approved_count'] > 0): ?>
-                                    <!-- Editing locked when there are approved submissions -->
-                                    <button class="btn btn-outline btn-small btn-disabled" disabled title="Editing locked: this quest has approved submissions">Edit</button>
+                                <?php
+                                    // Lock editing if there are any submissions (pending, approved or rejected)
+                                    $total_submissions = (int)($q['approved_count'] ?? 0) + (int)($q['pending_count'] ?? 0) + (int)($q['rejected_count'] ?? 0);
+                                ?>
+                                <?php if ($total_submissions > 0): ?>
+                                    <!-- Editing locked when there are any submissions to avoid workflow conflicts -->
+                                    <button class="btn btn-outline btn-small btn-disabled" disabled title="Editing locked: this quest has submissions">Edit</button>
                                 <?php else: ?>
                                     <a href="edit_quest.php?id=<?php echo (int)$q['id']; ?>" class="btn btn-outline btn-small btn-edit" data-quest-id="<?php echo (int)$q['id']; ?>" data-quest-title="<?php echo htmlspecialchars($q['title'], ENT_QUOTES); ?>">Edit</a>
                                 <?php endif; ?>
