@@ -79,6 +79,22 @@ try {
         exit();
     }
     
+    // Prevent edits once there are any submissions for this quest
+    try {
+        $subStmt = $pdo->prepare("SELECT COUNT(*) FROM quest_submissions WHERE quest_id = ?");
+        $subStmt->execute([$quest_id]);
+        $submissionCount = (int)$subStmt->fetchColumn();
+        if ($submissionCount > 0) {
+            // Inform the user and send them back to their created quests list
+            $_SESSION['error'] = 'This quest cannot be edited because one or more users have already submitted responses to it.';
+            header('Location: created_quests.php');
+            exit();
+        }
+    } catch (PDOException $e) {
+        // If the check fails for DB reasons, log and continue — better to be conservative and allow edit
+        error_log('Error checking submissions before edit: ' . $e->getMessage());
+    }
+    
     // Fetch subtasks
     $stmt = $pdo->prepare("SELECT * FROM quest_subtasks WHERE quest_id = ?");
     $stmt->execute([$quest_id]);
