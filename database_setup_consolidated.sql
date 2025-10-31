@@ -285,6 +285,17 @@ ADD COLUMN IF NOT EXISTS `recurrence_pattern` varchar(50) CHARACTER SET utf8mb4 
 ADD COLUMN IF NOT EXISTS `recurrence_end_date` datetime DEFAULT NULL,
 ADD COLUMN IF NOT EXISTS `max_attempts` int(11) DEFAULT 1;
 
+-- ====================================================================
+-- Migration included: ensure `quests.status` enum includes 'draft' and 'deleted'
+-- This makes the consolidated setup idempotent for environments that should
+-- support the 'draft' workflow and the application's fallback 'deleted' value.
+-- ====================================================================
+-- Modify the quests.status enum to include 'draft' and 'deleted' while preserving the default.
+ALTER TABLE `quests`
+  MODIFY COLUMN `status` enum('active','inactive','completed','archived','draft','deleted')
+  CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'active';
+
+
 -- Quest skills relationship table
 CREATE TABLE IF NOT EXISTS `quest_skills` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
