@@ -39,18 +39,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Too many account creation attempts. Please try again in 5 minutes.';
     } else {
         // Sanitize all inputs
-        $new_employee_id = sanitize_user_input($_POST['employee_id'] ?? '');
-        $new_name = sanitize_user_input($_POST['name'] ?? '');
-        $new_email = sanitize_user_input($_POST['email'] ?? '');
-        $new_role = sanitize_user_input($_POST['role'] ?? 'skill_associate');
-        $new_gender = sanitize_user_input($_POST['gender'] ?? '');
-        $new_password = $_POST['password'] ?? ''; // Don't sanitize password as it might remove special chars
-        $confirm_password = $_POST['confirm_password'] ?? '';
+    $new_employee_id = sanitize_user_input($_POST['employee_id'] ?? '');
+    $new_last_name = trim(preg_replace('/\s+/', '', $_POST['last_name'] ?? ''));
+    $new_first_name = trim(preg_replace('/\s+/', '', $_POST['first_name'] ?? ''));
+    $new_middle_name = trim(preg_replace('/\s+/', '', $_POST['middle_name'] ?? ''));
+    $new_gmail = trim(preg_replace('/\s+/', '', $_POST['gmail'] ?? ''));
+    $new_job_position = trim(preg_replace('/\s+/', '', $_POST['job_position'] ?? ''));
+    $new_availability_hours = trim(preg_replace('/\s+/', '', $_POST['availability_hours'] ?? ''));
+    $new_name = $new_last_name . ', ' . $new_first_name . ' ' . $new_middle_name;
+    $new_email = sanitize_user_input($_POST['email'] ?? '');
+    $new_role = sanitize_user_input($_POST['role'] ?? 'skill_associate');
+    $new_gender = sanitize_user_input($_POST['gender'] ?? '');
+    $new_password = preg_replace('/\s+/', '', $_POST['password'] ?? '');
+    $confirm_password = preg_replace('/\s+/', '', $_POST['confirm_password'] ?? '');
 
         // Basic required field validation
-        if (!$new_employee_id || !$new_name || !$new_email || !$new_password || !$confirm_password || !$new_gender) {
+        if (!$new_employee_id || !$new_last_name || !$new_first_name || !$new_middle_name || !$new_gmail || !$new_job_position || !$new_availability_hours || !$new_name || !$new_email || !$new_password || !$confirm_password || !$new_gender) {
             $error = 'All fields are required.';
         }
+        // Employee ID must be exactly 7 digits
+        elseif (!preg_match('/^\d{7}$/', $new_employee_id)) {
+            $error = 'Employee ID must be exactly 7 digits.';
+        }
+        // Last Name: 3-12 letters only
+        // No validation for Last Name, First Name, or Middle Name
         // Employee ID format validation
         elseif (($employee_id_validation = validate_employee_id_format($new_employee_id)) !== true) {
             $error = $employee_id_validation;
@@ -60,6 +72,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Employee ID already exists. Please choose a different Employee ID.';
         }
         // Name format validation
+        elseif (!preg_match("/^[A-Za-z .'-]{2,50}$/", $new_last_name)) {
+            // No length or character validation for Last Name
+        }
+        elseif (!preg_match("/^[A-Za-z .'-]{2,50}$/", $new_first_name)) {
+            // No length or character validation for First Name
+        }
+        // No validation for Middle Name
+        elseif (!preg_match('/^[a-zA-Z0-9._%+-]+@gmail\.com$/', $new_gmail)) {
+            $error = 'Gmail must be a valid @gmail.com address.';
+        }
+        elseif (!preg_match('/^[A-Za-z0-9 .\-]+$/', $new_job_position)) {
+            $error = 'Job Position must only contain letters, numbers, spaces, dots, and hyphens.';
+        }
+        elseif (!preg_match('/^[0-9]+$/', $new_availability_hours)) {
+            $error = 'Availability Hours must be a number.';
+        }
         elseif (($name_validation = validate_name_format($new_name)) !== true) {
             $error = $name_validation;
         }
@@ -116,11 +144,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 
                 if ($has_gender_column) {
-                    $stmt = $pdo->prepare('INSERT INTO users (employee_id, full_name, email, password, role, gender, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
-                    $success = $stmt->execute([$new_employee_id, $new_name, $new_email, $hashed_password, $new_role, $new_gender, $created_at]);
+                    $stmt = $pdo->prepare('INSERT INTO users (employee_id, full_name, email, password, role, gender, created_at, last_name, first_name, middle_name, gmail, job_position, availability_hours) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+                    $success = $stmt->execute([$new_employee_id, $new_name, $new_email, $hashed_password, $new_role, $new_gender, $created_at, $new_last_name, $new_first_name, $new_middle_name, $new_gmail, $new_job_position, $new_availability_hours]);
                 } else {
-                    $stmt = $pdo->prepare('INSERT INTO users (employee_id, full_name, email, password, role, created_at) VALUES (?, ?, ?, ?, ?, ?)');
-                    $success = $stmt->execute([$new_employee_id, $new_name, $new_email, $hashed_password, $new_role, $created_at]);
+                    $stmt = $pdo->prepare('INSERT INTO users (employee_id, full_name, email, password, role, created_at, last_name, first_name, middle_name, gmail, job_position, availability_hours) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+                    $success = $stmt->execute([$new_employee_id, $new_name, $new_email, $hashed_password, $new_role, $created_at, $new_last_name, $new_first_name, $new_middle_name, $new_gmail, $new_job_position, $new_availability_hours]);
                 }
                 
                 if ($success) {
@@ -813,8 +841,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <input type="text" name="employee_id" id="employee_id" class="form-input" required>
             </div>
             <div class="form-group">
-                <label for="name" class="form-label">Full Name</label>
-                <input type="text" name="name" id="name" class="form-input" required>
+                <label for="last_name" class="form-label">Last Name</label>
+                <input type="text" name="last_name" id="last_name" class="form-input" required value="<?php if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($error) || (isset($error) && strpos($error, 'Last Name') === false)) echo htmlspecialchars($_POST['last_name'] ?? ''); ?>">
+            </div>
+            <div class="form-group">
+                <label for="first_name" class="form-label">First Name</label>
+                <input type="text" name="first_name" id="first_name" class="form-input" required value="<?php if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($error) || (isset($error) && strpos($error, 'First Name') === false)) echo htmlspecialchars($_POST['first_name'] ?? ''); ?>">
+            </div>
+            <div class="form-group">
+                <label for="middle_name" class="form-label">Middle Name</label>
+                <input type="text" name="middle_name" id="middle_name" class="form-input" required value="<?php if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($error) || (isset($error) && strpos($error, 'Middle Name') === false)) echo htmlspecialchars($_POST['middle_name'] ?? ''); ?>">
+            </div>
+            <div class="form-group">
+                <label for="gmail" class="form-label">Gmail</label>
+                <input type="email" name="gmail" id="gmail" class="form-input" required placeholder="example@gmail.com" value="<?php if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($error) || (isset($error) && strpos($error, 'Gmail') === false)) echo htmlspecialchars($_POST['gmail'] ?? ''); ?>">
+            </div>
+            <div class="form-group">
+                <label for="job_position" class="form-label">Job Position</label>
+                <input type="text" name="job_position" id="job_position" class="form-input" required value="<?php if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($error) || (isset($error) && strpos($error, 'Job Position') === false)) echo htmlspecialchars($_POST['job_position'] ?? ''); ?>">
+            </div>
+            <div class="form-group">
+                <label for="availability_hours" class="form-label">Availability Hours</label>
+                <input type="number" name="availability_hours" id="availability_hours" class="form-input" required min="0" value="<?php if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($error) || (isset($error) && strpos($error, 'Availability Hours') === false)) echo htmlspecialchars($_POST['availability_hours'] ?? ''); ?>">
             </div>
             <div class="form-group">
                 <label for="email" class="form-label">Email</label>
@@ -1183,9 +1231,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 
                 // Name format validation
-                if (name && !/^[a-zA-Z\s\.\-\']{2,50}$/.test(name)) {
-                    validationErrors.push('Name must be 2-50 characters and contain only letters, spaces, periods, hyphens, and apostrophes');
-                }
+                // No name format validation
                 
                 // Email format validation
                 if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
