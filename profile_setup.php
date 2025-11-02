@@ -2,6 +2,25 @@
 require_once __DIR__ . '/includes/config.php';
 require_once __DIR__ . '/includes/functions.php';
 
+// Ensure profile-related columns exist in users table (runtime safety for older DBs)
+function ensureProfileColumns(PDO $pdo)
+{
+    try {
+        $sql = "ALTER TABLE `users`
+            ADD COLUMN IF NOT EXISTS `bio` text DEFAULT NULL,
+            ADD COLUMN IF NOT EXISTS `profile_photo` varchar(500) DEFAULT NULL,
+            ADD COLUMN IF NOT EXISTS `quest_interests` text DEFAULT NULL,
+            ADD COLUMN IF NOT EXISTS `availability_status` varchar(50) DEFAULT NULL";
+        $pdo->exec($sql);
+    } catch (Exception $e) {
+        // Log but don't break page; a later DB error will show if this fails
+        error_log('ensureProfileColumns failed: ' . $e->getMessage());
+    }
+}
+
+// Try to add missing columns automatically (best-effort)
+ensureProfileColumns($pdo);
+
 // Check if user is logged in
 if (!is_logged_in()) {
     redirect('login.php');
@@ -28,31 +47,53 @@ try {
 
 // Function to handle photo upload
 function handlePhotoUpload($file, $user_id) {
-    $upload_dir = 'uploads/profile_photos/';
-    if (!is_dir($upload_dir)) {
-        mkdir($upload_dir, 0755, true);
+    // Use a web-relative path for storing in DB, and an absolute filesystem path for moving the file
+    $upload_dir_web = 'uploads/profile_photos/';
+    $upload_dir_fs = __DIR__ . '/uploads/profile_photos/';
+
+    if (!is_dir($upload_dir_fs)) {
+        if (!mkdir($upload_dir_fs, 0755, true) && !is_dir($upload_dir_fs)) {
+            throw new Exception("Failed to create upload directory.");
+        }
     }
-    
-    $allowed_types = ['image/jpeg', 'image/png', 'image/gif'];
+
     $max_size = 5 * 1024 * 1024; // 5MB
-    
-    if (!in_array($file['type'], $allowed_types)) {
-        throw new Exception("Invalid file type. Only JPEG, PNG, and GIF are allowed.");
+
+    // Basic upload checks
+    if (!isset($file['tmp_name']) || !is_uploaded_file($file['tmp_name'])) {
+        throw new Exception("Invalid upload or temporary file missing.");
     }
-    
+
     if ($file['size'] > $max_size) {
         throw new Exception("File size too large. Maximum 5MB allowed.");
     }
-    
-    $extension = pathinfo($file['name'], PATHINFO_EXTENSION);
+
+    // Use fileinfo to validate MIME type (more reliable than client-provided type)
+    $finfo = finfo_open(FILEINFO_MIME_TYPE);
+    $mime = $finfo ? finfo_file($finfo, $file['tmp_name']) : null;
+    if ($finfo) { finfo_close($finfo); }
+
+    $ext_map = [
+        'image/jpeg' => 'jpg',
+        'image/png'  => 'png',
+        'image/gif'  => 'gif',
+    ];
+
+    if (empty($mime) || !array_key_exists($mime, $ext_map)) {
+        throw new Exception("Invalid file type. Only JPEG, PNG and GIF are allowed.");
+    }
+
+    $extension = $ext_map[$mime];
     $filename = 'user_' . $user_id . '_' . time() . '.' . $extension;
-    $filepath = $upload_dir . $filename;
-    
-    if (move_uploaded_file($file['tmp_name'], $filepath)) {
-        return $filepath;
-    } else {
+    $target_fs = $upload_dir_fs . $filename;
+    $target_web = $upload_dir_web . $filename;
+
+    if (!move_uploaded_file($file['tmp_name'], $target_fs)) {
+        error_log("move_uploaded_file failed for user {$user_id}: tmp=" . ($file['tmp_name'] ?? 'N/A') . " target=" . $target_fs);
         throw new Exception("Failed to upload file.");
     }
+
+    return $target_web;
 }
 
 // Handle form submissions for different steps
@@ -81,15 +122,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $sql .= " WHERE id = ?";
                     $params[] = $user_id;
                     
-                    $stmt = $pdo->prepare($sql);
-                    $stmt->execute($params);
-                    
-                    $success = "Profile updated successfully!";
-                    header("Location: profile_setup.php?step=2");
-                    exit;
+                    try {
+                        $stmt = $pdo->prepare($sql);
+                        $stmt->execute($params);
+
+                        $success = "Profile updated successfully!";
+                        header("Location: profile_setup.php?step=2");
+                        exit;
+                    } catch (PDOException $e) {
+                        // Log detailed context for debugging
+                        error_log("Error updating profile: " . $e->getMessage());
+                        error_log("SQL: " . $sql);
+                        error_log("Params: " . json_encode($params));
+
+                        // For local/dev debugging show the real message; in production you might hide this
+                        $error = "Failed to update profile: " . $e->getMessage();
+                    }
                 } catch (Exception $e) {
-                    error_log("Error updating profile: " . $e->getMessage());
-                    $error = "Failed to update profile.";
+                    // Other exceptions (e.g., upload errors)
+                    error_log("Error updating profile (general): " . $e->getMessage());
+                    $error = "Failed to update profile: " . $e->getMessage();
                 }
             } else {
                 $error = "Full name is required.";
