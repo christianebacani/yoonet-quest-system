@@ -225,9 +225,6 @@ window.onunload = function() { void (0); }
           <a href="dashboard.php" class="bg-yellow-500 hover:bg-yellow-400 text-gray-900 px-8 py-4 rounded-lg text-lg font-semibold transition-colors shadow-lg flex items-center justify-center pulse">
             🚀 Start Your Quest
           </a>
-          <button class="border-2 border-white text-white hover:bg-white hover:text-blue-600 px-8 py-4 rounded-lg text-lg font-semibold transition-colors">
-            📺 Watch Demo
-          </button>
          
            
         </div>
