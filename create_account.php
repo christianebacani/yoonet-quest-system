@@ -308,6 +308,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             transition: border-color 0.2s;
             box-sizing: border-box;
         }
+        /* Custom autocomplete suggestions (matches card/input style) */
+        .autocomplete-suggestions {
+            position: absolute;
+            top: calc(100% + 6px);
+            left: 0;
+            right: 0;
+            background: #fff;
+            border: 1px solid #e6e9f2;
+            box-shadow: 0 8px 24px rgba(60,72,88,0.12);
+            border-radius: 8px;
+            z-index: 30;
+            max-height: 220px;
+            overflow: auto;
+            display: none;
+        }
+        .autocomplete-suggestion {
+            padding: 10px 12px;
+            cursor: pointer;
+            font-size: 0.95rem;
+            color: #111827;
+        }
+        .autocomplete-suggestion:hover, .autocomplete-suggestion.active {
+            background: linear-gradient(90deg, rgba(99,102,241,0.06), rgba(99,102,241,0.03));
+            color: #4338ca;
+        }
+        /* Remove any browser-provided arrow on inputs (best-effort) */
+        #job_position {
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            background-image: none !important;
+            padding-right: 1rem;
+        }
+        /* Custom select wrapper to visually match job-position input */
+        .custom-select .form-select {
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            background: #fff;
+            border-radius: 0.5rem;
+            border: 1px solid #cbd5e1;
+            padding: 0.75rem 2.75rem 0.75rem 0.75rem; /* leave room for chevron */
+            box-shadow: 0 4px 12px rgba(60,72,88,0.06);
+            transition: border-color 0.15s ease, box-shadow 0.15s ease;
+        }
+        .custom-select .form-select:focus {
+            border-color: #6366f1;
+            box-shadow: 0 6px 18px rgba(99,102,241,0.08);
+            outline: none;
+        }
+        .select-arrow {
+            color: #6b7280;
+        }
         .form-input:focus, .form-select:focus {
             border-color: #6366f1;
             outline: none;
@@ -884,32 +937,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <label for="gmail" class="form-label">Gmail</label>
                 <input type="email" name="gmail" id="gmail" class="form-input" required placeholder="example@gmail.com" value="<?php if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($error) || (isset($error) && strpos($error, 'Gmail') === false)) echo htmlspecialchars($_POST['gmail'] ?? ''); ?>">
             </div>
-            <div class="form-group">
+            <div class="form-group autocomplete-group" style="position:relative;">
                 <label for="job_position" class="form-label">Job Position</label>
-                <!-- Use a datalist so users can type and pick a suggested job position -->
-                <input list="job_positions" name="job_position" id="job_position" class="form-input" required value="<?php echo htmlspecialchars($_POST['job_position'] ?? ''); ?>">
-                <datalist id="job_positions">
-                    <option value="Software Engineer">
-                    <option value="QA Engineer">
-                    <option value="Product Manager">
-                    <option value="UX/UI Designer">
-                    <option value="DevOps Engineer">
-                    <option value="Data Analyst">
-                    <option value="Project Manager">
-                    <option value="Business Analyst">
-                    <option value="HR Specialist">
-                    <option value="Sales Executive">
-                </datalist>
+                <!-- Custom styled autocomplete to match site UI and remove browser arrow -->
+                <input type="text" name="job_position" id="job_position" class="form-input" autocomplete="off" required value="<?php echo htmlspecialchars($_POST['job_position'] ?? ''); ?>">
+                <div id="job_position_suggestions" class="autocomplete-suggestions" aria-hidden="true"></div>
             </div>
-            <div class="form-group">
+            <div class="form-group custom-select" style="position:relative;">
                 <label for="availability" class="form-label">Availability</label>
                 <select name="availability" id="availability" class="form-select" required>
                     <option value="">Select Availability</option>
-                    <option value="full_time" <?php if (isset($_POST['availability']) && $_POST['availability']==='full_time') echo 'selected'; ?>>Full Time</option>
-                    <option value="part_time" <?php if (isset($_POST['availability']) && $_POST['availability']==='part_time') echo 'selected'; ?>>Part Time</option>
-                    <option value="project_based" <?php if (isset($_POST['availability']) && $_POST['availability']==='project_based') echo 'selected'; ?>>Project Based</option>
-                    <option value="casual" <?php if (isset($_POST['availability']) && $_POST['availability']==='casual') echo 'selected'; ?>>Casual</option>
+                    <option value="full_time" <?php if (isset($_POST['availability']) && $_POST['availability']==='full_time') echo 'selected'; ?>>Full Time (30+ hrs/week)</option>
+                    <option value="part_time" <?php if (isset($_POST['availability']) && $_POST['availability']==='part_time') echo 'selected'; ?>>Part Time (8–29 hrs/week)</option>
+                    <option value="project_based" <?php if (isset($_POST['availability']) && $_POST['availability']==='project_based') echo 'selected'; ?>>Project Based (varies)</option>
+                    <option value="casual" <?php if (isset($_POST['availability']) && $_POST['availability']==='casual') echo 'selected'; ?>>Casual (&lt;20 hrs/week)</option>
                 </select>
+                <i class="fas fa-chevron-down select-arrow" aria-hidden="true" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);color:#6b7280;pointer-events:none;font-size:14px"></i>
+                <div id="availability-hint" style="margin-top:6px;color:#6b7280;font-size:0.9rem;"></div>
             </div>
             <div class="form-group">
                 <label for="email" class="form-label">Email</label>
@@ -1434,6 +1478,117 @@ This email contains sensitive login information. Please keep it secure and delet
                 if (modal.style.display === 'flex') {
                     closeEmailModal();
                 }
+            }
+        });
+
+        // -----------------------------
+        // Job position autocomplete
+        // -----------------------------
+        document.addEventListener('DOMContentLoaded', function() {
+            const jobInput = document.getElementById('job_position');
+            const suggestionsBox = document.getElementById('job_position_suggestions');
+            const jobPositions = [
+                'Software Engineer', 'QA Engineer', 'Product Manager', 'UX/UI Designer',
+                'DevOps Engineer', 'Data Analyst', 'Project Manager', 'Business Analyst',
+                'HR Specialist', 'Sales Executive'
+            ];
+
+            let activeIndex = -1;
+
+            function renderSuggestions(list) {
+                suggestionsBox.innerHTML = '';
+                if (!list.length) {
+                    suggestionsBox.style.display = 'none';
+                    suggestionsBox.setAttribute('aria-hidden', 'true');
+                    return;
+                }
+                list.forEach((item, idx) => {
+                    const div = document.createElement('div');
+                    div.className = 'autocomplete-suggestion';
+                    div.textContent = item;
+                    div.dataset.value = item;
+                    div.addEventListener('mousedown', function(e) {
+                        // use mousedown to prevent blur before click
+                        e.preventDefault();
+                        jobInput.value = this.dataset.value;
+                        suggestionsBox.style.display = 'none';
+                    });
+                    suggestionsBox.appendChild(div);
+                });
+                suggestionsBox.style.display = 'block';
+                suggestionsBox.setAttribute('aria-hidden', 'false');
+            }
+
+            function filterSuggestions(query) {
+                const q = (query || '').trim().toLowerCase();
+                if (!q) return jobPositions.slice(0, 8);
+                return jobPositions.filter(p => p.toLowerCase().includes(q)).slice(0, 8);
+            }
+
+            jobInput.addEventListener('input', function() {
+                activeIndex = -1;
+                const matches = filterSuggestions(this.value);
+                renderSuggestions(matches);
+            });
+
+            jobInput.addEventListener('keydown', function(e) {
+                const items = suggestionsBox.querySelectorAll('.autocomplete-suggestion');
+                if (!items.length) return;
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    activeIndex = Math.min(activeIndex + 1, items.length - 1);
+                    items.forEach(i => i.classList.remove('active'));
+                    items[activeIndex].classList.add('active');
+                    items[activeIndex].scrollIntoView({ block: 'nearest' });
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    activeIndex = Math.max(activeIndex - 1, 0);
+                    items.forEach(i => i.classList.remove('active'));
+                    items[activeIndex].classList.add('active');
+                    items[activeIndex].scrollIntoView({ block: 'nearest' });
+                } else if (e.key === 'Enter') {
+                    if (activeIndex >= 0 && items[activeIndex]) {
+                        e.preventDefault();
+                        jobInput.value = items[activeIndex].dataset.value;
+                        suggestionsBox.style.display = 'none';
+                    }
+                }
+            });
+
+            // Close suggestions on blur
+            jobInput.addEventListener('blur', function() {
+                setTimeout(() => {
+                    suggestionsBox.style.display = 'none';
+                }, 150);
+            });
+
+            // Initialize suggestions (show top suggestions when focused)
+            jobInput.addEventListener('focus', function() {
+                const matches = filterSuggestions(this.value);
+                renderSuggestions(matches);
+            });
+
+            // -----------------------------
+            // Availability hint updater
+            // -----------------------------
+            const availability = document.getElementById('availability');
+            const availabilityHint = document.getElementById('availability-hint');
+            const availabilityMap = {
+                'full_time': 'Typically 30+ hrs/week',
+                'part_time': 'Typically 8–29 hrs/week',
+                'project_based': 'Hours vary depending on project',
+                'casual': '<20 hrs/week'
+            };
+
+            function updateAvailabilityHint() {
+                const val = availability.value;
+                availabilityHint.textContent = availabilityMap[val] || '';
+            }
+
+            if (availability) {
+                availability.addEventListener('change', updateAvailabilityHint);
+                // initialize on page load
+                updateAvailabilityHint();
             }
         });
     </script>
