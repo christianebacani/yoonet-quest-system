@@ -57,6 +57,13 @@ ADD COLUMN IF NOT EXISTS `job_position` varchar(100) CHARACTER SET utf8mb4 COLLA
 ADD COLUMN IF NOT EXISTS `profile_completed` tinyint(1) NOT NULL DEFAULT 0,
 ADD COLUMN IF NOT EXISTS `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP;
 
+-- Add commonly used profile columns if missing (bio, profile photo, interests, availability)
+ALTER TABLE `users`
+  ADD COLUMN IF NOT EXISTS `bio` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS `profile_photo` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS `quest_interests` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS `availability_status` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL;
+
 -- Update role enum to include all possible values for backwards compatibility
 ALTER TABLE `users` 
 MODIFY COLUMN `role` enum('skill_associate','quest_lead','admin','quest_taker','hybrid','quest_giver','participant','contributor') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'skill_associate';
@@ -84,10 +91,15 @@ CREATE TABLE IF NOT EXISTS `skill_categories` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `category_name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `description` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `display_order` int(11) NOT NULL DEFAULT 0,
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `category_name` (`category_name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Ensure display_order exists on older databases
+ALTER TABLE `skill_categories`
+  ADD COLUMN IF NOT EXISTS `display_order` int(11) NOT NULL DEFAULT 0;
 
 -- Comprehensive skills table
 CREATE TABLE IF NOT EXISTS `comprehensive_skills` (
@@ -162,52 +174,6 @@ CREATE TABLE IF NOT EXISTS `user_earned_skills` (
 --   3   | 260
 --   4   | 510
 --   5   | 900
---   6   | 1500
---   7   | 2420
---   8   | 4600
---   9   | 7700
---  10   | 12700
---  11   | 19300
---  12   | 29150
--- Stages:
---   Learning: 1–3
---   Applying: 4–6
---   Mastering: 7–9
---   Innovating: 10–12
--- Breadth XP Diminishing Factors (per quest, based on # skills awarded):
---   1–2 skills: 1.00
---   3 skills : 0.90
---   4 skills : 0.75
---   5+ skills: 0.60
--- Max selectable skills per quest reduced to 5 (enforced UI + server edit_quest.php).
--- Tier multipliers (applied in award pipeline; inferred presently):
---   T1=0.85, T2=0.95, T3=1.00, T4=1.15, T5=1.30
-
--- ACTIVE: Table-driven thresholds (now enabled)
-CREATE TABLE IF NOT EXISTS `skill_level_thresholds` (
-  `id` int NOT NULL AUTO_INCREMENT,
-  `level` int NOT NULL,
-  `cumulative_xp` int NOT NULL,
-  `stage` enum('Learning','Applying','Mastering','Innovating') NOT NULL,
-  `active` tinyint(1) NOT NULL DEFAULT 1,
-  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uniq_level` (`level`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-INSERT IGNORE INTO `skill_level_thresholds` (level,cumulative_xp,stage) VALUES
-(1,0,'Learning'),
-(2,300,'Learning'),
-(3,800,'Learning'),
-(4,1800,'Applying'),
-(5,3200,'Applying'),
-(6,5200,'Applying'),
-(7,8000,'Mastering'),
-(8,12000,'Mastering'),
-(9,17000,'Mastering'),
-(10,24000,'Innovating'),
-(11,33000,'Innovating'),
-(12,44000,'Innovating');
 
 -- Quest completions summary (per user per quest)
 CREATE TABLE IF NOT EXISTS `quest_completions` (
@@ -224,76 +190,6 @@ CREATE TABLE IF NOT EXISTS `quest_completions` (
   CONSTRAINT `qc_user_fk` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
   CONSTRAINT `qc_quest_fk` FOREIGN KEY (`quest_id`) REFERENCES `quests` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- ====================================================================
--- 4. GROUP MANAGEMENT SYSTEM
--- ====================================================================
-
-
-
--- ====================================================================
--- 5. QUEST SYSTEM CORE TABLES
--- ====================================================================
-
-CREATE TABLE IF NOT EXISTS `quest_categories` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
-  `name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `description` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
-  `icon` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `color` varchar(7) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT '#3B82F6',
-  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `name` (`name`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- Main quests table
-CREATE TABLE IF NOT EXISTS `quests` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
-  `title` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `description` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `xp` int(11) NOT NULL DEFAULT 10,
-  `status` enum('active','inactive','completed','archived') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'active',
-  `created_by` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  `quest_assignment_type` enum('optional','required') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'optional',
-  `due_date` datetime DEFAULT NULL,
-  `category_id` int(11) DEFAULT NULL,
-  `quest_type` enum('single','recurring') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT 'single',
-  `visibility` enum('public','private') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT 'public',
-  `recurrence_pattern` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `recurrence_end_date` datetime DEFAULT NULL,
-  `max_attempts` int(11) DEFAULT 1,
-  PRIMARY KEY (`id`),
-  KEY `idx_created_by` (`created_by`),
-  KEY `idx_status` (`status`),
-  KEY `idx_quest_type` (`quest_assignment_type`),
-  KEY `idx_category` (`category_id`),
-  KEY `idx_due_date` (`due_date`),
-  CONSTRAINT `quests_ibfk_1` FOREIGN KEY (`created_by`) REFERENCES `users` (`employee_id`) ON DELETE CASCADE,
-  CONSTRAINT `quests_ibfk_2` FOREIGN KEY (`category_id`) REFERENCES `quest_categories` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- Add missing columns to quests table if they don't exist
-ALTER TABLE `quests` 
-ADD COLUMN IF NOT EXISTS `quest_assignment_type` enum('optional','required') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'optional',
-ADD COLUMN IF NOT EXISTS `due_date` datetime DEFAULT NULL,
-ADD COLUMN IF NOT EXISTS `category_id` int(11) DEFAULT NULL,
-ADD COLUMN IF NOT EXISTS `quest_type` enum('single','recurring') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT 'single',
-ADD COLUMN IF NOT EXISTS `visibility` enum('public','private') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT 'public',
-ADD COLUMN IF NOT EXISTS `recurrence_pattern` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-ADD COLUMN IF NOT EXISTS `recurrence_end_date` datetime DEFAULT NULL,
-ADD COLUMN IF NOT EXISTS `max_attempts` int(11) DEFAULT 1;
-
--- ====================================================================
--- Migration included: ensure `quests.status` enum includes 'draft' and 'deleted'
--- This makes the consolidated setup idempotent for environments that should
--- support the 'draft' workflow and the application's fallback 'deleted' value.
--- ====================================================================
--- Modify the quests.status enum to include 'draft' and 'deleted' while preserving the default.
-ALTER TABLE `quests`
-  MODIFY COLUMN `status` enum('active','inactive','completed','archived','draft','deleted')
-  CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'active';
 
 
 -- Quest skills relationship table
@@ -680,144 +576,17 @@ INSERT INTO setup_status VALUES
 ('Optimization', 'COMPLETE', 'Database analyzed and optimized');
 
 SELECT 
-    '=====================================================================' as separator,
-    'YooNet Quest System Database Setup Complete!' as message,
-    '=====================================================================' as separator2;
+  '=====================================================================' AS `separator`,
+  'YooNet Quest System Database Setup Complete!' AS `message`,
+  '=====================================================================' AS `separator2`
+FROM DUAL;
 
 SELECT * FROM setup_status;
 
 SELECT 
-    '=====================================================================' as separator,
-    'Database is ready for use!' as message,
-    'All tables, indexes, and default data have been set up.' as details,
-    '=====================================================================' as separator2;
-
--- SQL Script to add profile setup functionality to YooNet Quest System
--- Run these queries in your MySQL database
-
--- Add new columns to users table for profile completion
-ALTER TABLE users 
-ADD COLUMN IF NOT EXISTS profile_photo VARCHAR(255) DEFAULT NULL,
-ADD COLUMN IF NOT EXISTS bio TEXT DEFAULT NULL,
-ADD COLUMN IF NOT EXISTS preferred_role ENUM('quest_taker', 'quest_giver', 'hybrid') DEFAULT NULL,
-ADD COLUMN IF NOT EXISTS quest_interests TEXT DEFAULT NULL,
-ADD COLUMN IF NOT EXISTS availability ENUM('full_time', 'part_time', 'casual', 'project_based') DEFAULT NULL,
-ADD COLUMN IF NOT EXISTS profile_completed BOOLEAN DEFAULT FALSE,
-ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP;
-
--- Create user_skills table for storing user skills and proficiency levels
-CREATE TABLE IF NOT EXISTS user_skills (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id INT NOT NULL,
-    skill_name VARCHAR(100) NOT NULL,
-    skill_level TINYINT DEFAULT 1 CHECK (skill_level BETWEEN 1 AND 5),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    UNIQUE KEY unique_user_skill (user_id, skill_name)
-);
-
--- Create user_achievements table for tracking quest accomplishments
-CREATE TABLE IF NOT EXISTS user_achievements (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id INT NOT NULL,
-    achievement_type ENUM('quest_completed', 'skill_level_up', 'milestone_reached', 'badge_earned') NOT NULL,
-    achievement_name VARCHAR(100) NOT NULL,
-    achievement_description TEXT,
-    points_earned INT DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-);
-
--- Create skill_categories table for organized skill management
-CREATE TABLE IF NOT EXISTS skill_categories (
-    id INT AUTO_INCREMENT PRIMARY KEY-tools',
-    display_order INT DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    category_name VARCHAR(50) NOT NULL UNIQUE,
-    category_icon VARCHAR(50) DEFAULT 'fas fa
-);
-
--- Insert default skill categories
-INSERT IGNORE INTO skill_categories (category_name, category_icon, display_order) VALUES
-('Technical Skills', 'fas fa-code', 1),
-('Design Skills', 'fas fa-palette', 2),
-('Business Skills', 'fas fa-chart-line', 3),
-('Soft Skills', 'fas fa-heart', 4);
-
--- Create predefined_skills table for skill suggestions
-CREATE TABLE IF NOT EXISTS predefined_skills (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    skill_name VARCHAR(100) NOT NULL UNIQUE,
-    category_id INT NOT NULL,
-    description TEXT,
-    display_order INT DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (category_id) REFERENCES skill_categories(id) ON DELETE CASCADE
-);
-
--- Insert predefined skills
-INSERT IGNORE INTO predefined_skills (skill_name, category_id, display_order) VALUES
--- Technical Skills (category_id = 1)
-('PHP', 1, 1), ('JavaScript', 1, 2), ('Python', 1, 3), ('Java', 1, 4), ('C++', 1, 5),
-('HTML/CSS', 1, 6), ('SQL', 1, 7), ('React', 1, 8), ('Vue.js', 1, 9), ('Node.js', 1, 10),
-('Laravel', 1, 11), ('WordPress', 1, 12), ('Git', 1, 13), ('Docker', 1, 14), ('AWS', 1, 15),
-('Linux', 1, 16), ('MongoDB', 1, 17), ('MySQL', 1, 18),
-
--- Design Skills (category_id = 2)
-('UI/UX Design', 2, 1), ('Graphic Design', 2, 2), ('Adobe Photoshop', 2, 3), ('Adobe Illustrator', 2, 4),
-('Figma', 2, 5), ('Sketch', 2, 6), ('InDesign', 2, 7), ('After Effects', 2, 8), ('Blender', 2, 9),
-('3D Modeling', 2, 10), ('Typography', 2, 11), ('Branding', 2, 12),
-
--- Business Skills (category_id = 3)
-('Project Management', 3, 1), ('Team Leadership', 3, 2), ('Strategic Planning', 3, 3), ('Data Analysis', 3, 4),
-('Marketing', 3, 5), ('Sales', 3, 6), ('Customer Service', 3, 7), ('Public Speaking', 3, 8),
-('Negotiation', 3, 9), ('Financial Analysis', 3, 10),
-
--- Soft Skills (category_id = 4)
-('Communication', 4, 1), ('Problem Solving', 4, 2), ('Critical Thinking', 4, 3), ('Creativity', 4, 4),
-('Adaptability', 4, 5), ('Time Management', 4, 6), ('Teamwork', 4, 7), ('Leadership', 4, 8),
-('Emotional Intelligence', 4, 9), ('Mentoring', 4, 10);
-
--- Create user_profile_views table for tracking profile visits
-CREATE TABLE IF NOT EXISTS user_profile_views (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    profile_user_id INT NOT NULL,
-    viewer_user_id INT,
-    view_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    ip_address VARCHAR(45),
-    FOREIGN KEY (profile_user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (viewer_user_id) REFERENCES users(id) ON DELETE SET NULL
-);
-
--- Create indexes for better performance
-CREATE INDEX IF NOT EXISTS idx_user_skills_user_id ON user_skills(user_id);
-CREATE INDEX IF NOT EXISTS idx_user_skills_skill_name ON user_skills(skill_name);
-CREATE INDEX IF NOT EXISTS idx_user_achievements_user_id ON user_achievements(user_id);
-CREATE INDEX IF NOT EXISTS idx_user_achievements_type ON user_achievements(achievement_type);
-CREATE INDEX IF NOT EXISTS idx_predefined_skills_category ON predefined_skills(category_id);
-CREATE INDEX IF NOT EXISTS idx_profile_views_profile_user ON user_profile_views(profile_user_id);
-
--- Add sample user data (optional - for testing)
--- UPDATE users SET profile_completed = FALSE WHERE profile_completed IS NULL;
-
--- Display current table structure
-SELECT 'Users table columns:' as info;
-DESCRIBE users;
-
-SELECT 'User Skills table structure:' as info;
-DESCRIBE user_skills;
-
-SELECT 'Skill Categories:' as info;
-SELECT * FROM skill_categories ORDER BY display_order;
-
-SELECT 'Sample Predefined Skills:' as info;
-SELECT sc.category_name, ps.skill_name 
-FROM predefined_skills ps 
-JOIN skill_categories sc ON ps.category_id = sc.id 
-ORDER BY sc.display_order, ps.display_order 
-LIMIT 20;
-
+  '=====================================================================' AS `separator`,
+  'Database is ready for use!' AS `message`,
+  'All tables, indexes, and default data have been set up.' AS `details`,
 -- Commit all changes
 COMMIT;
 
