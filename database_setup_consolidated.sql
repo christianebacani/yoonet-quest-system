@@ -57,6 +57,51 @@ ADD COLUMN IF NOT EXISTS `job_position` varchar(100) CHARACTER SET utf8mb4 COLLA
 ADD COLUMN IF NOT EXISTS `profile_completed` tinyint(1) NOT NULL DEFAULT 0,
 ADD COLUMN IF NOT EXISTS `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP;
 
+-- ====================================================================
+-- Ensure canonical availability column exists and migrate legacy values
+-- Adds `availability` ENUM and migrates from older columns (`availability_status`, `availability_hours`) where possible.
+-- Mapping from numeric hours to status is conservative and can be adjusted later:
+--   >=30 hours -> full_time
+--   8-29 hours  -> part_time
+--   0-7 hours   -> casual
+-- project_based cannot be inferred from hours and must be set manually.
+-- ====================================================================
+ALTER TABLE `users`
+  ADD COLUMN IF NOT EXISTS `availability` enum('full_time','part_time','project_based','casual') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL;
+
+-- Ensure legacy availability columns exist (safe no-op if already present).
+ALTER TABLE `users`
+  ADD COLUMN IF NOT EXISTS `availability_hours` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS `availability_status` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL;
+
+-- If availability_status already holds canonical values, copy them across
+UPDATE `users` u
+SET u.`availability` = u.`availability_status`
+WHERE (u.`availability` IS NULL OR u.`availability` = '')
+  AND u.`availability_status` IN ('full_time','part_time','project_based','casual');
+
+-- Migrate numeric availability_hours into conservative buckets when availability is not set
+UPDATE `users` u
+SET u.`availability` = 'full_time'
+WHERE (u.`availability` IS NULL OR u.`availability` = '')
+  AND (u.`availability_hours` IS NOT NULL)
+  AND (CAST(u.`availability_hours` AS UNSIGNED) >= 30);
+
+UPDATE `users` u
+SET u.`availability` = 'part_time'
+WHERE (u.`availability` IS NULL OR u.`availability` = '')
+  AND (u.`availability_hours` IS NOT NULL)
+  AND (CAST(u.`availability_hours` AS UNSIGNED) BETWEEN 8 AND 29);
+
+UPDATE `users` u
+SET u.`availability` = 'casual'
+WHERE (u.`availability` IS NULL OR u.`availability` = '')
+  AND (u.`availability_hours` IS NOT NULL)
+  AND (CAST(u.`availability_hours` AS UNSIGNED) < 8);
+
+-- Note: we intentionally leave legacy columns (`availability_hours`, `availability_status`) in place
+-- so existing processes continue to work. Admins may drop them later after verifying the migration.
+
 -- Add commonly used profile columns if missing (bio, profile photo, interests, availability)
 ALTER TABLE `users`
   ADD COLUMN IF NOT EXISTS `bio` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
