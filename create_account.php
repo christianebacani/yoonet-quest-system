@@ -45,7 +45,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $new_middle_name = trim(preg_replace('/\s+/', '', $_POST['middle_name'] ?? ''));
     $new_gmail = trim(preg_replace('/\s+/', '', $_POST['gmail'] ?? ''));
     $new_job_position = trim(preg_replace('/\s+/', '', $_POST['job_position'] ?? ''));
-    $new_availability_hours = trim(preg_replace('/\s+/', '', $_POST['availability_hours'] ?? ''));
+    // Availability now uses a status dropdown (e.g. full_time, part_time, casual, project_based)
+    $new_availability = sanitize_user_input($_POST['availability'] ?? '');
     $new_name = $new_last_name . ', ' . $new_first_name . ' ' . $new_middle_name;
     $new_email = sanitize_user_input($_POST['email'] ?? '');
     $new_role = sanitize_user_input($_POST['role'] ?? 'skill_associate');
@@ -54,7 +55,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $confirm_password = preg_replace('/\s+/', '', $_POST['confirm_password'] ?? '');
 
         // Basic required field validation
-        if (!$new_employee_id || !$new_last_name || !$new_first_name || !$new_middle_name || !$new_gmail || !$new_job_position || !$new_availability_hours || !$new_name || !$new_email || !$new_password || !$confirm_password || !$new_gender) {
+        if (!$new_employee_id || !$new_last_name || !$new_first_name || !$new_middle_name || !$new_gmail || !$new_job_position || !$new_availability || !$new_name || !$new_email || !$new_password || !$confirm_password || !$new_gender) {
             $error = 'All fields are required.';
         }
         // Employee ID must be exactly 7 digits
@@ -85,8 +86,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         elseif (!preg_match('/^[A-Za-z0-9 .\-]+$/', $new_job_position)) {
             $error = 'Job Position must only contain letters, numbers, spaces, dots, and hyphens.';
         }
-        elseif (!preg_match('/^[0-9]+$/', $new_availability_hours)) {
-            $error = 'Availability Hours must be a number.';
+        // Availability must be one of the allowed statuses
+        elseif (!in_array($new_availability, ['full_time','part_time','casual','project_based'])) {
+            $error = 'Invalid availability selected.';
         }
         elseif (($name_validation = validate_name_format($new_name)) !== true) {
             $error = $name_validation;
@@ -143,12 +145,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $has_gender_column = false;
                 }
                 
+                // Determine which availability column exists in the users table (backwards compatibility)
+                $availability_col_name = 'availability_hours';
+                try {
+                    $stmtCol = $pdo->query("SHOW COLUMNS FROM users LIKE 'availability'");
+                    if ($stmtCol && $stmtCol->rowCount() > 0) {
+                        $availability_col_name = 'availability';
+                    } else {
+                        $stmtCol = $pdo->query("SHOW COLUMNS FROM users LIKE 'availability_status'");
+                        if ($stmtCol && $stmtCol->rowCount() > 0) {
+                            $availability_col_name = 'availability_status';
+                        } else {
+                            $stmtCol = $pdo->query("SHOW COLUMNS FROM users LIKE 'availability_hours'");
+                            if (!($stmtCol && $stmtCol->rowCount() > 0)) {
+                                // default to availability_hours if none found
+                                $availability_col_name = 'availability_hours';
+                            }
+                        }
+                    }
+                } catch (PDOException $e) {
+                    $availability_col_name = 'availability_hours';
+                }
+
                 if ($has_gender_column) {
-                    $stmt = $pdo->prepare('INSERT INTO users (employee_id, full_name, email, password, role, gender, created_at, last_name, first_name, middle_name, gmail, job_position, availability_hours) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-                    $success = $stmt->execute([$new_employee_id, $new_name, $new_email, $hashed_password, $new_role, $new_gender, $created_at, $new_last_name, $new_first_name, $new_middle_name, $new_gmail, $new_job_position, $new_availability_hours]);
+                    $sql = 'INSERT INTO users (employee_id, full_name, email, password, role, gender, created_at, last_name, first_name, middle_name, gmail, job_position, ' . $availability_col_name . ') VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+                    $params = [$new_employee_id, $new_name, $new_email, $hashed_password, $new_role, $new_gender, $created_at, $new_last_name, $new_first_name, $new_middle_name, $new_gmail, $new_job_position, $new_availability];
+                    $stmt = $pdo->prepare($sql);
+                    $success = $stmt->execute($params);
                 } else {
-                    $stmt = $pdo->prepare('INSERT INTO users (employee_id, full_name, email, password, role, created_at, last_name, first_name, middle_name, gmail, job_position, availability_hours) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-                    $success = $stmt->execute([$new_employee_id, $new_name, $new_email, $hashed_password, $new_role, $created_at, $new_last_name, $new_first_name, $new_middle_name, $new_gmail, $new_job_position, $new_availability_hours]);
+                    $sql = 'INSERT INTO users (employee_id, full_name, email, password, role, created_at, last_name, first_name, middle_name, gmail, job_position, ' . $availability_col_name . ') VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+                    $params = [$new_employee_id, $new_name, $new_email, $hashed_password, $new_role, $created_at, $new_last_name, $new_first_name, $new_middle_name, $new_gmail, $new_job_position, $new_availability];
+                    $stmt = $pdo->prepare($sql);
+                    $success = $stmt->execute($params);
                 }
                 
                 if ($success) {
@@ -858,11 +886,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
             <div class="form-group">
                 <label for="job_position" class="form-label">Job Position</label>
-                <input type="text" name="job_position" id="job_position" class="form-input" required value="<?php if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($error) || (isset($error) && strpos($error, 'Job Position') === false)) echo htmlspecialchars($_POST['job_position'] ?? ''); ?>">
+                <!-- Use a datalist so users can type and pick a suggested job position -->
+                <input list="job_positions" name="job_position" id="job_position" class="form-input" required value="<?php echo htmlspecialchars($_POST['job_position'] ?? ''); ?>">
+                <datalist id="job_positions">
+                    <option value="Software Engineer">
+                    <option value="QA Engineer">
+                    <option value="Product Manager">
+                    <option value="UX/UI Designer">
+                    <option value="DevOps Engineer">
+                    <option value="Data Analyst">
+                    <option value="Project Manager">
+                    <option value="Business Analyst">
+                    <option value="HR Specialist">
+                    <option value="Sales Executive">
+                </datalist>
             </div>
             <div class="form-group">
-                <label for="availability_hours" class="form-label">Availability Hours</label>
-                <input type="number" name="availability_hours" id="availability_hours" class="form-input" required min="0" value="<?php if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($error) || (isset($error) && strpos($error, 'Availability Hours') === false)) echo htmlspecialchars($_POST['availability_hours'] ?? ''); ?>">
+                <label for="availability" class="form-label">Availability</label>
+                <select name="availability" id="availability" class="form-select" required>
+                    <option value="">Select Availability</option>
+                    <option value="full_time" <?php if (isset($_POST['availability']) && $_POST['availability']==='full_time') echo 'selected'; ?>>Full Time</option>
+                    <option value="part_time" <?php if (isset($_POST['availability']) && $_POST['availability']==='part_time') echo 'selected'; ?>>Part Time</option>
+                    <option value="project_based" <?php if (isset($_POST['availability']) && $_POST['availability']==='project_based') echo 'selected'; ?>>Project Based</option>
+                    <option value="casual" <?php if (isset($_POST['availability']) && $_POST['availability']==='casual') echo 'selected'; ?>>Casual</option>
+                </select>
             </div>
             <div class="form-group">
                 <label for="email" class="form-label">Email</label>
@@ -1208,7 +1255,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Enhanced form submission with comprehensive validation
             form.addEventListener('submit', function(e) {
                 const employeeId = document.getElementById('employee_id').value.trim();
-                const name = document.getElementById('name').value.trim();
+                const lastName = document.getElementById('last_name').value.trim();
+                const firstName = document.getElementById('first_name').value.trim();
                 const email = document.getElementById('email').value.trim();
                 const password = passwordField.value;
                 const confirmPassword = confirmPasswordField.value;
@@ -1219,7 +1267,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 
                 // Check required fields
                 if (!employeeId) validationErrors.push('Employee ID is required');
-                if (!name) validationErrors.push('Full Name is required');
+                if (!lastName || !firstName) validationErrors.push('Full name (first and last) is required');
                 if (!email) validationErrors.push('Email is required');
                 if (!password) validationErrors.push('Password is required');
                 if (!confirmPassword) validationErrors.push('Confirm Password is required');
