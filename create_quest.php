@@ -355,10 +355,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // Add quest skills with tiers
                 if (!empty($final_skill_ids)) {
                     $stmt = $pdo->prepare("INSERT INTO quest_skills 
-                        (quest_id, skill_id, tier_level) VALUES (?, ?, ?)");
+                        (quest_id, skill_id, required_level) VALUES (?, ?, ?)");
+                    // Map tier number to required_level enum
+                    function mapTierToLevel($tier) {
+                        switch ($tier) {
+                            case 1: return 'beginner';
+                            case 2: return 'intermediate';
+                            case 3: return 'advanced';
+                            case 4:
+                            case 5: return 'expert';
+                            default: return 'beginner';
+                        }
+                    }
                     foreach ($final_skill_ids as $skill_id) {
                         $tier = isset($skill_tiers[$skill_id]) ? intval($skill_tiers[$skill_id]) : 1;
-                        $stmt->execute([$quest_id, $skill_id, $tier]);
+                        $level = mapTierToLevel($tier);
+                        $stmt->execute([$quest_id, $skill_id, $level]);
                     }
                 }
                 
@@ -1527,7 +1539,17 @@ function getFontSize() {
                                                    onchange="handleEmployeeSelection(this)"
                                                    <?php echo in_array($employee['employee_id'], $assign_to) ? 'checked' : ''; ?>>
                                             <div class="ml-2 flex-1">
-                                                <div class="text-sm font-medium text-gray-900"><?php echo htmlspecialchars($employee['full_name']); ?></div>
+                                                <?php
+                                                // Find user_id for this employee_id
+                                                $emp_id = $employee['employee_id'];
+                                                $user_id_stmt = $pdo->prepare('SELECT id FROM users WHERE employee_id = ? LIMIT 1');
+                                                $user_id_stmt->execute([$emp_id]);
+                                                $user_row = $user_id_stmt->fetch(PDO::FETCH_ASSOC);
+                                                $profile_user_id = $user_row ? $user_row['id'] : '';
+                                                ?>
+                                                <span class="text-sm font-medium text-indigo-700 hover:underline cursor-pointer" onclick="window.open('profile_view.php?user_id=<?php echo urlencode($profile_user_id); ?>', '_blank')">
+                                                    <?php echo htmlspecialchars($employee['full_name']); ?>
+                                                </span>
                                                 <div class="text-xs text-gray-500">ID: <?php echo htmlspecialchars($employee['employee_id']); ?></div>
                                             </div>
                                         </label>
