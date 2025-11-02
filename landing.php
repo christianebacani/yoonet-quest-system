@@ -225,11 +225,7 @@ window.onunload = function() { void (0); }
           <a href="dashboard.php" class="bg-yellow-500 hover:bg-yellow-400 text-gray-900 px-8 py-4 rounded-lg text-lg font-semibold transition-colors shadow-lg flex items-center justify-center pulse">
             🚀 Start Your Quest
           </a>
-<<<<<<< HEAD
-         
-           
-=======
->>>>>>> 15512d981dc40db35795aab34f8eda383800ea67
+        
         </div>
       </div>
     </div>
