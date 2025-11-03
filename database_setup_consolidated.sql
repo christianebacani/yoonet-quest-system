@@ -75,6 +75,40 @@ WHERE (u.`last_name` IS NULL OR u.`last_name` = '')
   AND (u.`first_name` IS NULL OR u.`first_name` = '')
   AND (u.`full_name` LIKE '%,%');
 
+-- ------------------------------------------------------------------
+-- PREVIEW: Show current vs computed normalized full_name (read-only)
+-- This SELECT is safe to run and helps colleagues review how names will be
+-- normalized before the UPDATE below is applied. It will output the first
+-- 200 users with their current stored full_name and the computed target.
+-- ------------------------------------------------------------------
+SELECT
+  id,
+  employee_id,
+  full_name AS current_full_name,
+  TRIM(last_name) AS last_name,
+  TRIM(first_name) AS first_name,
+  TRIM(middle_name) AS middle_name,
+  CONCAT(
+    TRIM(COALESCE(last_name, '')),
+    CASE WHEN TRIM(COALESCE(last_name, '')) = '' THEN '' ELSE ', ' END,
+    TRIM(COALESCE(first_name, '')),
+    CASE WHEN TRIM(COALESCE(middle_name, '')) <> '' THEN CONCAT(', ', UPPER(LEFT(TRIM(middle_name), 1)), '.') ELSE '' END
+  ) AS computed_full_name
+FROM users
+ORDER BY id
+LIMIT 200;
+
+-- End preview
+
+-- Normalize stored full_name to the standard 'Surname, Firstname, MI.' format for existing rows
+-- Only update when explicit split name columns are present and full_name doesn't already match the pattern
+UPDATE `users` u
+SET u.`full_name` = CONCAT(TRIM(u.`last_name`), ', ', TRIM(u.`first_name`),
+    IF(TRIM(COALESCE(u.`middle_name`, '')) <> '', CONCAT(', ', UPPER(LEFT(TRIM(u.`middle_name`), 1)), '.'), ''))
+WHERE (u.`last_name` IS NOT NULL AND TRIM(u.`last_name`) <> '')
+  AND (u.`first_name` IS NOT NULL AND TRIM(u.`first_name`) <> '')
+  AND (u.`full_name` IS NULL OR u.`full_name` NOT REGEXP '^[^,]+,\\s+[^,]+(,\\s+[A-Z]\\.)?$');
+
 -- ====================================================================
 -- Ensure canonical availability column exists and migrate legacy values
 -- Adds `availability` ENUM and migrates from older columns (`availability_status`, `availability_hours`) where possible.
