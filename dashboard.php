@@ -152,6 +152,18 @@ try {
         if (isset($user['role']) && $user['role'] !== $_SESSION['role']) {
             $_SESSION['role'] = $user['role'];
         }
+        // Ensure we don't overwrite a valid session full_name with an empty value
+        // The $user row fetched here contains only id and role; format_display_name
+        // may return empty if name fields are not present. Only update session when
+        // the formatted result is non-empty.
+        try {
+            $maybe_display = format_display_name($user);
+            if (is_string($maybe_display) && trim($maybe_display) !== '') {
+                $_SESSION['full_name'] = $maybe_display;
+            }
+        } catch (Exception $e) {
+            error_log('format_display_name error in dashboard: ' . $e->getMessage());
+        }
     } else {
         // User not found in database, redirect to login
         session_destroy();
@@ -1086,6 +1098,13 @@ try {
                     }
                 }
                 unset($row);
+                // Format employee_name consistently (Surname, Firstname, MI.) for display
+                foreach ($pending_submissions as &$__pname_row) {
+                    if (!empty($__pname_row['employee_name'])) {
+                        $__pname_row['employee_name'] = format_display_name(['full_name' => $__pname_row['employee_name']]);
+                    }
+                }
+                unset($__pname_row);
             }
         }
         
@@ -1130,6 +1149,17 @@ try {
         $stmt->bindValue($bindIndex, $offset, PDO::PARAM_INT);
         $stmt->execute();
         $all_submissions = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Format names in all_submissions for consistent display
+        foreach ($all_submissions as &$__as_row) {
+            if (!empty($__as_row['employee_name'])) {
+                $__as_row['employee_name'] = format_display_name(['full_name' => $__as_row['employee_name']]);
+            }
+            if (!empty($__as_row['reviewer_name'])) {
+                $__as_row['reviewer_name'] = format_display_name(['full_name' => $__as_row['reviewer_name']]);
+            }
+        }
+        unset($__as_row);
         
         // Get quests assigned to this giver (if any)
     $stmt = $pdo->prepare("SELECT q.*, uq.status as user_status 
