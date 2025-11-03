@@ -148,26 +148,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             break;
             
-        case '2': // Quest Interests & Availability
+        case '2': // Quest Interests (availability and job position removed from initial onboarding)
             $quest_interests = $_POST['quest_interests'] ?? [];
-            $availability = sanitize_user_input($_POST['availability'] ?? '');
-            $job_position = sanitize_user_input($_POST['job_position'] ?? '');
-            
+
             // Validate required fields
             if (empty($quest_interests)) {
                 $error = "Please select at least one quest interest.";
                 break;
             }
-            
-            if (empty($availability)) {
-                $error = "Please select your availability.";
-                break;
-            }
-            
+
             try {
-                // Update user preferences
-                $stmt = $pdo->prepare("UPDATE users SET quest_interests = ?, availability_status = ?, job_position = ?, profile_completed = 1 WHERE id = ?");
-                if ($stmt->execute([implode(',', $quest_interests), $availability, $job_position, $user_id])) {
+                // Update user preferences (do NOT touch availability_status or job_position here)
+                $stmt = $pdo->prepare("UPDATE users SET quest_interests = ?, profile_completed = 1 WHERE id = ?");
+                if ($stmt->execute([implode(',', $quest_interests), $user_id])) {
                     redirect('dashboard.php?welcome=1');
                 } else {
                     $error = "Failed to save your preferences. Please try again.";
@@ -184,8 +177,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 if ($step === null) {
     // Default to step 1
     $inferred = 1;
-    // If quest preferences / availability or job_position were already set, move to step 2
-    if (!empty($user['quest_interests'] ?? '') || !empty($user['availability_status']) || !empty($user['job_position'] ?? '') || (!empty($user) && ($user['profile_completed'] ?? 0))) {
+    // Only advance to step 2 if quest preferences were already set or the profile is marked completed.
+    // Do NOT infer from availability_status or job_position to avoid skipping step 1 for new users.
+    if (!empty($user['quest_interests'] ?? '') || (!empty($user) && ($user['profile_completed'] ?? 0))) {
         $inferred = 2;
     }
     $step = $inferred;
@@ -849,28 +843,9 @@ $job_positions = [
                         </div>
                     </div>
                     
-                   
-
-                        <label for="availability" class="form-label">Availability</label>
-                        <select id="availability" name="availability" class="form-select">
-                            <option value="">Select your availability</option>
-                            <option value="full_time" <?= ($user['availability_status'] ?? '') == 'full_time' ? 'selected' : '' ?>>Full-time (40+ hours/week)</option>
-                            <option value="part_time" <?= ($user['availability_status'] ?? '') == 'part_time' ? 'selected' : '' ?>>Part-time (20-40 hours/week)</option>
-                            <option value="casual" <?= ($user['availability_status'] ?? '') == 'casual' ? 'selected' : '' ?>>Casual (Less than 20 hours/week)</option>
-                            <option value="project_based" <?= ($user['availability_status'] ?? '') == 'project_based' ? 'selected' : '' ?>>Project-based (Flexible timing)</option>
-                        </select>
-                        <div class="form-group">
-                        <label for="job_position_input" class="form-label">Job Position</label>
-                        <div class="autocomplete" style="display:flex;align-items:flex-start;gap:8px;">
-                            <div style="flex:1;min-width:0;">
-                                <input type="text" id="job_position_input" class="form-input" placeholder="Start typing to search..." autocomplete="off" value="<?= htmlspecialchars(isset($user['job_position']) && isset($job_positions[$user['job_position']]) ? $job_positions[$user['job_position']] : '') ?>">
-                                <input type="hidden" id="job_position" name="job_position" value="<?= htmlspecialchars($user['job_position'] ?? '') ?>">
-                                <div class="autocomplete-list" id="job-position-list" role="listbox" aria-label="Job position suggestions"></div>
-                            </div>
-                            <button type="button" id="job-unselect-btn" class="btn btn-secondary" style="white-space:nowrap;display:none;" onclick="unselectRole()">
-                                <i class="fas fa-times"></i> Unselect
-                            </button>
-                        </div>
+                    
+                    <div class="form-group">
+                        <p class="muted">You can set your availability and job position later from your profile settings. For now, please select your quest interests to finish setup.</p>
                     </div>
                     
                     <div class="nav-buttons">
@@ -887,132 +862,6 @@ $job_positions = [
     </div>
 
     <script>
-        // Job position autocomplete data populated from PHP
-        const JOB_POSITIONS = <?= json_encode($job_positions) ?>;
-
-        (function() {
-            const input = document.getElementById('job_position_input');
-            const hidden = document.getElementById('job_position');
-            const list = document.getElementById('job-position-list');
-            let items = [];
-            let activeIndex = -1;
-
-            function buildList(filter) {
-                const value = (filter || '').toLowerCase();
-                const entries = Object.entries(JOB_POSITIONS)
-                    .filter(([key, label]) => label.toLowerCase().includes(value))
-                    .slice(0, 20);
-
-                list.innerHTML = '';
-                if (entries.length === 0) {
-                    list.style.display = 'none';
-                    return;
-                }
-
-                entries.forEach(([key, label], idx) => {
-                    const div = document.createElement('div');
-                    div.className = 'autocomplete-item';
-                    div.setAttribute('role', 'option');
-                    div.dataset.value = key;
-                    div.innerHTML = label;
-                    div.addEventListener('mousedown', function(e) {
-                        e.preventDefault(); // prevent blur + re-open
-                        selectItem(idx);
-                    });
-                    list.appendChild(div);
-                });
-
-                items = Array.from(list.querySelectorAll('.autocomplete-item'));
-                activeIndex = -1;
-                list.style.display = 'block';
-            }
-
-            function selectItem(index) {
-                if (index < 0 || index >= items.length) return;
-                const el = items[index];
-                const key = el.dataset.value;
-                input.value = el.textContent;
-                hidden.value = key;
-                closeList();
-                showHideJobUnselect();
-            }
-
-            function closeList() {
-                list.innerHTML = '';
-                list.style.display = 'none';
-                items = [];
-                activeIndex = -1;
-            }
-
-            input.addEventListener('input', function() {
-                const v = this.value.trim();
-                if (!v) {
-                    hidden.value = '';
-                    closeList();
-                    showHideJobUnselect();
-                    return;
-                }
-                buildList(v);
-            });
-
-            input.addEventListener('keydown', function(e) {
-                if (!items.length) return;
-                if (e.key === 'ArrowDown') {
-                    e.preventDefault();
-                    activeIndex = Math.min(activeIndex + 1, items.length - 1);
-                    updateActive();
-                } else if (e.key === 'ArrowUp') {
-                    e.preventDefault();
-                    activeIndex = Math.max(activeIndex - 1, 0);
-                    updateActive();
-                } else if (e.key === 'Enter') {
-                    e.preventDefault();
-                    if (activeIndex >= 0) selectItem(activeIndex);
-                } else if (e.key === 'Escape') {
-                    closeList();
-                }
-            });
-
-            function updateActive() {
-                items.forEach((it, i) => it.classList.toggle('active', i === activeIndex));
-                if (activeIndex >= 0 && items[activeIndex]) {
-                    items[activeIndex].scrollIntoView({ block: 'nearest' });
-                }
-            }
-
-            // Close list when clicking outside
-            document.addEventListener('click', function(e) {
-                if (!input.contains(e.target) && !list.contains(e.target)) {
-                    closeList();
-                }
-            });
-
-            // If the page loads with a preselected value, show the label in input
-            (function initValue() {
-                const pre = hidden.value || '';
-                if (pre && JOB_POSITIONS[pre]) {
-                    input.value = JOB_POSITIONS[pre];
-                }
-                showHideJobUnselect();
-            })();
-
-            // Show/hide the job unselect button based on current selection
-            function showHideJobUnselect() {
-                const btn = document.getElementById('job-unselect-btn');
-                if (!btn) return;
-                const has = !!(hidden.value && JOB_POSITIONS[hidden.value]);
-                btn.style.display = has ? 'inline-flex' : 'none';
-            }
-
-            // Clear selected job position
-            window.unselectRole = function() {
-                hidden.value = '';
-                input.value = '';
-                closeList();
-                showHideJobUnselect();
-                input.focus();
-            };
-        })();
         function previewPhoto(input) {
             if (input.files && input.files[0]) {
                 const reader = new FileReader();
