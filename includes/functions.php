@@ -304,6 +304,90 @@ function format_availability($availability, $with_icon = true) {
 }
 
 /**
+ * Format display name consistently as: "Surname, Firstname, MI."
+ * - If last_name/first_name/middle_name columns exist in the array, use them.
+ * - Otherwise attempt to parse full_name which may be in formats like
+ *   "Surname, Firstname Middlename" or "Firstname Middlename Surname".
+ * - Ensures internal spaces are preserved (multi-word surnames/firstnames).
+ * @param array $userRow associative array with possible keys: last_name, first_name, middle_name, full_name
+ * @return string formatted display name safe for HTML output
+ */
+function format_display_name($userRow) {
+    // Helper to normalize spaces
+    $norm = function($s) {
+        if ($s === null) return '';
+        $s = trim($s);
+        // Collapse multiple whitespace into a single space but keep existing internal spaces
+        return preg_replace('/\s+/', ' ', $s);
+    };
+
+    $last = isset($userRow['last_name']) ? $norm($userRow['last_name']) : '';
+    $first = isset($userRow['first_name']) ? $norm($userRow['first_name']) : '';
+    $middle = isset($userRow['middle_name']) ? $norm($userRow['middle_name']) : '';
+
+    // If we have explicit last & first, prefer them
+    if ($last !== '' || $first !== '') {
+        $display = '';
+        // Ensure at least one of last/first is present
+        if ($last !== '') {
+            $display .= $last;
+        }
+        if ($first !== '') {
+            if ($display !== '') $display .= ', ';
+            $display .= $first;
+        }
+
+        if ($middle !== '') {
+            // Use first token of middle as initial
+            $mn_parts = preg_split('/\s+/', $middle);
+            $mi = strtoupper(mb_substr($mn_parts[0], 0, 1));
+            $display .= ', ' . $mi . '.';
+        }
+
+        return $display ?: ($userRow['full_name'] ?? '');
+    }
+
+    // Fallback: try to parse full_name
+    $full = isset($userRow['full_name']) ? $norm($userRow['full_name']) : '';
+    if ($full === '') return '';
+
+    // Common stored format: "Surname, Firstname Middlename"
+    if (strpos($full, ',') !== false) {
+        [$maybe_last, $rest] = array_map($norm, array_map('trim', explode(',', $full, 2)));
+        $rest_parts = preg_split('/\s+/', $rest);
+        $maybe_first = $rest_parts[0] ?? '';
+        $maybe_middle = count($rest_parts) > 1 ? implode(' ', array_slice($rest_parts, 1)) : '';
+
+        $display = $maybe_last !== '' ? $maybe_last : '';
+        if ($maybe_first !== '') {
+            if ($display !== '') $display .= ', ';
+            $display .= $maybe_first;
+        }
+        if ($maybe_middle !== '') {
+            $mn_parts = preg_split('/\s+/', $maybe_middle);
+            $mi = strtoupper(mb_substr($mn_parts[0], 0, 1));
+            $display .= ', ' . $mi . '.';
+        }
+        return $display;
+    }
+
+    // If full_name doesn't contain comma, try to split into tokens: assume last token is surname
+    $parts = preg_split('/\s+/', $full);
+    if (count($parts) === 1) return $full;
+    $lastTok = array_pop($parts);
+    $firstTok = array_shift($parts);
+    $middleTok = count($parts) ? implode(' ', $parts) : '';
+
+    $display = $lastTok . ', ' . $firstTok;
+    if ($middleTok !== '') {
+        $mn_parts = preg_split('/\s+/', $middleTok);
+        $mi = strtoupper(mb_substr($mn_parts[0], 0, 1));
+        $display .= ', ' . $mi . '.';
+    }
+    return $display;
+}
+
+/**
  * Check whether a quest submission exists for a given user and quest.
  * Considers both file_path and text_content as valid submissions.
  * @param PDO|null $pdo
