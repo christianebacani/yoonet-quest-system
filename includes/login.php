@@ -24,7 +24,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['login'])) {
         // Set session variables
         $_SESSION['user_id'] = $user['id'];
         $_SESSION['employee_id'] = $user['employee_id'];
-        $_SESSION['full_name'] = $user['full_name'];
+    // Store a consistently formatted display name in session (Surname, Firstname, MI.)
+    $_SESSION['full_name'] = format_display_name($user);
         $_SESSION['email'] = $user['email'];
         $_SESSION['role'] = $user['role'];
         
