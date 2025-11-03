@@ -57,6 +57,24 @@ ADD COLUMN IF NOT EXISTS `job_position` varchar(100) CHARACTER SET utf8mb4 COLLA
 ADD COLUMN IF NOT EXISTS `profile_completed` tinyint(1) NOT NULL DEFAULT 0,
 ADD COLUMN IF NOT EXISTS `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP;
 
+-- Add split name columns for compatibility (idempotent). These are nullable and will be
+-- populated from `full_name` where possible. Keeping `full_name` as the canonical column.
+ALTER TABLE `users`
+  ADD COLUMN IF NOT EXISTS `last_name` varchar(150) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS `first_name` varchar(150) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS `middle_name` varchar(150) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL;
+
+-- Try to populate split name columns from `full_name` when full_name follows the
+-- convention 'Last, First Middle'. This update is conservative and only runs where
+-- the split columns are empty and full_name contains a comma.
+UPDATE `users` u
+SET u.`last_name` = TRIM(SUBSTRING_INDEX(u.`full_name`, ',', 1)),
+    u.`first_name` = TRIM(SUBSTRING_INDEX(TRIM(SUBSTRING_INDEX(u.`full_name`, ',', -1)), ' ', 1)),
+    u.`middle_name` = NULLIF(TRIM(SUBSTRING(TRIM(SUBSTRING_INDEX(u.`full_name`, ',', -1)), CHAR_LENGTH(TRIM(SUBSTRING_INDEX(TRIM(SUBSTRING_INDEX(u.`full_name`, ',', -1)), ' ', 1))) + 2)), '')
+WHERE (u.`last_name` IS NULL OR u.`last_name` = '')
+  AND (u.`first_name` IS NULL OR u.`first_name` = '')
+  AND (u.`full_name` LIKE '%,%');
+
 -- ====================================================================
 -- Ensure canonical availability column exists and migrate legacy values
 -- Adds `availability` ENUM and migrates from older columns (`availability_status`, `availability_hours`) where possible.
