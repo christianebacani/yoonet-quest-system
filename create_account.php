@@ -40,13 +40,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         // Sanitize all inputs
     $new_employee_id = sanitize_user_input($_POST['employee_id'] ?? '');
-    $new_last_name = trim(preg_replace('/\s+/', '', $_POST['last_name'] ?? ''));
-    $new_first_name = trim(preg_replace('/\s+/', '', $_POST['first_name'] ?? ''));
-    $new_middle_name = trim(preg_replace('/\s+/', '', $_POST['middle_name'] ?? ''));
-    $new_job_position = trim(preg_replace('/\s+/', '', $_POST['job_position'] ?? ''));
+    // Preserve internal spaces but normalize multiple whitespace to single spaces
+    $new_last_name = preg_replace('/\s+/', ' ', trim($_POST['last_name'] ?? ''));
+    $new_first_name = preg_replace('/\s+/', ' ', trim($_POST['first_name'] ?? ''));
+    $new_middle_name = preg_replace('/\s+/', ' ', trim($_POST['middle_name'] ?? ''));
+    $new_job_position = preg_replace('/\s+/', ' ', trim($_POST['job_position'] ?? ''));
     // Availability now uses a status dropdown (e.g. full_time, part_time, casual, project_based)
     $new_availability = sanitize_user_input($_POST['availability'] ?? '');
-    $new_name = $new_last_name . ', ' . $new_first_name . ' ' . $new_middle_name;
+    // Build canonical full_name as: "Surname, Firstname, MI." (middle initial with period)
+    $middle_initial = '';
+    if (!empty($new_middle_name)) {
+        $mn_parts = preg_split('/\s+/', $new_middle_name);
+        $middle_initial = strtoupper(mb_substr($mn_parts[0], 0, 1)) . '.';
+    }
+    $new_name = $new_last_name . ', ' . $new_first_name;
+    if ($middle_initial !== '') {
+        $new_name .= ', ' . $middle_initial;
+    }
     $new_email = sanitize_user_input($_POST['email'] ?? '');
     $new_role = sanitize_user_input($_POST['role'] ?? 'skill_associate');
     $new_gender = sanitize_user_input($_POST['gender'] ?? '');
@@ -174,14 +184,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                 if ($has_gender_column) {
-                    // Insert using full_name (database has `full_name` column, not separate name columns)
-                    $sql = 'INSERT INTO users (employee_id, full_name, email, password, role, gender, created_at, job_position, ' . $availability_col_name . ') VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)';
-                    $params = [$new_employee_id, $new_name, $new_email, $hashed_password, $new_role, $new_gender, $created_at, $new_job_position, $new_availability];
+                    $sql = 'INSERT INTO users (employee_id, full_name, email, password, role, gender, created_at, last_name, first_name, middle_name, job_position, ' . $availability_col_name . ') VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+                    $params = [$new_employee_id, $new_name, $new_email, $hashed_password, $new_role, $new_gender, $created_at, $new_last_name, $new_first_name, $new_middle_name, $new_job_position, $new_availability];
                     $stmt = $pdo->prepare($sql);
                     $success = $stmt->execute($params);
                 } else {
-                    $sql = 'INSERT INTO users (employee_id, full_name, email, password, role, created_at, job_position, ' . $availability_col_name . ') VALUES (?, ?, ?, ?, ?, ?, ?, ?)';
-                    $params = [$new_employee_id, $new_name, $new_email, $hashed_password, $new_role, $created_at, $new_job_position, $new_availability];
+                    $sql = 'INSERT INTO users (employee_id, full_name, email, password, role, created_at, last_name, first_name, middle_name, job_position, ' . $availability_col_name . ') VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+                    $params = [$new_employee_id, $new_name, $new_email, $hashed_password, $new_role, $created_at, $new_last_name, $new_first_name, $new_middle_name, $new_job_position, $new_availability];
                     $stmt = $pdo->prepare($sql);
                     $success = $stmt->execute($params);
                 }
