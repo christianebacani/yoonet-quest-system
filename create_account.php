@@ -58,10 +58,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!$new_employee_id || !$new_last_name || !$new_first_name || !$new_middle_name || !$new_job_position || !$new_availability || !$new_name || !$new_email || !$new_password || !$confirm_password || !$new_gender) {
             $error = 'All fields are required.';
         }
-        // Employee ID must be exactly 7 digits
-        elseif (!preg_match('/^\d{7}$/', $new_employee_id)) {
-            $error = 'Employee ID must be exactly 7 digits.';
-        }
+        // Employee ID basic format validation removed to allow flexible IDs (no strict 7-digit rule)
         // Last Name: 3-12 letters only
         // No validation for Last Name, First Name, or Middle Name
         // Employee ID format validation
@@ -91,8 +88,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         elseif (!in_array($new_availability, ['full_time','part_time','casual','project_based'])) {
             $error = 'Invalid availability selected.';
         }
-        elseif (($name_validation = validate_name_format($new_name)) !== true) {
-            $error = $name_validation;
+        // Validate first and last name individually to avoid mis-attributing errors to other fields
+        elseif (!preg_match("/^[A-Za-z .'-]{2,50}$/", $new_last_name)) {
+            $error = 'Last name must be 2-50 characters long and contain only letters, spaces, periods, hyphens, and apostrophes.';
+        }
+        elseif (!preg_match("/^[A-Za-z .'-]{2,50}$/", $new_first_name)) {
+            $error = 'First name must be 2-50 characters long and contain only letters, spaces, periods, hyphens, and apostrophes.';
         }
         // Enhanced email domain validation (if you have extra rules inside validate_email_domain)
         elseif (!validate_email_domain($new_email)) {
@@ -173,13 +174,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                 if ($has_gender_column) {
-                    $sql = 'INSERT INTO users (employee_id, full_name, email, password, role, gender, created_at, last_name, first_name, middle_name, job_position, ' . $availability_col_name . ') VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
-                    $params = [$new_employee_id, $new_name, $new_email, $hashed_password, $new_role, $new_gender, $created_at, $new_last_name, $new_first_name, $new_middle_name, $new_job_position, $new_availability];
+                    // Insert using full_name (database has `full_name` column, not separate name columns)
+                    $sql = 'INSERT INTO users (employee_id, full_name, email, password, role, gender, created_at, job_position, ' . $availability_col_name . ') VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)';
+                    $params = [$new_employee_id, $new_name, $new_email, $hashed_password, $new_role, $new_gender, $created_at, $new_job_position, $new_availability];
                     $stmt = $pdo->prepare($sql);
                     $success = $stmt->execute($params);
                 } else {
-                    $sql = 'INSERT INTO users (employee_id, full_name, email, password, role, created_at, last_name, first_name, middle_name, job_position, ' . $availability_col_name . ') VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
-                    $params = [$new_employee_id, $new_name, $new_email, $hashed_password, $new_role, $created_at, $new_last_name, $new_first_name, $new_middle_name, $new_job_position, $new_availability];
+                    $sql = 'INSERT INTO users (employee_id, full_name, email, password, role, created_at, job_position, ' . $availability_col_name . ') VALUES (?, ?, ?, ?, ?, ?, ?, ?)';
+                    $params = [$new_employee_id, $new_name, $new_email, $hashed_password, $new_role, $created_at, $new_job_position, $new_availability];
                     $stmt = $pdo->prepare($sql);
                     $success = $stmt->execute($params);
                 }
@@ -991,6 +993,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </div>
                     <div class="strength-text" id="strength-text"></div>
                 </div>
+                <div id="password-whitespace" style="margin-top:6px;color:#b91c1c;font-size:0.95rem;display:none;">Password must not contain spaces.</div>
             </div>
             <div class="form-group">
                 <label for="confirm_password" class="form-label">Confirm Password</label>
@@ -1191,12 +1194,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             const fill = document.getElementById('strength-fill');
             const textEl = document.getElementById('strength-text');
+            const whitespaceEl = document.getElementById('password-whitespace');
             
             if (password.length === 0) {
                 fill.style.width = '0%';
                 textEl.textContent = '';
                 fill.className = 'strength-fill';
+                if (whitespaceEl) whitespaceEl.style.display = 'none';
                 return;
+            }
+
+            // Show whitespace warning if password contains any whitespace
+            if (whitespaceEl) {
+                if (/\s/.test(password)) {
+                    whitespaceEl.style.display = 'block';
+                } else {
+                    whitespaceEl.style.display = 'none';
+                }
             }
             
             // Update display based on strength
@@ -1339,6 +1353,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if (!/[A-Z]/.test(password)) validationErrors.push('Password must contain at least one uppercase letter');
                     if (!/[0-9]/.test(password)) validationErrors.push('Password must contain at least one number');
                     if (!/[^a-zA-Z0-9]/.test(password)) validationErrors.push('Password must contain at least one special character');
+                    // Disallow whitespace in password
+                    if (/\s/.test(password)) validationErrors.push('Password must not contain whitespace');
                     
                     // Check for common passwords
                     const commonPasswords = ['password', '123456', '12345678', 'qwerty', 'abc123', 'password123', 'admin', 'letmein', 'welcome', 'monkey'];
