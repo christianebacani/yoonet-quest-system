@@ -43,7 +43,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $new_last_name = trim(preg_replace('/\s+/', '', $_POST['last_name'] ?? ''));
     $new_first_name = trim(preg_replace('/\s+/', '', $_POST['first_name'] ?? ''));
     $new_middle_name = trim(preg_replace('/\s+/', '', $_POST['middle_name'] ?? ''));
-    $new_gmail = trim(preg_replace('/\s+/', '', $_POST['gmail'] ?? ''));
     $new_job_position = trim(preg_replace('/\s+/', '', $_POST['job_position'] ?? ''));
     // Availability now uses a status dropdown (e.g. full_time, part_time, casual, project_based)
     $new_availability = sanitize_user_input($_POST['availability'] ?? '');
@@ -51,11 +50,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $new_email = sanitize_user_input($_POST['email'] ?? '');
     $new_role = sanitize_user_input($_POST['role'] ?? 'skill_associate');
     $new_gender = sanitize_user_input($_POST['gender'] ?? '');
-    $new_password = preg_replace('/\s+/', '', $_POST['password'] ?? '');
-    $confirm_password = preg_replace('/\s+/', '', $_POST['confirm_password'] ?? '');
+    // Keep raw password input for validation (do not silently remove whitespace)
+    $new_password = $_POST['password'] ?? '';
+    $confirm_password = $_POST['confirm_password'] ?? '';
 
         // Basic required field validation
-        if (!$new_employee_id || !$new_last_name || !$new_first_name || !$new_middle_name || !$new_gmail || !$new_job_position || !$new_availability || !$new_name || !$new_email || !$new_password || !$confirm_password || !$new_gender) {
+        if (!$new_employee_id || !$new_last_name || !$new_first_name || !$new_middle_name || !$new_job_position || !$new_availability || !$new_name || !$new_email || !$new_password || !$confirm_password || !$new_gender) {
             $error = 'All fields are required.';
         }
         // Employee ID must be exactly 7 digits
@@ -80,8 +80,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // No length or character validation for First Name
         }
         // No validation for Middle Name
-        elseif (!preg_match('/^[a-zA-Z0-9._%+-]+@gmail\.com$/', $new_gmail)) {
-            $error = 'Gmail must be a valid @gmail.com address.';
+        // Validate general email format
+        elseif (!filter_var($new_email, FILTER_VALIDATE_EMAIL)) {
+            $error = 'Please enter a valid email address.';
         }
         elseif (!preg_match('/^[A-Za-z0-9 .\-]+$/', $new_job_position)) {
             $error = 'Job Position must only contain letters, numbers, spaces, dots, and hyphens.';
@@ -93,13 +94,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         elseif (($name_validation = validate_name_format($new_name)) !== true) {
             $error = $name_validation;
         }
-        // Enhanced email validation
+        // Enhanced email domain validation (if you have extra rules inside validate_email_domain)
         elseif (!validate_email_domain($new_email)) {
             $error = 'Invalid email address or domain. Please use a valid email address.';
         }
         // Check if email already exists
         elseif (check_email_exists($new_email)) {
             $error = 'Email address already exists. Please use a different email address.';
+        }
+        // Password whitespace validation
+        elseif (preg_match('/\s/', $new_password)) {
+            $error = 'Password must not contain whitespace.';
         }
         // Password strength validation
         elseif (!empty($password_errors = validate_password_strength($new_password))) {
@@ -168,13 +173,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                 if ($has_gender_column) {
-                    $sql = 'INSERT INTO users (employee_id, full_name, email, password, role, gender, created_at, last_name, first_name, middle_name, gmail, job_position, ' . $availability_col_name . ') VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
-                    $params = [$new_employee_id, $new_name, $new_email, $hashed_password, $new_role, $new_gender, $created_at, $new_last_name, $new_first_name, $new_middle_name, $new_gmail, $new_job_position, $new_availability];
+                    $sql = 'INSERT INTO users (employee_id, full_name, email, password, role, gender, created_at, last_name, first_name, middle_name, job_position, ' . $availability_col_name . ') VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+                    $params = [$new_employee_id, $new_name, $new_email, $hashed_password, $new_role, $new_gender, $created_at, $new_last_name, $new_first_name, $new_middle_name, $new_job_position, $new_availability];
                     $stmt = $pdo->prepare($sql);
                     $success = $stmt->execute($params);
                 } else {
-                    $sql = 'INSERT INTO users (employee_id, full_name, email, password, role, created_at, last_name, first_name, middle_name, gmail, job_position, ' . $availability_col_name . ') VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
-                    $params = [$new_employee_id, $new_name, $new_email, $hashed_password, $new_role, $created_at, $new_last_name, $new_first_name, $new_middle_name, $new_gmail, $new_job_position, $new_availability];
+                    $sql = 'INSERT INTO users (employee_id, full_name, email, password, role, created_at, last_name, first_name, middle_name, job_position, ' . $availability_col_name . ') VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+                    $params = [$new_employee_id, $new_name, $new_email, $hashed_password, $new_role, $created_at, $new_last_name, $new_first_name, $new_middle_name, $new_job_position, $new_availability];
                     $stmt = $pdo->prepare($sql);
                     $success = $stmt->execute($params);
                 }
@@ -933,10 +938,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <label for="middle_name" class="form-label">Middle Name</label>
                 <input type="text" name="middle_name" id="middle_name" class="form-input" required value="<?php if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($error) || (isset($error) && strpos($error, 'Middle Name') === false)) echo htmlspecialchars($_POST['middle_name'] ?? ''); ?>">
             </div>
-            <div class="form-group">
-                <label for="gmail" class="form-label">Gmail</label>
-                <input type="email" name="gmail" id="gmail" class="form-input" required placeholder="example@gmail.com" value="<?php if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($error) || (isset($error) && strpos($error, 'Gmail') === false)) echo htmlspecialchars($_POST['gmail'] ?? ''); ?>">
-            </div>
+            <!-- Removed separate Gmail field; use single Email field below -->
             <div class="form-group autocomplete-group" style="position:relative;">
                 <label for="job_position" class="form-label">Job Position</label>
                 <!-- Custom styled autocomplete to match site UI and remove browser arrow -->
