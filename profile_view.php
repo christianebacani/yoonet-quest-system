@@ -199,7 +199,7 @@ $job_positions = [
 $profile_quest_interests = $profile['quest_interests'] ? explode(',', $profile['quest_interests']) : [];
 $profile_availability = $profile['availability_status'] ?? '';
 $profile_job_position = $profile['job_position'] ?? '';
-$profile_full_name = $profile['full_name'] ?? '';
+$profile_full_name = format_display_name($profile);
 $profile_bio = $profile['bio'] ?? '';
 $profile_photo = $profile['profile_photo'] ?? '';
 
