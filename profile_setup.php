@@ -797,8 +797,8 @@ $job_positions = [
                     
                     <div class="form-group">
                         <label for="full_name" class="form-label">Full Name</label>
-                        <input type="text" id="full_name" name="full_name" class="form-input" 
-                               value="<?= htmlspecialchars($user['full_name'] ?? '') ?>" required>
+               <input type="text" id="full_name" name="full_name" class="form-input" 
+                   value="<?= htmlspecialchars(format_display_name($user) ?? ($user['full_name'] ?? '')) ?>" required>
                     </div>
                     
                     <div class="form-group">
