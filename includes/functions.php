@@ -287,16 +287,53 @@ function format_availability($availability, $with_icon = true) {
         'project_based' => ['label' => 'Project-based', 'subtitle' => 'Flexible timing']
     ];
     
-    if (empty($availability) || !isset($availability_options[$availability])) {
+    // Normalize various possible stored values into canonical keys used by the UI
+    $key = null;
+    if ($availability === null || $availability === '') {
+        $key = null;
+    } elseif (is_numeric($availability)) {
+        // Interpret numeric availability as hours/week and bucket conservatively
+        $hours = (int)$availability;
+        if ($hours >= 30) {
+            $key = 'full_time';
+        } elseif ($hours >= 8) {
+            $key = 'part_time';
+        } else {
+            $key = 'casual';
+        }
+    } else {
+        // Normalize strings like 'Full-time', 'Full time', 'full_time' to canonical keys
+        $k = mb_strtolower(trim($availability));
+        $k = preg_replace('/[\s\-]+/', '_', $k);
+        // Common mapping corrections
+        $map = [
+            'full' => 'full_time',
+            'full_time' => 'full_time',
+            'full_time_hours' => 'full_time',
+            'full-time' => 'full_time',
+            'part_time' => 'part_time',
+            'part-time' => 'part_time',
+            'part' => 'part_time',
+            'limited' => 'part_time',
+            'project_based' => 'project_based',
+            'project-based' => 'project_based',
+            'project' => 'project_based',
+            'casual' => 'casual',
+            'weekends' => 'casual'
+        ];
+        $key = $map[$k] ?? ($k);
+    }
+
+    if (empty($key) || !isset($availability_options[$key])) {
         return '<span style="color: #9ca3af;">—</span>';
     }
     
-    $option = $availability_options[$availability];
+    $option = $availability_options[$key];
     $icon = $with_icon ? '<i class="fas fa-clock"></i>' : '';
     
     return sprintf(
         '<span class="availability-badge availability-%s">%s%s<span class="availability-subtitle">(%s)</span></span>',
-        htmlspecialchars($availability),
+        htmlspecialchars($key),
         $icon,
         htmlspecialchars($option['label']),
         htmlspecialchars($option['subtitle'])
@@ -324,6 +361,17 @@ function format_display_name($userRow) {
     $last = isset($userRow['last_name']) ? $norm($userRow['last_name']) : '';
     $first = isset($userRow['first_name']) ? $norm($userRow['first_name']) : '';
     $middle = isset($userRow['middle_name']) ? $norm($userRow['middle_name']) : '';
+
+    // Normalize capitalization to Title Case for display (keeps internal multi-word parts)
+    if ($last !== '') {
+        $last = mb_convert_case($last, MB_CASE_TITLE, "UTF-8");
+    }
+    if ($first !== '') {
+        $first = mb_convert_case($first, MB_CASE_TITLE, "UTF-8");
+    }
+    if ($middle !== '') {
+        $middle = mb_convert_case($middle, MB_CASE_TITLE, "UTF-8");
+    }
 
     // If we have explicit last & first, prefer them
     if ($last !== '' || $first !== '') {
@@ -354,9 +402,13 @@ function format_display_name($userRow) {
     // Common stored format: "Surname, Firstname Middlename"
     if (strpos($full, ',') !== false) {
         [$maybe_last, $rest] = array_map($norm, array_map('trim', explode(',', $full, 2)));
+        // Title-case parsed name parts for consistent display
+        $maybe_last = mb_convert_case($maybe_last, MB_CASE_TITLE, "UTF-8");
         $rest_parts = preg_split('/\s+/', $rest);
         $maybe_first = $rest_parts[0] ?? '';
         $maybe_middle = count($rest_parts) > 1 ? implode(' ', array_slice($rest_parts, 1)) : '';
+        $maybe_first = mb_convert_case($maybe_first, MB_CASE_TITLE, "UTF-8");
+        $maybe_middle = mb_convert_case($maybe_middle, MB_CASE_TITLE, "UTF-8");
 
         $display = $maybe_last !== '' ? $maybe_last : '';
         if ($maybe_first !== '') {
@@ -377,6 +429,11 @@ function format_display_name($userRow) {
     $lastTok = array_pop($parts);
     $firstTok = array_shift($parts);
     $middleTok = count($parts) ? implode(' ', $parts) : '';
+
+    // Title-case tokens for consistent display
+    $lastTok = mb_convert_case($lastTok, MB_CASE_TITLE, "UTF-8");
+    $firstTok = mb_convert_case($firstTok, MB_CASE_TITLE, "UTF-8");
+    $middleTok = mb_convert_case($middleTok, MB_CASE_TITLE, "UTF-8");
 
     $display = $lastTok . ', ' . $firstTok;
     if ($middleTok !== '') {
