@@ -1557,19 +1557,31 @@ function getFontSize() {
                             <div class="border border-gray-200 rounded-lg max-h-20 overflow-y-auto bg-white">
                                 <div id="employeeList">
                                     <?php foreach ($employees as $employee): ?>
-                                        <label class="employee-item flex items-center p-2 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-0" 
-                                               data-name="<?php echo strtolower($employee['full_name']); ?>"
-                                               data-id="<?php echo strtolower($employee['employee_id']); ?>">
+                         <?php
+                          $data_name = strtolower(trim($employee['full_name'] ?? ''));
+                          $data_id_attr = strtolower(trim($employee['employee_id'] ?? ''));
+                          // Lookup user row to prefer split columns for consistent formatting and to get numeric user id
+                          $emp_id = $employee['employee_id'];
+                          $user_stmt = $pdo->prepare('SELECT id, last_name, first_name, middle_name, full_name FROM users WHERE employee_id = ? LIMIT 1');
+                          $user_stmt->execute([$emp_id]);
+                          $urow = $user_stmt->fetch(PDO::FETCH_ASSOC);
+                          $profile_user_id = $urow ? $urow['id'] : '';
+                          $display_name = $urow ? format_display_name($urow) : format_display_name(['full_name' => $employee['full_name']]);
+                         ?>
+                         <label class="employee-item flex items-center p-2 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-0" 
+                             data-name="<?php echo htmlspecialchars($data_name); ?>"
+                             data-id="<?php echo htmlspecialchars($data_id_attr); ?>">
                                             <input type="checkbox" 
                                                    name="assign_to[]" 
                                                    value="<?php echo $employee['employee_id']; ?>"
                                                    class="employee-checkbox h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
-                                                   data-name="<?php echo htmlspecialchars($employee['full_name']); ?>"
+                                                   data-name="<?php echo htmlspecialchars($display_name); ?>"
                                                    data-employee-id="<?php echo htmlspecialchars($employee['employee_id']); ?>"
+                                                   data-user-id="<?php echo htmlspecialchars($profile_user_id); ?>"
                                                    onchange="handleEmployeeSelection(this)"
                                                    <?php echo in_array($employee['employee_id'], $assign_to) ? 'checked' : ''; ?>>
                                             <div class="ml-2 flex-1">
-                                                <div class="text-sm font-medium text-gray-900"><?php echo htmlspecialchars($employee['full_name']); ?></div>
+                                                <a class="text-sm font-medium text-gray-900 hover:underline" href="profile_view.php?user_id=<?php echo urlencode($profile_user_id); ?>"><?php echo htmlspecialchars($display_name); ?></a>
                                                 <div class="text-xs text-gray-500">ID: <?php echo htmlspecialchars($employee['employee_id']); ?></div>
                                             </div>
                                         </label>
@@ -2634,10 +2646,12 @@ function clearEmployeeSearch() {
 function handleEmployeeSelection(checkbox) {
     const employeeName = checkbox.dataset.name;
     const employeeId = checkbox.dataset.employeeId;
-    
+    const employeeUserId = checkbox.dataset.userId || '';
+
     if (checkbox.checked) {
         selectedEmployees.add({
             id: employeeId,
+            userId: employeeUserId,
             name: employeeName
         });
     } else {
@@ -2647,7 +2661,7 @@ function handleEmployeeSelection(checkbox) {
             }
         });
     }
-    
+
     updateSelectedEmployeesDisplay();
 }
 
@@ -2662,9 +2676,11 @@ function updateSelectedEmployeesDisplay() {
     
     let badgesHTML = '';
     selectedEmployees.forEach(employee => {
+        const profileLink = employee.userId ? `profile_view.php?user_id=${encodeURIComponent(employee.userId)}` : null;
+        const nameHtml = profileLink ? `<a href="${profileLink}" class="font-medium text-gray-900 hover:underline">${employee.name}</a>` : `<span class="font-medium">${employee.name}</span>`;
         badgesHTML += `
             <div class="inline-flex items-center px-3 py-1 bg-indigo-100 text-indigo-800 text-xs rounded-full border border-indigo-200">
-                <span class="font-medium">${employee.name}</span>
+                ${nameHtml}
                 <span class="ml-1 text-indigo-600">(${employee.id})</span>
                 <button type="button" 
                         onclick="removeEmployee('${employee.id}')" 
