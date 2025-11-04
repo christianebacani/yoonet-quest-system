@@ -13,7 +13,7 @@ if (!$user_id) { redirect('dashboard.php'); }
 try {
     // Prefer explicit split name columns when available so the formatting helper
     // can use them and produce a consistent result with other pages (login/dashboard)
-    $stmt = $pdo->prepare("SELECT full_name, last_name, first_name, middle_name, bio, profile_photo, quest_interests, availability_status, job_position, employee_id FROM users WHERE id = ?");
+    $stmt = $pdo->prepare("SELECT full_name, last_name, first_name, middle_name, bio, profile_photo, quest_interests, availability, availability_status, availability_hours, job_position, employee_id FROM users WHERE id = ?");
     $stmt->execute([$user_id]);
     $profile = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$profile) redirect('dashboard.php');
@@ -199,7 +199,9 @@ $job_positions = [
 ];
 
 $profile_quest_interests = $profile['quest_interests'] ? explode(',', $profile['quest_interests']) : [];
-$profile_availability = $profile['availability_status'] ?? '';
+// Prefer canonical `availability` column, then legacy `availability_status`, then numeric `availability_hours` if present
+$raw_av = $profile['availability'] ?? $profile['availability_status'] ?? $profile['availability_hours'] ?? '';
+$profile_availability = $raw_av;
 $profile_job_position = $profile['job_position'] ?? '';
 $profile_full_name = format_display_name($profile);
 $profile_bio = $profile['bio'] ?? '';
