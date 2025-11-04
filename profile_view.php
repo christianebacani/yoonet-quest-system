@@ -11,7 +11,9 @@ $user_id = isset($_GET['user_id']) ? (int)$_GET['user_id'] : ($_SESSION['user_id
 if (!$user_id) { redirect('dashboard.php'); }
 
 try {
-    $stmt = $pdo->prepare("SELECT full_name, bio, profile_photo, quest_interests, availability_status, job_position, employee_id FROM users WHERE id = ?");
+    // Prefer explicit split name columns when available so the formatting helper
+    // can use them and produce a consistent result with other pages (login/dashboard)
+    $stmt = $pdo->prepare("SELECT full_name, last_name, first_name, middle_name, bio, profile_photo, quest_interests, availability_status, job_position, employee_id FROM users WHERE id = ?");
     $stmt->execute([$user_id]);
     $profile = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$profile) redirect('dashboard.php');
