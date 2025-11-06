@@ -69,7 +69,7 @@ try {
 try {
     // Add quest_type and visibility to quests table
     $pdo->exec("ALTER TABLE quests 
-                ADD COLUMN IF NOT EXISTS quest_type ENUM('single', 'recurring') DEFAULT 'single'");
+                ADD COLUMN IF NOT EXISTS quest_type ENUM('routine','minor','standard','major','project','recurring') DEFAULT 'routine'");
     // Add display_type for quest category (custom, client_support, etc.)
     $pdo->exec("ALTER TABLE quests ADD COLUMN IF NOT EXISTS display_type VARCHAR(50) DEFAULT 'custom'");
     // Add extra columns for client/support quest details
@@ -145,6 +145,13 @@ try {
     error_log("Database error fetching data: " . $e->getMessage());
 }
 
+// Auto skills for Client & Support Operations (used for display before creation)
+$client_auto_skills = [
+    ['skill_name' => 'Client Communication', 'category_name' => 'Client & Support Operations', 'tier' => 3, 'is_custom' => false],
+    ['skill_name' => 'Ticket Management', 'category_name' => 'Client & Support Operations', 'tier' => 2, 'is_custom' => false],
+    ['skill_name' => 'Incident Diagnosis', 'category_name' => 'Client & Support Operations', 'tier' => 3, 'is_custom' => false]
+];
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $title = trim($_POST['title'] ?? '');
     $description = trim($_POST['description'] ?? '');
@@ -192,6 +199,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($dueTs !== false && $dueTs < (time() + $minLeadSeconds)) {
             $error = 'Due date must be at least ' . ($minLeadSeconds/60) . ' minutes in the future. Please select a later date/time.';
         }
+    }
+    // Quest type (routine/minor/standard/major/project) and recurrence/publish fields
+    $quest_type = isset($_POST['quest_type']) ? $_POST['quest_type'] : 'routine';
+    $recurrence_pattern = isset($_POST['recurrence_pattern']) ? $_POST['recurrence_pattern'] : null;
+    $recurrence_end_date = !empty($_POST['recurrence_end_date']) ? $_POST['recurrence_end_date'] : null;
+    $publish_at = !empty($_POST['publish_at']) ? $_POST['publish_at'] : null;
+
+    // Normalize recurrence_end_date and publish_at if provided
+    if (!empty($recurrence_end_date)) {
+        $ts = strtotime($recurrence_end_date);
+        $recurrence_end_date = ($ts !== false && $ts > 0) ? date('Y-m-d H:i:s', $ts) : null;
+    }
+    if (!empty($publish_at)) {
+        $ts = strtotime($publish_at);
+        $publish_at = ($ts !== false && $ts > 0) ? date('Y-m-d H:i:s', $ts) : null;
     }
     $assign_to = isset($_POST['assign_to']) ? $_POST['assign_to'] : [];
     $assign_group = null;
@@ -312,8 +334,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 // Create the quest (include display_type and optional client/support fields)
                 $stmt = $pdo->prepare("INSERT INTO quests 
-                    (title, description, status, due_date, created_by, quest_assignment_type, visibility, display_type, client_name, client_reference, sla_priority, expected_response, created_at) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())");
+                    (title, description, status, due_date, created_by, quest_assignment_type, visibility, display_type, quest_type, recurrence_pattern, recurrence_end_date, publish_at, client_name, client_reference, sla_priority, expected_response, created_at) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())");
                 $stmt->execute([
                     $title,
                     $description,
@@ -323,6 +345,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $quest_assignment_type,
                     $visibility_value,
                     $display_type,
+                    in_array($quest_type, ['routine','minor','standard','major','project','recurring']) ? $quest_type : 'routine',
+                    $recurrence_pattern ?: null,
+                    $recurrence_end_date,
+                    $publish_at,
                     $client_name ?: null,
                     $client_reference ?: null,
                     in_array($sla_priority, ['low','medium','high']) ? $sla_priority : 'medium',
@@ -1242,7 +1268,22 @@ function getFontSize() {
                             <p class="text-xs text-gray-500 mt-1">Choose the quest type. Selecting <strong>Client &amp; Support Operations</strong> will auto-attach required skills and show extra client details.</p>
                         </div>
 
-                        <!-- Client / Support extra details (shown when Client & Support Operations selected) -->
+                        <!-- Client / Support extra details are rendered below title & description (moved) -->
+                        <div>
+                            <label for="title" class="block text-sm font-medium text-gray-700 mb-1">Quest Title*</label>
+                            <input type="text" id="title" name="title" value="<?php echo htmlspecialchars($title ?? ''); ?>" 
+                                   class="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300"
+                                   placeholder="Enter quest title" required maxlength="255">
+                        </div>
+
+                        <div>
+                            <label for="description" class="block text-sm font-medium text-gray-700 mb-1">Description*</label>
+                            <textarea id="description" name="description" rows="4"
+                                      class="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300"
+                                      placeholder="Describe the quest requirements and objectives" required maxlength="2000"><?php echo htmlspecialchars($description ?? ''); ?></textarea>
+                        </div>
+
+                        <!-- Client / Support extra details (moved below title & description) -->
                         <div id="clientDetails" style="display: <?php echo (isset($display_type) && $display_type === 'client_support') ? 'block' : 'none'; ?>;">
                             <div>
                                 <label for="client_name" class="block text-sm font-medium text-gray-700 mb-1">Client Name</label>
@@ -1266,19 +1307,6 @@ function getFontSize() {
                                     <input type="text" id="expected_response" name="expected_response" value="<?php echo htmlspecialchars($expected_response ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="e.g., 24 hours">
                                 </div>
                             </div>
-                        </div>
-                        <div>
-                            <label for="title" class="block text-sm font-medium text-gray-700 mb-1">Quest Title*</label>
-                            <input type="text" id="title" name="title" value="<?php echo htmlspecialchars($title ?? ''); ?>" 
-                                   class="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300"
-                                   placeholder="Enter quest title" required maxlength="255">
-                        </div>
-
-                        <div>
-                            <label for="description" class="block text-sm font-medium text-gray-700 mb-1">Description*</label>
-                            <textarea id="description" name="description" rows="4"
-                                      class="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300"
-                                      placeholder="Describe the quest requirements and objectives" required maxlength="2000"><?php echo htmlspecialchars($description ?? ''); ?></textarea>
                         </div>
 
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1405,18 +1433,7 @@ function getFontSize() {
                                 </div>
                             </div>
                             
-                            <!-- Locked Skills (for Client & Support Operations) -->
-                            <div id="lockedSkillsContainer" class="mb-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg min-h-[50px]" style="display: <?php echo (isset($display_type) && $display_type === 'client_support') ? 'block' : 'none'; ?>;">
-                                <div class="text-xs font-medium text-yellow-800 mb-1">Auto-attached Skills (locked)</div>
-                                <div id="locked-skills-badges" class="flex flex-wrap gap-2">
-                                    <?php
-                                        $autoNames = ['Client Communication', 'Ticket Management', 'Incident Diagnosis'];
-                                        foreach ($autoNames as $an) {
-                                            echo '<div class="px-3 py-1 bg-yellow-100 text-yellow-800 rounded-full text-sm font-semibold">' . htmlspecialchars($an) . '</div>'; 
-                                        }
-                                    ?>
-                                </div>
-                            </div>
+                            <!-- Locked Skills removed: auto-attached skills are now included in the selected skills list -->
 
                             <!-- Selected Skills Display -->
                             <div id="selected-skills-display" class="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-lg min-h-[50px]">
@@ -2331,8 +2348,9 @@ function getFontSize() {
                 $('.is-invalid').removeClass('is-invalid');
                 $('.error-message').remove();
                 
-                // Validate skills selection
-                if (selectedSkills.size === 0) {
+                // Validate skills selection (allow zero when Client & Support Operations is chosen)
+                var displayTypeVal = $('#display_type').val();
+                if (displayTypeVal !== 'client_support' && selectedSkills.size === 0) {
                     $('#skillsSection').addClass('is-invalid');
                     $('#skillsSection').append('<p class="error-message text-red-500 text-sm mt-1">Please select at least one skill for this quest</p>');
                     isValid = false;
@@ -3432,6 +3450,29 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>
     <script>
+    // Small helper to render the auto-attached client skills into a badges container
+    const clientAutoSkills = <?php echo json_encode($client_auto_skills); ?>;
+
+    function renderClientAutoSkillsInto(container) {
+        if (!container) return;
+        container.innerHTML = '';
+        clientAutoSkills.forEach(function(skill){
+            const html = `
+                <div class="inline-flex items-center px-3 py-1 bg-indigo-100 text-indigo-800 text-xs rounded-full border border-indigo-200">
+                    <span class="font-medium">${skill.skill_name}</span>
+                    <span class="ml-2 text-gray-600 text-xs">T${skill.tier}</span>
+                    <span class="ml-2 text-yellow-600 text-xs">(Custom)</span>
+                </div>
+            `;
+            container.insertAdjacentHTML('beforeend', html);
+        });
+        // Update counter if present
+        const counter = document.getElementById('skill-counter');
+        if (counter) counter.textContent = clientAutoSkills.length;
+        // Create hidden inputs to keep form state consistent
+        try { updateHiddenInputs(clientAutoSkills); } catch(e) { /* ignore */ }
+    }
+
     // Toggle UI when quest type changes
     function updateQuestTypeUI() {
         var sel = document.getElementById('display_type');
@@ -3469,6 +3510,14 @@ document.addEventListener('DOMContentLoaded', function() {
             // hide Add Custom Skill buttons
             var addBtns = skillsSection.querySelectorAll('[onclick="showCustomSkillModal()"]');
             addBtns.forEach(function(b){ b.style.display = isClient ? 'none' : 'inline-block'; });
+            // If client_support is selected, render the auto skills into the selected badges area
+            var badgesContainer = document.getElementById('selected-skills-badges');
+            if (isClient) {
+                renderClientAutoSkillsInto(badgesContainer);
+            } else {
+                // restore regular skill display from the selectedSkills set
+                try { updateSkillDisplay(); } catch(e) { /* ignore */ }
+            }
         }
     }
 
