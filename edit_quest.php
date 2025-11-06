@@ -781,6 +781,26 @@ function getFontSize() {
             align-items: center !important;
             height: 28px !important;
         }
+        /* Pulse animation used for success feedback (mirrors create_quest.php) */
+        @keyframes pulse {
+            0% { transform: translateY(0); }
+            50% { transform: translateY(-3px); }
+            100% { transform: translateY(0); }
+        }
+        .pulse-animate {
+            animation: pulse 2s infinite;
+        }
+        /* Notification enter/exit to match create_quest animations */
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(12px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .notification-enter {
+            animation: slideIn 0.35s ease-out forwards;
+        }
+        .notification-exit {
+            animation: fadeOut 0.3s ease-out forwards;
+        }
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
         
         body {
@@ -1165,7 +1185,7 @@ function getFontSize() {
         <?php endif; ?>
 
         <?php if ($success): ?>
-            <div class="bg-green-50 border-l-4 border-green-500 p-4 mb-6 rounded-lg">
+            <div id="successMessage" class="bg-green-50 border-l-4 border-green-500 p-4 mb-6 rounded-lg">
                 <div class="flex">
                     <div class="flex-shrink-0">
                         <i class="fas fa-check-circle text-green-500 mt-1 mr-3"></i>
@@ -2554,9 +2574,10 @@ function populateSkillsListEdit(skills) {
     skills.forEach(skill => {
         const isSelected = Array.from(tempSelectedSkills).some(s => String(s.id) === String(skill.skill_id));
 
-        const wrapper = document.createElement('div');
-        wrapper.className = 'skill-item border border-gray-200 rounded-lg p-3 hover:bg-gray-50 transition-colors';
-        wrapper.dataset.skillName = (skill.skill_name || '').toLowerCase();
+    const wrapper = document.createElement('div');
+    wrapper.className = 'skill-item border border-gray-200 rounded-lg p-3 hover:bg-gray-50 transition-colors';
+    // Preserve original case for display; use lowercased keys only for internal searches/dedupe
+    wrapper.dataset.skillName = (skill.skill_name || '');
         wrapper.dataset.skillId = skill.skill_id;
 
         const checkedAttr = isSelected ? 'checked' : '';
@@ -2627,7 +2648,7 @@ function filterSkillsEdit() {
     const items = document.querySelectorAll('#skillsListEdit .skill-item');
     let visible = 0;
     items.forEach(it => {
-        const name = it.dataset.skillName || '';
+        const name = (it.dataset.skillName || '').toLowerCase();
         if (name.includes(term)) { it.style.display = 'block'; visible++; } else { it.style.display = 'none'; }
     });
     const no = document.getElementById('noSkillsFoundEdit');
@@ -2645,14 +2666,18 @@ function applySelectedSkillsFromModal() {
 
     try {
     // Merge tempSelectedSkills into main selectedSkills and skillTiers
+    let skipped = 0;
     tempSelectedSkills.forEach(s => {
         // ensure not exceeding MAX
         if (!selectedSkills.has(String(s.id))) {
-            if (selectedSkills.size >= MAX_SKILLS) return; // skip extras
+            if (selectedSkills.size >= MAX_SKILLS) { skipped++; return; } // skip extras
             selectedSkills.add(String(s.id));
         }
         skillTiers[String(s.id)] = parseInt(s.tier) || 2;
     });
+    if (skipped > 0) {
+        alert(`Some skills were not added because the maximum of ${MAX_SKILLS} skills was reached. Please deselect others to add more.`);
+    }
 
     // Also read any checked items that might not be in tempSelectedSkills
     document.querySelectorAll('#skillsListEdit .skill-modal-checkbox:checked').forEach(cb => {
@@ -2818,6 +2843,8 @@ function removeEmployee(employeeId) {
 let selectedSkills = new Set(); // Using Set for skill IDs
 let skillTiers = {}; // Store tiers separately: {skillId: tier}
 let skillNamesCache = {}; // Cache skill_id => skill_name for reliable display
+// Tracks server-provided skills that should be treated as "custom" for display
+window.serverCustomSkills = new Set();
 let customSkillCounter = 1000; // Counter for custom skill IDs
 const MAX_SKILLS = 5; // Reduced from 8 to 5 for focused mastery (Bundle 2)
 
@@ -2862,6 +2889,8 @@ document.addEventListener('DOMContentLoaded', function() {
         const sid = String(skill.skill_id);
         // Cache the server-provided name for reliable display even without DOM elements
         skillNamesCache[sid] = skill.skill_name || skill.skill_name || '';
+        // Cache category for display
+        try { if (skill.category_name) skillCategoriesCache = (window.skillCategoriesCache || (window.skillCategoriesCache = {})), window.skillCategoriesCache[sid] = skill.category_name; } catch(e){}
         const skillElement = document.querySelector(`[data-skill-id="${sid}"]`);
         if (skillElement) {
             // Also ensure cache updated from DOM if present
@@ -2883,9 +2912,33 @@ document.addEventListener('DOMContentLoaded', function() {
         } else {
             // Inline skill element not present (we removed the long list). Still attach the skill so it appears in the selected badges.
             selectedSkills.add(sid);
+            // Apply tier from DB
             skillTiers[sid] = skill.tier;
             // Cache the name from server-provided data so badges can show the skill name
             skillNamesCache[sid] = skill.skill_name || '';
+            try { if (skill.category_name) skillCategoriesCache = (window.skillCategoriesCache || (window.skillCategoriesCache = {})), window.skillCategoriesCache[sid] = skill.category_name; } catch(e){}
+            // If this is a client_support quest, and the skill matches one of the auto-attached
+            // client skills, treat it as a Custom skill for display and ensure correct tier mapping.
+            if (clientSupportLocked) {
+                const lname = (skill.skill_name || '').toLowerCase();
+                if (lname.includes('client communication')) {
+                    // Client Communication should be T3 and displayed as Custom (consistent with create_quest)
+                    skillTiers[sid] = 3;
+                    window.serverCustomSkills.add(sid);
+                    window.skillCategoriesCache = window.skillCategoriesCache || {};
+                    window.skillCategoriesCache[sid] = 'Custom';
+                } else if (lname.includes('ticket management')) {
+                    skillTiers[sid] = 2;
+                    window.serverCustomSkills.add(sid);
+                    window.skillCategoriesCache = window.skillCategoriesCache || {};
+                    window.skillCategoriesCache[sid] = 'Custom';
+                } else if (lname.includes('incident diagnosis')) {
+                    skillTiers[sid] = 3;
+                    window.serverCustomSkills.add(sid);
+                    window.skillCategoriesCache = window.skillCategoriesCache || {};
+                    window.skillCategoriesCache[sid] = 'Custom';
+                }
+            }
         }
     });
     <?php endif; ?>
@@ -3347,38 +3400,60 @@ function updateSkillDisplay() {
     if (selectedSkills.size === 0) {
         selectedBadges.innerHTML = '<span class="text-xs text-blue-600 italic" id="noSkillsMessage">No skills selected yet</span>';
     } else {
-            const badges = Array.from(selectedSkills).map(skillId => {
+        const badges = Array.from(selectedSkills).map(rawId => {
+            const skillId = String(rawId);
             const skillItem = document.querySelector(`[data-skill-id="${skillId}"]`);
             let skillName = 'Unknown Skill';
             let isCustom = false;
+            let categoryName = '';
 
+            // Prefer DOM element values (live) then server cache then global all_skills lookup
             if (skillItem) {
                 skillName = skillItem.dataset.skillName || skillName;
                 isCustom = (skillItem.querySelector('.skill-checkbox')?.dataset.isCustom === 'true');
-            } else {
-                // Prefer server-provided cache first
-                if (skillNamesCache && skillNamesCache[String(skillId)]) {
-                    skillName = skillNamesCache[String(skillId)];
-                    isCustom = String(skillId).startsWith('custom_');
-                } else if (typeof allSkills !== 'undefined' && Array.isArray(allSkills)) {
-                    const found = allSkills.find(s => String(s.skill_id) === String(skillId));
-                    if (found) {
-                        skillName = found.skill_name || skillName;
-                        isCustom = false;
-                    } else if (String(skillId).startsWith('custom_')) {
-                        // For client-side custom ids, attempt to read any hidden custom name inputs
-                        const customInputs = document.querySelectorAll('input[name="custom_skill_names[]"]');
-                        if (customInputs.length > 0) {
-                            // fallback to first custom name (best-effort)
-                            skillName = customInputs[0].value || skillName;
-                        }
-                        isCustom = true;
-                    }
+                categoryName = skillItem.dataset.categoryName || '';
+            }
+
+            if ((!skillItem || !skillName || skillName === 'Unknown Skill') && skillNamesCache && skillNamesCache[skillId]) {
+                skillName = skillNamesCache[skillId] || skillName;
+                // Treat as custom if id looks custom or server indicated it
+                isCustom = skillId.startsWith('custom_') || (window.serverCustomSkills && window.serverCustomSkills.has(skillId));
+                categoryName = (window.skillCategoriesCache && window.skillCategoriesCache[skillId]) || categoryName;
+            }
+
+            if ((!skillName || skillName === 'Unknown Skill') && typeof allSkills !== 'undefined' && Array.isArray(allSkills)) {
+                const found = allSkills.find(s => String(s.skill_id) === skillId);
+                if (found) {
+                    skillName = found.skill_name || skillName;
+                    categoryName = found.category_name || categoryName;
+                    isCustom = false;
                 }
             }
 
-            const tier = skillTiers[skillId] || 2;
-            
+            // If still custom-like id or no category found, default category to 'Custom'
+            if (skillId.startsWith('custom_')) {
+                isCustom = true;
+                if (!categoryName) categoryName = 'Custom';
+            }
+
+            // Normalize category names to the canonical set if possible
+            if (categoryName) {
+                const lower = categoryName.toLowerCase();
+                if (lower.includes('technical')) categoryName = 'Technical Skills';
+                else if (lower.includes('communicat') || lower.includes('client') || lower.includes('support')) categoryName = 'Communication Skills';
+                else if (lower.includes('soft')) categoryName = 'Soft Skills';
+                else if (lower.includes('business')) categoryName = 'Business Skills';
+                // leave other names as-is (fallback)
+            }
+
+            // Robust tier lookup (support string keys and numeric keys). Default to 2 (Intermediate)
+            let tier = 2;
+            if (skillTiers && (skillTiers[skillId] !== undefined)) {
+                tier = parseInt(skillTiers[skillId]) || 2;
+            } else if (skillTiers && (skillTiers[parseInt(skillId)] !== undefined)) {
+                tier = parseInt(skillTiers[parseInt(skillId)]) || 2;
+            }
+
             const tierColors = {
                 1: 'bg-gray-100 text-gray-800 border-gray-300',
                 2: 'bg-blue-100 text-blue-800 border-blue-300', 
@@ -3386,19 +3461,25 @@ function updateSkillDisplay() {
                 4: 'bg-yellow-100 text-yellow-800 border-yellow-300',
                 5: 'bg-red-100 text-red-800 border-red-300'
             };
-            
-            const customBadge = isCustom ? '<span class="ml-1 px-1.5 py-0.5 bg-yellow-400 text-yellow-900 text-xs font-semibold rounded">Custom</span>' : '';
-            
-            return `<span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border ${tierColors[tier]}">
-                        ${skillName} 
-                        <span class="ml-1 bg-white px-1.5 py-0.5 rounded-full text-xs font-bold">T${tier}</span>
+
+            // Make custom label look like create_quest ("(Custom)") for visual parity
+            const customBadge = isCustom ? '<span class="ml-1 text-yellow-600">(Custom)</span>' : '';
+            // Avoid duplicating "(Custom)" when category is already 'Custom' — show category only for non-custom skills
+            const categorySpan = (!isCustom && categoryName) ? `<span class="ml-2 text-xs text-gray-500">(${categoryName})</span>` : '';
+
+            // If skill is locked for client_support, do not render a remove button
+            const canRemove = !(clientSupportLocked && lockedSkills.has(skillId));
+            const removeButton = canRemove ? `<button type="button" class="ml-2 text-gray-400 hover:text-red-500" onclick="removeSkill('${skillId}')"><i class="fas fa-times text-xs"></i></button>` : '';
+
+            return `<span class="inline-flex items-center px-3 py-1 bg-indigo-50 text-indigo-800 text-xs rounded-full border ${tierColors[tier]}">
+                        <span class="font-medium">${skillName}</span>
                         ${customBadge}
-                        <button type="button" class="ml-2 text-gray-400 hover:text-red-500" onclick="removeSkill('${skillId}')">
-                            <i class="fas fa-times text-xs"></i>
-                        </button>
+                        ${categorySpan}
+                        <span class="ml-2 bg-white px-1.5 py-0.5 rounded-full text-xs font-bold">T${tier}</span>
+                        ${removeButton}
                     </span>`;
         }).join('');
-        
+
         selectedBadges.innerHTML = badges;
     }
     
@@ -3416,6 +3497,11 @@ function updateSkillDisplay() {
 // Unified skill removal: update Sets, tiers, checkbox state, UI & hidden data
 function removeSkill(skillId) {
     const idStr = String(skillId);
+    // Prevent removing locked skills on client_support quests
+    if (clientSupportLocked && lockedSkills.has(idStr)) {
+        alert('This skill is required for Client & Support Operations and cannot be removed.');
+        return;
+    }
     if (selectedSkills.has(idStr)) {
         selectedSkills.delete(idStr);
         if (skillTiers[idStr]) delete skillTiers[idStr];
@@ -3463,6 +3549,58 @@ document.querySelector('form').addEventListener('submit', function(e) {
 });
 
 // display_type related UI handlers removed from edit page (no select to change)
+</script>
+<script>
+// Play a short chime and animate success message when present (match create_quest.php)
+document.addEventListener('DOMContentLoaded', function() {
+    var successEl = document.getElementById('successMessage');
+    if (successEl) {
+        // small pulse animation
+        successEl.classList.add('pulse-animate');
+        // play chime using WebAudio API (same oscillator approach as create_quest.php)
+        try {
+            var ctx = new (window.AudioContext || window.webkitAudioContext)();
+            var o = ctx.createOscillator();
+            var g = ctx.createGain();
+            o.type = 'sine';
+            o.frequency.setValueAtTime(880, ctx.currentTime);
+            g.gain.setValueAtTime(0, ctx.currentTime);
+            g.gain.linearRampToValueAtTime(0.18, ctx.currentTime + 0.01);
+            g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6);
+            o.connect(g); g.connect(ctx.destination);
+            o.start();
+            o.stop(ctx.currentTime + 0.7);
+        } catch (e) {
+            // ignore audio errors
+            console.warn('Audio not available', e);
+        }
+
+        // small confetti burst (identical to create_quest.php)
+        var colors = ['#FFD166','#06D6A0','#118AB2','#EF476F','#FFD700'];
+        for (var i=0;i<12;i++) {
+            (function(i){
+                var dot = document.createElement('div');
+                dot.style.position = 'fixed';
+                dot.style.left = (50 + (Math.random()*40-20)) + '%';
+                dot.style.top = (30 + Math.random()*10) + '%';
+                dot.style.width = '10px';
+                dot.style.height = '10px';
+                dot.style.borderRadius = '3px';
+                dot.style.background = colors[Math.floor(Math.random()*colors.length)];
+                dot.style.opacity = '0.95';
+                dot.style.zIndex = 99999;
+                dot.style.transform = 'translateY(0) scale(1)';
+                dot.style.transition = 'transform 900ms cubic-bezier(.2,.8,.2,1), opacity 900ms ease-out';
+                document.body.appendChild(dot);
+                setTimeout(function(){
+                    dot.style.transform = 'translateY(' + (-120 - Math.random()*140) + 'px) rotate(' + (Math.random()*360) + 'deg) scale(1.2)';
+                    dot.style.opacity = '0';
+                }, 20 + i*30);
+                setTimeout(function(){ document.body.removeChild(dot); }, 1200 + i*30);
+            })(i);
+        }
+    }
+});
 </script>
 </body>
 </html>

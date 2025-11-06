@@ -3734,4 +3734,39 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 </script>
+<script>
+// Client-side validation: ensure at least 1 and at most 5 skills are selected
+document.addEventListener('DOMContentLoaded', function() {
+    var form = document.querySelector('form[method="post"]') || document.querySelector('form');
+    if (!form) return;
+
+    form.addEventListener('submit', function(e) {
+        try {
+            var displaySelect = document.getElementById('display_type');
+            var isClient = false;
+            if (displaySelect) isClient = (displaySelect.value === 'client_support');
+
+            // Count selected skills via hidden inputs created by the UI
+            var skillInputs = document.querySelectorAll('input[name^="quest_skills"]');
+            var selectedCount = skillInputs ? skillInputs.length : 0;
+
+            // If client_support, client auto-skills will be attached server-side; allow zero on client
+            if (!isClient && selectedCount === 0) {
+                e.preventDefault();
+                alert('Please select at least one skill for this quest.');
+                return false;
+            }
+
+            if (selectedCount > 5) {
+                e.preventDefault();
+                alert('You can select a maximum of 5 skills per quest.');
+                return false;
+            }
+        } catch (ex) {
+            // If validation script errors, allow submit to proceed so server-side validation can catch issues
+            console.warn('Skill count validation failed:', ex);
+        }
+    });
+});
+</script>
 </html>
