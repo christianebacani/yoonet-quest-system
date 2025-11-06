@@ -70,6 +70,13 @@ try {
     // Add quest_type and visibility to quests table
     $pdo->exec("ALTER TABLE quests 
                 ADD COLUMN IF NOT EXISTS quest_type ENUM('single', 'recurring') DEFAULT 'single'");
+    // Add display_type for quest category (custom, client_support, etc.)
+    $pdo->exec("ALTER TABLE quests ADD COLUMN IF NOT EXISTS display_type VARCHAR(50) DEFAULT 'custom'");
+    // Add extra columns for client/support quest details
+    $pdo->exec("ALTER TABLE quests ADD COLUMN IF NOT EXISTS client_name VARCHAR(255) DEFAULT NULL");
+    $pdo->exec("ALTER TABLE quests ADD COLUMN IF NOT EXISTS client_reference VARCHAR(255) DEFAULT NULL");
+    $pdo->exec("ALTER TABLE quests ADD COLUMN IF NOT EXISTS sla_priority ENUM('low','medium','high') DEFAULT 'medium'");
+    $pdo->exec("ALTER TABLE quests ADD COLUMN IF NOT EXISTS expected_response VARCHAR(100) DEFAULT NULL");
     $pdo->exec("ALTER TABLE quests 
                 ADD COLUMN IF NOT EXISTS visibility ENUM('public', 'private') DEFAULT 'public'");
     $pdo->exec("ALTER TABLE quests 
@@ -189,6 +196,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $assign_to = isset($_POST['assign_to']) ? $_POST['assign_to'] : [];
     $assign_group = null;
     $status = 'active';
+    // Quest display type: 'custom' (default) or 'client_support'
+    $display_type = isset($_POST['display_type']) ? $_POST['display_type'] : 'custom';
+    // Additional client/support details (visible only for client_support type)
+    $client_name = trim($_POST['client_name'] ?? '');
+    $client_reference = trim($_POST['client_reference'] ?? '');
+    $sla_priority = $_POST['sla_priority'] ?? 'medium';
+    $expected_response = trim($_POST['expected_response'] ?? '');
     
     // Handle selected skills with tiers
     $selected_skills = isset($_POST['quest_skills']) ? $_POST['quest_skills'] : [];
@@ -233,7 +247,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Description must be less than 2000 characters';
     } elseif (!in_array($quest_assignment_type, ['mandatory', 'optional'])) {
         $error = 'Quest assignment type must be either mandatory or optional';
-    } elseif (empty($existing_skills) && empty($custom_skills)) {
+    } elseif ($display_type !== 'client_support' && empty($existing_skills) && empty($custom_skills)) {
+        // For custom quests require user-selected skills; for client_support skills are auto-attached
         $error = 'At least one skill must be selected for this quest';
     } elseif (count($selected_skills) > 5) {
         $error = 'Maximum of 5 skills can be selected per quest';
@@ -295,57 +310,97 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // Determine visibility: if assigned to specific users, make private
                 $visibility_value = !empty($assign_to) ? 'private' : 'public';
 
-                // Create the quest
+                // Create the quest (include display_type and optional client/support fields)
                 $stmt = $pdo->prepare("INSERT INTO quests 
-                    (title, description, status, due_date, created_by, quest_assignment_type, visibility, created_at) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, NOW())");
+                    (title, description, status, due_date, created_by, quest_assignment_type, visibility, display_type, client_name, client_reference, sla_priority, expected_response, created_at) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())");
                 $stmt->execute([
-                    $title, 
-                    $description, 
-                    $status, 
+                    $title,
+                    $description,
+                    $status,
                     $due_date,
                     $_SESSION['employee_id'],
                     $quest_assignment_type,
-                    $visibility_value
+                    $visibility_value,
+                    $display_type,
+                    $client_name ?: null,
+                    $client_reference ?: null,
+                    in_array($sla_priority, ['low','medium','high']) ? $sla_priority : 'medium',
+                    $expected_response ?: null
                 ]);
                 $quest_id = $pdo->lastInsertId();
-                
+
                 // Process skills: use the already separated existing and custom skills
                 $final_skill_ids = [];
-                
-                // Add existing skills (already validated)
-                $final_skill_ids = array_merge($final_skill_ids, $existing_skills);
-                
-                // Create custom skills and add their IDs
-                foreach ($custom_skills as $temp_id) {
-                    if (isset($custom_skill_names[$temp_id])) {
-                        $skill_name = trim($custom_skill_names[$temp_id]);
-                        $category_name = isset($custom_skill_categories[$temp_id]) ? trim($custom_skill_categories[$temp_id]) : 'General';
-                        
-                        if (!empty($skill_name)) {
-                            // Find or create the skill category
-                            $stmt = $pdo->prepare("SELECT id FROM skill_categories WHERE category_name = ?");
-                            $stmt->execute([$category_name]);
-                            $category_id = $stmt->fetchColumn();
+
+                // If this is a Client & Support Operations quest, auto-attach a fixed set of skills
+                if ($display_type === 'client_support') {
+                    // Define auto skills and desired tiers (1-5)
+                    $autoSkills = [
+                        'Client Communication' => 3,
+                        'Ticket Management' => 2,
+                        'Incident Diagnosis' => 3
+                    ];
+
+                    // Ensure category exists
+                    $catStmt = $pdo->prepare("SELECT id FROM skill_categories WHERE category_name = ? LIMIT 1");
+                    $catStmt->execute(['Client & Support Operations']);
+                    $category_id = $catStmt->fetchColumn();
+                    if (!$category_id) {
+                        $insCat = $pdo->prepare("INSERT INTO skill_categories (category_name) VALUES (?)");
+                        $insCat->execute(['Client & Support Operations']);
+                        $category_id = $pdo->lastInsertId();
+                    }
+
+                    foreach ($autoSkills as $skillName => $tierVal) {
+                        // Find or create skill
+                        $sStmt = $pdo->prepare("SELECT id FROM comprehensive_skills WHERE skill_name = ? AND category_id = ? LIMIT 1");
+                        $sStmt->execute([$skillName, $category_id]);
+                        $sid = $sStmt->fetchColumn();
+                        if (!$sid) {
+                            $create = $pdo->prepare("INSERT INTO comprehensive_skills (skill_name, category_id, description, tier_1_points, tier_2_points, tier_3_points, tier_4_points, tier_5_points) VALUES (?, ?, ?, 5, 10, 15, 20, 25)");
+                            $create->execute([$skillName, $category_id, "Auto skill for Client & Support Operations: $skillName"]);
+                            $sid = $pdo->lastInsertId();
+                        }
+                        $final_skill_ids[] = intval($sid);
+                        // map tier for insertion later
+                        $skill_tiers[intval($sid)] = intval($tierVal);
+                    }
+                } else {
+                    // Add existing skills (already validated)
+                    $final_skill_ids = array_merge($final_skill_ids, $existing_skills);
+
+                    // Create custom skills and add their IDs
+                    foreach ($custom_skills as $temp_id) {
+                        if (isset($custom_skill_names[$temp_id])) {
+                            $skill_name = trim($custom_skill_names[$temp_id]);
+                            $category_name = isset($custom_skill_categories[$temp_id]) ? trim($custom_skill_categories[$temp_id]) : 'General';
                             
-                            if (!$category_id) {
-                                // Create new category
-                                $stmt = $pdo->prepare("INSERT INTO skill_categories (category_name) VALUES (?)");
+                            if (!empty($skill_name)) {
+                                // Find or create the skill category
+                                $stmt = $pdo->prepare("SELECT id FROM skill_categories WHERE category_name = ?");
                                 $stmt->execute([$category_name]);
-                                $category_id = $pdo->lastInsertId();
-                            }
-                            
-                            // Create the custom skill
-                            $stmt = $pdo->prepare("INSERT INTO comprehensive_skills 
-                                (skill_name, category_id, description, tier_1_points, tier_2_points, tier_3_points, tier_4_points, tier_5_points) 
-                                VALUES (?, ?, ?, 5, 10, 15, 20, 25)");
-                            $stmt->execute([$skill_name, $category_id, "Custom skill: $skill_name"]);
-                            $new_skill_id = $pdo->lastInsertId();
-                            $final_skill_ids[] = $new_skill_id;
-                            
-                            // Update skill_tiers mapping for the new ID
-                            if (isset($skill_tiers[$temp_id])) {
-                                $skill_tiers[$new_skill_id] = $skill_tiers[$temp_id];
+                                $category_id = $stmt->fetchColumn();
+                                
+                                if (!$category_id) {
+                                    // Create new category
+                                    $stmt = $pdo->prepare("INSERT INTO skill_categories (category_name) VALUES (?)");
+                                    $stmt->execute([$category_name]);
+                                    $category_id = $pdo->lastInsertId();
+                                }
+                                
+                                // Create the custom skill
+                                $stmt = $pdo->prepare("INSERT INTO comprehensive_skills 
+                                    (skill_name, category_id, description, tier_1_points, tier_2_points, tier_3_points, tier_4_points, tier_5_points) 
+                                    VALUES (?, ?, ?, 5, 10, 15, 20, 25)");
+                                $stmt->execute([$skill_name, $category_id, "Custom skill: $skill_name"]);
+                                $new_skill_id = $pdo->lastInsertId();
+                                $final_skill_ids[] = $new_skill_id;
+                                
+                                // Update skill_tiers mapping for the new ID
+                                if (isset($skill_tiers[$temp_id])) {
+                                    $skill_tiers[$new_skill_id] = $skill_tiers[$temp_id];
+                                }
                             }
                         }
                     }
@@ -1178,7 +1233,40 @@ function getFontSize() {
                     
                     <div class="grid grid-cols-1 gap-6">
                         <!-- Quest Type Selection -->
-                        <!-- Quest Type removed: All quests use the same realistic skill tier thresholds. -->
+                        <div>
+                            <label for="display_type" class="block text-sm font-medium text-gray-700 mb-1">Quest Type*</label>
+                            <select name="display_type" id="display_type" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300">
+                                <option value="custom" <?php echo (isset($display_type) && $display_type == 'custom') ? 'selected' : (!isset($display_type) ? 'selected' : ''); ?>>Custom Quest (default)</option>
+                                <option value="client_support" <?php echo (isset($display_type) && $display_type == 'client_support') ? 'selected' : ''; ?>>Client & Support Operations</option>
+                            </select>
+                            <p class="text-xs text-gray-500 mt-1">Choose the quest type. Selecting <strong>Client &amp; Support Operations</strong> will auto-attach required skills and show extra client details.</p>
+                        </div>
+
+                        <!-- Client / Support extra details (shown when Client & Support Operations selected) -->
+                        <div id="clientDetails" style="display: <?php echo (isset($display_type) && $display_type === 'client_support') ? 'block' : 'none'; ?>;">
+                            <div>
+                                <label for="client_name" class="block text-sm font-medium text-gray-700 mb-1">Client Name</label>
+                                <input type="text" id="client_name" name="client_name" value="<?php echo htmlspecialchars($client_name ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="Client or account name">
+                            </div>
+                            <div>
+                                <label for="client_reference" class="block text-sm font-medium text-gray-700 mb-1">Ticket / Reference ID</label>
+                                <input type="text" id="client_reference" name="client_reference" value="<?php echo htmlspecialchars($client_reference ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="Ticket number or reference">
+                            </div>
+                            <div class="grid grid-cols-2 gap-6">
+                                <div>
+                                    <label for="sla_priority" class="block text-sm font-medium text-gray-700 mb-1">SLA Priority</label>
+                                    <select id="sla_priority" name="sla_priority" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg">
+                                        <option value="low" <?php echo (isset($sla_priority) && $sla_priority == 'low') ? 'selected' : ''; ?>>Low</option>
+                                        <option value="medium" <?php echo (isset($sla_priority) && $sla_priority == 'medium') ? 'selected' : (!isset($sla_priority) ? 'selected' : ''); ?>>Medium</option>
+                                        <option value="high" <?php echo (isset($sla_priority) && $sla_priority == 'high') ? 'selected' : ''; ?>>High</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label for="expected_response" class="block text-sm font-medium text-gray-700 mb-1">Expected Response</label>
+                                    <input type="text" id="expected_response" name="expected_response" value="<?php echo htmlspecialchars($expected_response ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="e.g., 24 hours">
+                                </div>
+                            </div>
+                        </div>
                         <div>
                             <label for="title" class="block text-sm font-medium text-gray-700 mb-1">Quest Title*</label>
                             <input type="text" id="title" name="title" value="<?php echo htmlspecialchars($title ?? ''); ?>" 
@@ -1317,6 +1405,19 @@ function getFontSize() {
                                 </div>
                             </div>
                             
+                            <!-- Locked Skills (for Client & Support Operations) -->
+                            <div id="lockedSkillsContainer" class="mb-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg min-h-[50px]" style="display: <?php echo (isset($display_type) && $display_type === 'client_support') ? 'block' : 'none'; ?>;">
+                                <div class="text-xs font-medium text-yellow-800 mb-1">Auto-attached Skills (locked)</div>
+                                <div id="locked-skills-badges" class="flex flex-wrap gap-2">
+                                    <?php
+                                        $autoNames = ['Client Communication', 'Ticket Management', 'Incident Diagnosis'];
+                                        foreach ($autoNames as $an) {
+                                            echo '<div class="px-3 py-1 bg-yellow-100 text-yellow-800 rounded-full text-sm font-semibold">' . htmlspecialchars($an) . '</div>'; 
+                                        }
+                                    ?>
+                                </div>
+                            </div>
+
                             <!-- Selected Skills Display -->
                             <div id="selected-skills-display" class="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-lg min-h-[50px]">
                                 <div class="text-xs font-medium text-blue-800 mb-1">Selected Skills:</div>
@@ -3330,5 +3431,55 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 </script>
+    <script>
+    // Toggle UI when quest type changes
+    function updateQuestTypeUI() {
+        var sel = document.getElementById('display_type');
+        if (!sel) return;
+        var val = sel.value;
+        var isClient = (val === 'client_support');
+
+        var clientDetails = document.getElementById('clientDetails');
+        if (clientDetails) clientDetails.style.display = isClient ? 'block' : 'none';
+
+        var locked = document.getElementById('lockedSkillsContainer');
+        if (locked) locked.style.display = isClient ? 'block' : 'none';
+
+        var skillsSection = document.getElementById('skillsSection');
+        if (skillsSection) {
+            // disable interactive controls when client_support
+            var interactive = skillsSection.querySelectorAll('input, button, select, textarea');
+            interactive.forEach(function(el) {
+                // keep lockedSkillsContainer elements interactive state unchanged
+                if (el.closest('#lockedSkillsContainer')) return;
+                if (isClient) {
+                    el.dataset._prevDisabled = el.disabled ? '1' : '0';
+                    el.disabled = true;
+                    el.classList.add('opacity-50');
+                } else {
+                    el.disabled = (el.dataset._prevDisabled === '1');
+                    el.classList.remove('opacity-50');
+                }
+            });
+
+            // hide category buttons explicitly
+            var catButtons = skillsSection.querySelectorAll('.skill-category-btn');
+            catButtons.forEach(function(b){ b.style.display = isClient ? 'none' : 'inline-flex'; });
+
+            // hide Add Custom Skill buttons
+            var addBtns = skillsSection.querySelectorAll('[onclick="showCustomSkillModal()"]');
+            addBtns.forEach(function(b){ b.style.display = isClient ? 'none' : 'inline-block'; });
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        var sel = document.getElementById('display_type');
+        if (sel) {
+            sel.addEventListener('change', updateQuestTypeUI);
+            // initial run
+            updateQuestTypeUI();
+        }
+    });
+    </script>
 </body>
 </html>
