@@ -27,10 +27,11 @@ if (!in_array($role, ['quest_lead'])) { // was ['quest_giver', 'hybrid']
     exit();
 }
 
-// Create and populate quest_categories table if needed
+// Create and populate quest_types table if needed (stores two high-level quest types)
 try {
-    $pdo->exec("CREATE TABLE IF NOT EXISTS quest_categories (
+    $pdo->exec("CREATE TABLE IF NOT EXISTS quest_types (
         id INT AUTO_INCREMENT PRIMARY KEY,
+        type_key VARCHAR(50) NOT NULL UNIQUE,
         name VARCHAR(255) NOT NULL,
         description TEXT,
         icon VARCHAR(50),
@@ -38,31 +39,28 @@ try {
     )");
 
     // Check if table is empty
-    $stmt = $pdo->query("SELECT COUNT(*) FROM quest_categories");
+    $stmt = $pdo->query("SELECT COUNT(*) FROM quest_types");
     $count = $stmt->fetchColumn();
     
     if ($count == 0) {
-        // Insert default categories
-        $defaultCategories = [
-            ['name' => 'Training', 'description' => 'Employee training and development', 'icon' => 'fa-graduation-cap'],
-            ['name' => 'Project', 'description' => 'Work-related projects', 'icon' => 'fa-project-diagram'],
-            ['name' => 'Team Building', 'description' => 'Team activities and bonding', 'icon' => 'fa-users'],
-            ['name' => 'Innovation', 'description' => 'Creative and innovative tasks', 'icon' => 'fa-lightbulb'],
-            ['name' => 'Administrative', 'description' => 'Office and administrative work', 'icon' => 'fa-file-alt']
+        // Insert the two supported quest types: custom and client_support
+        $defaultTypes = [
+            ['type_key' => 'custom', 'name' => 'Custom', 'description' => 'User-defined/custom quests', 'icon' => 'fa-star'],
+            ['type_key' => 'client_support', 'name' => 'Client & Support Operations', 'description' => 'Client support related quests (auto-attached skills)', 'icon' => 'fa-headset']
         ];
-        
-        $stmt = $pdo->prepare("INSERT INTO quest_categories (name, description, icon) VALUES (:name, :description, :icon)");
-        
-        foreach ($defaultCategories as $category) {
+
+        $stmt = $pdo->prepare("INSERT INTO quest_types (type_key, name, description, icon) VALUES (:type_key, :name, :description, :icon)");
+        foreach ($defaultTypes as $t) {
             $stmt->execute([
-                ':name' => $category['name'],
-                ':description' => $category['description'],
-                ':icon' => $category['icon']
+                ':type_key' => $t['type_key'],
+                ':name' => $t['name'],
+                ':description' => $t['description'],
+                ':icon' => $t['icon']
             ]);
         }
     }
 } catch (PDOException $e) {
-    error_log("Error setting up categories: " . $e->getMessage());
+    error_log("Error setting up quest types: " . $e->getMessage());
 }
 
 // Create new tables for our enhancements
@@ -70,7 +68,7 @@ try {
     // Add quest_type and visibility to quests table
     $pdo->exec("ALTER TABLE quests 
                 ADD COLUMN IF NOT EXISTS quest_type ENUM('routine','minor','standard','major','project','recurring') DEFAULT 'routine'");
-    // Add display_type for quest category (custom, client_support, etc.)
+    // Add display_type for quest type (custom, client_support, etc.)
     $pdo->exec("ALTER TABLE quests ADD COLUMN IF NOT EXISTS display_type VARCHAR(50) DEFAULT 'custom'");
     // Add extra columns for client/support quest details
     $pdo->exec("ALTER TABLE quests ADD COLUMN IF NOT EXISTS client_name VARCHAR(255) DEFAULT NULL");
@@ -141,6 +139,17 @@ try {
                         JOIN skill_categories sc ON cs.category_id = sc.id 
                         ORDER BY sc.category_name, cs.skill_name");
     $skills = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    // Fetch quest types from DB (populated by migration/create_quest.php setup)
+    try {
+        $qstmt = $pdo->query("SELECT type_key, name FROM quest_types ORDER BY id");
+        $quest_types = $qstmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        // If quest_types doesn't exist yet, fall back to defaults
+        $quest_types = [
+            ['type_key' => 'custom', 'name' => 'Custom'],
+            ['type_key' => 'client_support', 'name' => 'Client & Support Operations']
+        ];
+    }
 } catch (PDOException $e) {
     error_log("Database error fetching data: " . $e->getMessage());
 }
@@ -1262,8 +1271,9 @@ function getFontSize() {
                         <div>
                             <label for="display_type" class="block text-sm font-medium text-gray-700 mb-1">Quest Type*</label>
                             <select name="display_type" id="display_type" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300">
-                                <option value="custom" <?php echo (isset($display_type) && $display_type == 'custom') ? 'selected' : (!isset($display_type) ? 'selected' : ''); ?>>Custom Quest (default)</option>
-                                <option value="client_support" <?php echo (isset($display_type) && $display_type == 'client_support') ? 'selected' : ''; ?>>Client & Support Operations</option>
+                                <?php foreach ($quest_types as $qt): ?>
+                                    <option value="<?php echo htmlspecialchars($qt['type_key']); ?>" <?php echo (isset($display_type) && $display_type == $qt['type_key']) ? 'selected' : (!isset($display_type) && $qt['type_key']=='custom' ? 'selected' : ''); ?>><?php echo htmlspecialchars($qt['name']); ?></option>
+                                <?php endforeach; ?>
                             </select>
                             <p class="text-xs text-gray-500 mt-1">Choose the quest type. Selecting <strong>Client &amp; Support Operations</strong> will auto-attach required skills and show extra client details.</p>
                         </div>
