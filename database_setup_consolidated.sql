@@ -641,6 +641,47 @@ CREATE INDEX IF NOT EXISTS `idx_activity_logs_user_created` ON `activity_logs` (
 -- ====================================================================
 
 -- Update existing data to ensure consistency
+-- Ensure `quests` table has the columns the application expects (idempotent)
+-- Adds `quest_type`, display and client support fields, recurrence and publish timestamps.
+ALTER TABLE `quests`
+  ADD COLUMN IF NOT EXISTS `quest_type` enum('routine','minor','standard','major','project','recurring') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT 'routine',
+  ADD COLUMN IF NOT EXISTS `display_type` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT 'custom',
+  ADD COLUMN IF NOT EXISTS `client_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS `client_reference` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS `sla_priority` enum('low','medium','high') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT 'medium',
+  ADD COLUMN IF NOT EXISTS `expected_response` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS `visibility` enum('public','private') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT 'public',
+  ADD COLUMN IF NOT EXISTS `recurrence_pattern` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS `recurrence_end_date` datetime DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS `publish_at` datetime DEFAULT NULL;
+
+-- Normalize any legacy values and set sensible defaults
+UPDATE `quests` SET `quest_type` = 'routine' WHERE `quest_type` IS NULL OR `quest_type` = 'single';
+-- Leave existing 'recurring' values untouched if present
+
+-- Add an index for quest_type to help filtering by type
+-- NOTE: Creating an index can require creating a temporary copy of the table
+-- which may fail on low-disk-space or limited InnoDB tablespace with error #1114
+-- To avoid blocking the full consolidated run, the CREATE INDEX is commented out
+-- here. Run the following commands manually after ensuring sufficient disk
+-- space or adjusting MySQL tmpdir/innodb settings.
+
+-- CREATE INDEX `idx_quests_type` ON `quests` (`quest_type`);
+
+-- Optional: conditional check (run manually in the MySQL client) to avoid
+-- attempting to create an index that already exists. Replace `yoonet_quest`
+-- with your database name if different.
+--
+-- SELECT COUNT(*) AS idx_exists
+-- FROM information_schema.STATISTICS
+-- WHERE TABLE_SCHEMA = 'yoonet_quest' AND TABLE_NAME = 'quests' AND INDEX_NAME = 'idx_quests_type';
+--
+-- If the above returns 0, create the index manually (ensure you have disk space):
+-- CREATE INDEX `idx_quests_type` ON `quests` (`quest_type`);
+
+-- If you want me to create this index for you, free up space or tell me and
+-- I'll walk you through checking tmpdir/datadir and retrying safely.
+
 UPDATE users SET profile_completed = 1 WHERE profile_completed IS NULL;
 UPDATE quests SET quest_assignment_type = 'optional' WHERE quest_assignment_type IS NULL;
 UPDATE quest_submissions SET additional_xp = 0 WHERE additional_xp IS NULL;
