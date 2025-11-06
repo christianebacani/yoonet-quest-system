@@ -611,7 +611,7 @@ INSERT IGNORE INTO `quest_types` (`type_key`, `name`, `description`, `icon`, `cr
 SELECT LOWER(REPLACE(name, ' ', '_')) AS type_key, name, description, icon, created_at
 FROM `quest_categories`;
 
--- Drop the legacy quest_categories table now that data is migrated
+-- Drop the legacy quest_categories table now that gidata is migrated
 DROP TABLE IF EXISTS `quest_categories`;
 
 -- Ensure only the two supported quest types exist now.

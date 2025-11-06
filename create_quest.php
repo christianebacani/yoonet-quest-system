@@ -38,26 +38,17 @@ try {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )");
 
-    // Check if table is empty
-    $stmt = $pdo->query("SELECT COUNT(*) FROM quest_types");
-    $count = $stmt->fetchColumn();
-    
-    if ($count == 0) {
-        // Insert the two supported quest types: custom and client_support
-        $defaultTypes = [
-            ['type_key' => 'custom', 'name' => 'Custom', 'description' => 'User-defined/custom quests', 'icon' => 'fa-star'],
-            ['type_key' => 'client_support', 'name' => 'Client & Support Operations', 'description' => 'Client support related quests (auto-attached skills)', 'icon' => 'fa-headset']
-        ];
+    // Ensure only the two supported quest types exist (remove any migrated/legacy entries)
+    try {
+        $pdo->exec("DELETE FROM quest_types WHERE type_key NOT IN ('custom','client_support')");
 
-        $stmt = $pdo->prepare("INSERT INTO quest_types (type_key, name, description, icon) VALUES (:type_key, :name, :description, :icon)");
-        foreach ($defaultTypes as $t) {
-            $stmt->execute([
-                ':type_key' => $t['type_key'],
-                ':name' => $t['name'],
-                ':description' => $t['description'],
-                ':icon' => $t['icon']
-            ]);
-        }
+        // Upsert the canonical two quest types (idempotent)
+        $pdo->exec("INSERT INTO quest_types (type_key, name, description, icon) VALUES
+            ('custom', 'Custom', 'User-defined/custom quests', 'fa-star'),
+            ('client_support', 'Client & Support Operations', 'Client support related quests (auto-attached skills)', 'fa-headset')
+            ON DUPLICATE KEY UPDATE name=VALUES(name), description=VALUES(description), icon=VALUES(icon)");
+    } catch (PDOException $e) {
+        error_log("Error enforcing canonical quest types: " . $e->getMessage());
     }
 } catch (PDOException $e) {
     error_log("Error setting up quest types: " . $e->getMessage());

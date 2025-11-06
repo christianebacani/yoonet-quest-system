@@ -16,6 +16,23 @@ try {
     $pdo->exec("ALTER TABLE quests ADD COLUMN IF NOT EXISTS expected_response VARCHAR(100) DEFAULT NULL");
     // Ensure quest_type column matches the UI types used across the app
     $pdo->exec("ALTER TABLE quests ADD COLUMN IF NOT EXISTS quest_type ENUM('routine','minor','standard','major','project','recurring') DEFAULT 'routine'");
+    
+    // Ensure quest_types table exists and only contains the two supported entries
+    $pdo->exec("CREATE TABLE IF NOT EXISTS quest_types (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        type_key VARCHAR(50) NOT NULL UNIQUE,
+        name VARCHAR(255) NOT NULL,
+        description TEXT,
+        icon VARCHAR(50),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )");
+
+    // Remove any non-default quest types and upsert the two canonical types
+    $pdo->exec("DELETE FROM quest_types WHERE type_key NOT IN ('custom','client_support')");
+    $pdo->exec("INSERT INTO quest_types (type_key, name, description, icon) VALUES
+        ('custom', 'Custom', 'User-defined/custom quests', 'fa-star'),
+        ('client_support', 'Client & Support Operations', 'Client support related quests (auto-attached skills)', 'fa-headset')
+        ON DUPLICATE KEY UPDATE name=VALUES(name), description=VALUES(description), icon=VALUES(icon)");
 } catch (PDOException $e) {
     // Non-fatal if ALTER fails on older MySQL versions; continue
     error_log('Could not ensure quest display_type columns: ' . $e->getMessage());
