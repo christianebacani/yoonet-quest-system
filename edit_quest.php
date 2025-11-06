@@ -14,6 +14,8 @@ try {
     $pdo->exec("ALTER TABLE quests ADD COLUMN IF NOT EXISTS client_reference VARCHAR(255) DEFAULT NULL");
     $pdo->exec("ALTER TABLE quests ADD COLUMN IF NOT EXISTS sla_priority ENUM('low','medium','high') DEFAULT 'medium'");
     $pdo->exec("ALTER TABLE quests ADD COLUMN IF NOT EXISTS expected_response VARCHAR(100) DEFAULT NULL");
+    // Ensure quest_type column matches the UI types used across the app
+    $pdo->exec("ALTER TABLE quests ADD COLUMN IF NOT EXISTS quest_type ENUM('routine','minor','standard','major','project','recurring') DEFAULT 'routine'");
 } catch (PDOException $e) {
     // Non-fatal if ALTER fails on older MySQL versions; continue
     error_log('Could not ensure quest display_type columns: ' . $e->getMessage());
@@ -119,7 +121,7 @@ try {
     
     // Fetch quest skills for editing
     $stmt = $pdo->prepare("
-        SELECT qs.skill_id, qs.tier_level AS tier, cs.skill_name, cs.category_id, sc.category_name 
+        SELECT qs.skill_id, qs.tier_level AS tier, cs.skill_name, cs.category_id, sc.category_name, cs.description AS skill_description
         FROM quest_skills qs 
         JOIN comprehensive_skills cs ON qs.skill_id = cs.id 
         JOIN skill_categories sc ON cs.category_id = sc.id 
@@ -173,7 +175,7 @@ $due_date = $quest['due_date'] ?? null;
 $status = $quest['status'] ?? 'active';
 $assign_to = !empty($quest['assigned_employees']) ? explode(',', $quest['assigned_employees']) : [];
 $assign_group = null;
-$quest_type = $quest['quest_type'] ?? 'single';
+$quest_type = $quest['quest_type'] ?? 'routine';
 $visibility = $quest['visibility'] ?? 'public';
 $recurrence_pattern = $quest['recurrence_pattern'] ?? '';
 $recurrence_end_date = $quest['recurrence_end_date'] ?? '';
@@ -199,6 +201,13 @@ try {
 } catch (PDOException $e) {
     error_log("Database error fetching data: " . $e->getMessage());
 }
+
+// Auto skills for Client & Support Operations (used for display when switching types)
+$client_auto_skills = [
+    ['skill_name' => 'Client Communication', 'category_name' => 'Client & Support Operations', 'tier' => 3, 'is_custom' => false],
+    ['skill_name' => 'Ticket Management', 'category_name' => 'Client & Support Operations', 'tier' => 2, 'is_custom' => false],
+    ['skill_name' => 'Incident Diagnosis', 'category_name' => 'Client & Support Operations', 'tier' => 3, 'is_custom' => false]
+];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $title = trim($_POST['title'] ?? '');
@@ -241,6 +250,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($dueTs !== false && $dueTs < (time() + $minLeadSeconds)) {
             $error = 'Due date must be at least ' . ($minLeadSeconds/60) . ' minutes in the future. Please select a later date/time.';
         }
+    }
+    // Quest type and recurrence/publish fields from form
+    $quest_type = isset($_POST['quest_type']) ? $_POST['quest_type'] : ($quest_type ?? 'routine');
+    $recurrence_pattern = isset($_POST['recurrence_pattern']) ? $_POST['recurrence_pattern'] : ($recurrence_pattern ?? null);
+    $recurrence_end_date = !empty($_POST['recurrence_end_date']) ? $_POST['recurrence_end_date'] : ($recurrence_end_date ?? null);
+    $publish_at = !empty($_POST['publish_at']) ? $_POST['publish_at'] : ($publish_at ?? null);
+
+    if (!empty($recurrence_end_date)) {
+        $ts = strtotime($recurrence_end_date);
+        $recurrence_end_date = ($ts !== false && $ts > 0) ? date('Y-m-d H:i:s', $ts) : null;
+    }
+    if (!empty($publish_at)) {
+        $ts = strtotime($publish_at);
+        $publish_at = ($ts !== false && $ts > 0) ? date('Y-m-d H:i:s', $ts) : null;
     }
     $assign_to = isset($_POST['assign_to']) ? $_POST['assign_to'] : [];
     $assign_group = null;
@@ -438,6 +461,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     quest_assignment_type = ?,
                     visibility = ?,
                     display_type = ?,
+                    quest_type = ?,
+                    recurrence_pattern = ?,
+                    recurrence_end_date = ?,
+                    publish_at = ?,
                     client_name = ?,
                     client_reference = ?,
                     sla_priority = ?,
@@ -452,6 +479,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $quest_assignment_type,
                     $visibility_value,
                     $display_type,
+                    in_array($quest_type, ['routine','minor','standard','major','project','recurring']) ? $quest_type : 'routine',
+                    $recurrence_pattern ?: null,
+                    $recurrence_end_date,
+                    $publish_at,
                     $client_name ?: null,
                     $client_reference ?: null,
                     in_array($sla_priority, ['low','medium','high']) ? $sla_priority : 'medium',
@@ -1349,18 +1380,7 @@ function getFontSize() {
                         </div>
                     </div>
 
-                    <!-- Locked Skills (for Client & Support Operations) -->
-                    <div id="lockedSkillsContainer" class="mb-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg min-h-[50px]" style="display: <?php echo ($display_type === 'client_support') ? 'block' : 'none'; ?>;">
-                        <div class="text-xs font-medium text-yellow-800 mb-1">Auto-attached Skills (locked)</div>
-                        <div id="locked-skills-badges-edit" class="flex flex-wrap gap-2">
-                            <?php
-                                $autoNames = ['Client Communication', 'Ticket Management', 'Incident Diagnosis'];
-                                foreach ($autoNames as $an) {
-                                    echo '<div class="px-3 py-1 bg-yellow-100 text-yellow-800 rounded-full text-sm font-semibold">' . htmlspecialchars($an) . '</div>'; 
-                                }
-                            ?>
-                        </div>
-                    </div>
+                    <!-- Locked Skills removed: auto-attached skills will appear in the selected skills area -->
 
                     <!-- Category Buttons (copied style from create_quest for faster access) -->
                     <div class="mb-4">
@@ -1483,7 +1503,7 @@ function getFontSize() {
         };
 
         // Use the quest_type stored on the server for this quest (edit page should not change it)
-        const serverQuestType = <?php echo json_encode($quest['quest_type'] ?? 'single'); ?>;
+    const serverQuestType = <?php echo json_encode($quest['quest_type'] ?? 'routine'); ?>;
         function getCurrentQuestType() {
             return serverQuestType;
         }
@@ -2248,7 +2268,7 @@ function getFontSize() {
             window.searchEmployees = searchEmployees;
 
             // Show/hide recurring options based on the quest_type stored on the server for this quest
-            if (<?php echo json_encode($quest['quest_type'] ?? 'single'); ?> === 'recurring') {
+            if (<?php echo json_encode($quest['quest_type'] ?? 'routine'); ?> === 'recurring') {
                 $('#recurringOptions').addClass('visible');
                 $('.recurrence-patterns').css('display', 'grid');
             } else {
@@ -3425,6 +3445,23 @@ function updateQuestTypeUI_Edit() {
     // locked skills
     var locked = document.getElementById('lockedSkillsContainer');
     if (locked) locked.style.display = isClient ? 'block' : 'none';
+    // If switching to client_support, populate locked container with auto skills
+    try {
+        const clientAutoSkills = <?php echo json_encode($client_auto_skills); ?>;
+        if (isClient && locked) {
+            locked.innerHTML = '';
+            clientAutoSkills.forEach(function(skill){
+                const html = `
+                    <div class="inline-flex items-center px-3 py-1 bg-indigo-100 text-indigo-800 text-xs rounded-full border border-indigo-200 mr-2 mb-2">
+                        <span class="font-medium">${skill.skill_name}</span>
+                        <span class="ml-2 text-gray-600 text-xs">T${skill.tier}</span>
+                        <span class="ml-2 text-yellow-600 text-xs">(Custom)</span>
+                    </div>
+                `;
+                locked.insertAdjacentHTML('beforeend', html);
+            });
+        }
+    } catch(e) { /* ignore JSON/DOM errors */ }
     // hide category buttons
     var catButtons = document.querySelectorAll('.skill-category-btn');
     catButtons.forEach(function(b){ b.style.display = isClient ? 'none' : 'inline-flex'; });
