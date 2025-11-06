@@ -614,6 +614,15 @@ FROM `quest_categories`;
 -- Drop the legacy quest_categories table now that data is migrated
 DROP TABLE IF EXISTS `quest_categories`;
 
+-- Ensure only the two supported quest types exist now.
+-- Delete any migrated or legacy entries that are not the two supported keys.
+DELETE FROM `quest_types` WHERE `type_key` NOT IN ('custom','client_support');
+
+-- Re-insert the canonical two quest types in case they were removed or not present.
+INSERT IGNORE INTO `quest_types` (`type_key`, `name`, `description`, `icon`) VALUES
+('custom', 'Custom', 'User-defined/custom quests', '📦'),
+('client_support', 'Client & Support Operations', 'Client support related quests (auto-attached skills)', '🎧');
+
 -- Insert default system settings
 INSERT IGNORE INTO `system_settings` (`setting_key`, `setting_value`, `setting_type`, `description`, `is_user_configurable`) VALUES
 ('system_name', 'YooNet Quest System', 'string', 'The name of the application', 1),
