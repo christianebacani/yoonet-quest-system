@@ -587,16 +587,32 @@ INSERT IGNORE INTO `comprehensive_skills` (`skill_name`, `category_id`, `descrip
 ('Compliance & Governance', 4, 'Regulatory compliance', 25, 40, 60, 85, 115),
 ('Performance Metrics', 4, 'KPI tracking and reporting', 25, 40, 60, 85, 115);
 
--- Insert default quest categories
-INSERT IGNORE INTO `quest_categories` (`name`, `description`, `icon`, `color`) VALUES
-('Learning & Development', 'Skill-building and educational quests', '📚', '#3B82F6'),
-('Project Work', 'Real-world project-based learning', '🚀', '#10B981'),
-('Certification', 'Professional certification and assessment', '🏆', '#F59E0B'),
-('Research', 'Investigation and discovery quests', '🔍', '#8B5CF6'),
-('Collaboration', 'Team-based and collaborative projects', '🤝', '#EC4899'),
-('Innovation', 'Creative and innovative challenges', '💡', '#EF4444'),
-('Quality Improvement', 'Process improvement and optimization', '⚡', '#06B6D4'),
-('Leadership', 'Leadership development and management', '👑', '#84CC16');
+-- Create quest_types table and insert the two supported quest types
+CREATE TABLE IF NOT EXISTS `quest_types` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `type_key` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `description` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `icon` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_type_key` (`type_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO `quest_types` (`type_key`, `name`, `description`, `icon`) VALUES
+('custom', 'Custom', 'User-defined/custom quests', '�'),
+('client_support', 'Client & Support Operations', 'Client support related quests (auto-attached skills)', '🎧');
+
+-- If an old `quest_categories` table exists, migrate its rows into `quest_types`.
+-- We generate a `type_key` from the existing name by lowercasing and replacing spaces with underscores.
+-- This preserves existing category names in the new table while ensuring the two
+-- supported types remain present. Duplicate keys are ignored.
+INSERT IGNORE INTO `quest_types` (`type_key`, `name`, `description`, `icon`, `created_at`)
+SELECT LOWER(REPLACE(name, ' ', '_')) AS type_key, name, description, icon, created_at
+FROM `quest_categories`;
+
+-- Drop the legacy quest_categories table now that data is migrated
+DROP TABLE IF EXISTS `quest_categories`;
 
 -- Insert default system settings
 INSERT IGNORE INTO `system_settings` (`setting_key`, `setting_value`, `setting_type`, `description`, `is_user_configurable`) VALUES
