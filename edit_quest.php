@@ -131,10 +131,7 @@ try {
     $stmt->execute([$quest_id]);
     $subtasks = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
-    // Fetch attachments
-    $stmt = $pdo->prepare("SELECT * FROM quest_attachments WHERE quest_id = ?");
-    $stmt->execute([$quest_id]);
-    $attachments = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    // Attachments removed for this installation (no longer used on edit page)
     
     // Fetch quest skills for editing
     $stmt = $pdo->prepare("
@@ -203,6 +200,13 @@ $client_name = $quest['client_name'] ?? '';
 $client_reference = $quest['client_reference'] ?? '';
 $sla_priority = $quest['sla_priority'] ?? 'medium';
 $expected_response = $quest['expected_response'] ?? '';
+$client_contact_email = $quest['client_contact_email'] ?? '';
+$client_contact_phone = $quest['client_contact_phone'] ?? '';
+$sla_due_hours = $quest['sla_due_hours'] ?? null;
+$external_ticket_link = $quest['external_ticket_link'] ?? '';
+$service_level_description = $quest['service_level_description'] ?? '';
+$vendor_name = $quest['vendor_name'] ?? '';
+$estimated_hours = $quest['estimated_hours'] ?? null;
 
 // Fetch employees for assignment
 $employees = [];
@@ -296,12 +300,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $assign_to = isset($_POST['assign_to']) ? $_POST['assign_to'] : [];
     $assign_group = null;
     $status = $_POST['status'] ?? 'active';
-    // Display type and client/support fields
-    $display_type = isset($_POST['display_type']) ? $_POST['display_type'] : ($display_type ?? 'custom');
-    $client_name = trim($_POST['client_name'] ?? '');
-    $client_reference = trim($_POST['client_reference'] ?? '');
-    $sla_priority = $_POST['sla_priority'] ?? 'medium';
-    $expected_response = trim($_POST['expected_response'] ?? '');
+
+    // Keep display_type from DB (quest type cannot be changed here). Accept client/support detail fields
+    // so creators can update those details when the quest is a client_support type.
+    $client_name = trim($_POST['client_name'] ?? $client_name);
+    $client_reference = trim($_POST['client_reference'] ?? $client_reference);
+    $sla_priority = $_POST['sla_priority'] ?? $sla_priority;
+    $expected_response = trim($_POST['expected_response'] ?? $expected_response);
+    $client_contact_email = trim($_POST['client_contact_email'] ?? $client_contact_email);
+    $client_contact_phone = trim($_POST['client_contact_phone'] ?? $client_contact_phone);
+    $sla_due_hours = isset($_POST['sla_due_hours']) && $_POST['sla_due_hours'] !== '' ? intval($_POST['sla_due_hours']) : $sla_due_hours;
+    $external_ticket_link = trim($_POST['external_ticket_link'] ?? $external_ticket_link);
+    $service_level_description = trim($_POST['service_level_description'] ?? $service_level_description);
+    $vendor_name = trim($_POST['vendor_name'] ?? $vendor_name);
+    $estimated_hours = isset($_POST['estimated_hours']) && $_POST['estimated_hours'] !== '' ? floatval($_POST['estimated_hours']) : $estimated_hours;
     
     // Handle quest skills: accept either the JSON payload (legacy) or the
     // form-style inputs used by the create page (quest_skills[] + skill_tiers + custom_skill_names).
@@ -383,38 +395,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
 
         
-        // Validate file uploads
-        if (empty($error) && !empty($_FILES['attachments']['name'][0])) {
-            $allowedTypes = ['application/pdf', 'image/jpeg', 'image/png'];
-            $maxSize = 5 * 1024 * 1024; // 5MB
-            $maxTotalSize = 20 * 1024 * 1024; // 20MB total
-            $totalSize = 0;
-            
-            foreach ($_FILES['attachments']['tmp_name'] as $key => $tmp_name) {
-                if ($_FILES['attachments']['error'][$key] === UPLOAD_ERR_OK) {
-                    $fileType = $_FILES['attachments']['type'][$key];
-                    $fileSize = $_FILES['attachments']['size'][$key];
-                    $totalSize += $fileSize;
-                    
-                    if (!in_array($fileType, $allowedTypes)) {
-                        $error = 'Only PDF, JPG, and PNG files are allowed';
-                        break;
-                    }
-                    
-                    if ($fileSize > $maxSize) {
-                        $error = 'Each file must be less than 5MB';
-                        break;
-                    }
-                } else {
-                    $error = 'Error uploading one or more files';
-                    break;
-                }
-            }
-            
-            if (empty($error) && $totalSize > $maxTotalSize) {
-                $error = 'Total attachments size must be less than 20MB';
-            }
-        }
+        // Attachment uploads removed from edit flow
         
         // Validate subtasks
         if (empty($error) && !empty($subtasks)) {
@@ -480,7 +461,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 }
 
-                // Update the quest (include visibility and client/support fields)
+                // Update the quest including client/support fields when present (quest_type/display_type is NOT changed here)
                 $stmt = $pdo->prepare("UPDATE quests SET 
                     title = ?, 
                     description = ?, 
@@ -488,8 +469,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     due_date = ?, 
                     quest_assignment_type = ?,
                     visibility = ?,
-                    display_type = ?,
-                    quest_type = ?,
                     recurrence_pattern = ?,
                     recurrence_end_date = ?,
                     publish_at = ?,
@@ -497,6 +476,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     client_reference = ?,
                     sla_priority = ?,
                     expected_response = ?,
+                    client_contact_email = ?,
+                    client_contact_phone = ?,
+                    sla_due_hours = ?,
+                    external_ticket_link = ?,
+                    service_level_description = ?,
+                    vendor_name = ?,
+                    estimated_hours = ?,
                     updated_at = NOW()
                     WHERE id = ?");
                 $stmt->execute([
@@ -506,8 +492,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $due_date,
                     $quest_assignment_type,
                     $visibility_value,
-                    $display_type,
-                    in_array($quest_type, ['routine','minor','standard','major','project','recurring']) ? $quest_type : 'routine',
                     $recurrence_pattern ?: null,
                     $recurrence_end_date,
                     $publish_at,
@@ -515,6 +499,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $client_reference ?: null,
                     in_array($sla_priority, ['low','medium','high']) ? $sla_priority : 'medium',
                     $expected_response ?: null,
+                    $client_contact_email ?: null,
+                    $client_contact_phone ?: null,
+                    $sla_due_hours,
+                    $external_ticket_link ?: null,
+                    $service_level_description ?: null,
+                    $vendor_name ?: null,
+                    $estimated_hours,
                     $quest_id
                 ]);
                 
@@ -595,44 +586,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 }
                 
-                // Handle file uploads
-                if (!empty($_FILES['attachments']['name'][0])) {
-                    $uploadDir = 'uploads/quests/' . $quest_id . '/';
-                    if (!file_exists($uploadDir)) {
-                        if (!mkdir($uploadDir, 0755, true)) {
-                            throw new Exception("Failed to create upload directory");
-                        }
-                    }
-                    
-                    $allowedTypes = ['application/pdf', 'image/jpeg', 'image/png'];
-                    $maxSize = 5 * 1024 * 1024; // 5MB
-                    
-                    foreach ($_FILES['attachments']['tmp_name'] as $key => $tmp_name) {
-                        if ($_FILES['attachments']['error'][$key] === UPLOAD_ERR_OK) {
-                            $fileType = $_FILES['attachments']['type'][$key];
-                            $fileSize = $_FILES['attachments']['size'][$key];
-                            $originalName = basename($_FILES['attachments']['name'][$key]);
-                            
-                            if (in_array($fileType, $allowedTypes) && $fileSize <= $maxSize) {
-                                $newFilename = uniqid() . '.' . pathinfo($originalName, PATHINFO_EXTENSION);
-                                $destination = $uploadDir . $newFilename;
-                                
-                                if (move_uploaded_file($tmp_name, $destination)) {
-                                    $stmt = $pdo->prepare("INSERT INTO quest_attachments 
-                                        (quest_id, file_name, file_path, file_size, file_type) 
-                                        VALUES (?, ?, ?, ?, ?)");
-                                    $stmt->execute([
-                                        $quest_id,
-                                        $originalName,
-                                        $destination,
-                                        $fileSize,
-                                        $fileType
-                                    ]);
-                                }
-                            }
-                        }
-                    }
-                }
+                // Attachment uploads removed from edit flow
                 
                 // Handle assignment changes
                 // First, remove all existing assignments
@@ -1235,6 +1189,24 @@ function getFontSize() {
                     
                     <div class="grid grid-cols-1 gap-6">
                         <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Quest Type</label>
+                            <div class="w-full px-4 py-2.5 border border-gray-200 rounded-lg bg-gray-50 text-gray-700">
+                                <?php
+                                    // Display the human-friendly name for the display_type
+                                    $display_label = 'Custom';
+                                    foreach ($quest_types as $qt) {
+                                        if (isset($qt['type_key']) && $qt['type_key'] === $display_type) {
+                                            $display_label = $qt['name'];
+                                            break;
+                                        }
+                                    }
+                                    echo htmlspecialchars($display_label);
+                                ?>
+                            </div>
+                            <p class="text-xs text-gray-500 mt-1">The quest type cannot be changed during edit to avoid complexity.</p>
+                        </div>
+
+                        <div>
                             <label for="title" class="block text-sm font-medium text-gray-700 mb-1">Quest Title*</label>
                             <input type="text" id="title" name="title" value="<?php echo htmlspecialchars($title); ?>" 
                                    class="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300"
@@ -1248,42 +1220,66 @@ function getFontSize() {
                                       placeholder="Describe the quest requirements and objectives" required maxlength="2000"><?php echo htmlspecialchars($description); ?></textarea>
                         </div>
 
-                        <!-- Quest Type Selection -->
-                        <div>
-                            <label for="display_type" class="block text-sm font-medium text-gray-700 mb-1">Quest Type*</label>
-                            <select name="display_type" id="display_type" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300">
-                                <?php foreach ($quest_types as $qt): ?>
-                                    <option value="<?php echo htmlspecialchars($qt['type_key']); ?>" <?php echo ($display_type === $qt['type_key']) ? 'selected' : (!isset($display_type) && $qt['type_key']=='custom' ? 'selected' : ''); ?>><?php echo htmlspecialchars($qt['name']); ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                            <p class="text-xs text-gray-500 mt-1">If you change to <strong>Client &amp; Support Operations</strong>, required skills will be auto-attached and locked.</p>
-                        </div>
-
-                        <!-- Client / Support extra details -->
-                        <div id="clientDetails" style="display: <?php echo ($display_type === 'client_support') ? 'block' : 'none'; ?>;">
+                        <!-- If this quest is Client & Support Operations, show the same client/SLA fields as create_quest.php so creators can edit them -->
+                        <?php if ($display_type === 'client_support'): ?>
+                        <div id="clientDetails" class="mt-2">
+                            <p class="text-xs text-gray-500 mb-2">These fields capture client-facing details and SLA expectations. Fill them when the quest relates to external clients or support tickets.</p>
                             <div>
                                 <label for="client_name" class="block text-sm font-medium text-gray-700 mb-1">Client Name</label>
-                                <input type="text" id="client_name" name="client_name" value="<?php echo htmlspecialchars($client_name); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="Client or account name">
+                                <input type="text" id="client_name" name="client_name" value="<?php echo htmlspecialchars($client_name ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="Client or account name">
                             </div>
                             <div>
                                 <label for="client_reference" class="block text-sm font-medium text-gray-700 mb-1">Ticket / Reference ID</label>
-                                <input type="text" id="client_reference" name="client_reference" value="<?php echo htmlspecialchars($client_reference); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="Ticket number or reference">
+                                <input type="text" id="client_reference" name="client_reference" value="<?php echo htmlspecialchars($client_reference ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="Ticket number or reference">
                             </div>
                             <div class="grid grid-cols-2 gap-6">
                                 <div>
                                     <label for="sla_priority" class="block text-sm font-medium text-gray-700 mb-1">SLA Priority</label>
                                     <select id="sla_priority" name="sla_priority" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg">
-                                        <option value="low" <?php echo ($sla_priority === 'low') ? 'selected' : ''; ?>>Low</option>
-                                        <option value="medium" <?php echo ($sla_priority === 'medium') ? 'selected' : ''; ?>>Medium</option>
-                                        <option value="high" <?php echo ($sla_priority === 'high') ? 'selected' : ''; ?>>High</option>
+                                        <option value="low" <?php echo (isset($sla_priority) && $sla_priority == 'low') ? 'selected' : ''; ?>>Low</option>
+                                        <option value="medium" <?php echo (isset($sla_priority) && $sla_priority == 'medium') ? 'selected' : (!isset($sla_priority) ? 'selected' : ''); ?>>Medium</option>
+                                        <option value="high" <?php echo (isset($sla_priority) && $sla_priority == 'high') ? 'selected' : ''; ?>>High</option>
                                     </select>
                                 </div>
                                 <div>
                                     <label for="expected_response" class="block text-sm font-medium text-gray-700 mb-1">Expected Response</label>
-                                    <input type="text" id="expected_response" name="expected_response" value="<?php echo htmlspecialchars($expected_response); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="e.g., 24 hours">
+                                    <input type="text" id="expected_response" name="expected_response" value="<?php echo htmlspecialchars($expected_response ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="e.g., 24 hours">
                                 </div>
                             </div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
+                                <div>
+                                    <label for="client_contact_email" class="block text-sm font-medium text-gray-700 mb-1">Client Contact Email</label>
+                                    <input type="email" id="client_contact_email" name="client_contact_email" value="<?php echo htmlspecialchars($client_contact_email ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="name@client.com">
+                                </div>
+                                <div>
+                                    <label for="client_contact_phone" class="block text-sm font-medium text-gray-700 mb-1">Client Contact Phone</label>
+                                    <input type="text" id="client_contact_phone" name="client_contact_phone" value="<?php echo htmlspecialchars($client_contact_phone ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="+1 555 000 0000">
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mt-4">
+                                <div>
+                                    <label for="sla_due_hours" class="block text-sm font-medium text-gray-700 mb-1">SLA Due (hours)</label>
+                                    <input type="number" id="sla_due_hours" name="sla_due_hours" min="0" step="1" value="<?php echo htmlspecialchars($sla_due_hours ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="24">
+                                </div>
+                                <div>
+                                    <label for="estimated_hours" class="block text-sm font-medium text-gray-700 mb-1">Estimated Effort (hrs)</label>
+                                    <input type="number" id="estimated_hours" name="estimated_hours" min="0" step="0.25" value="<?php echo htmlspecialchars($estimated_hours ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="e.g., 3.5">
+                                </div>
+                                <div>
+                                    <label for="vendor_name" class="block text-sm font-medium text-gray-700 mb-1">Vendor / Provider</label>
+                                    <input type="text" id="vendor_name" name="vendor_name" value="<?php echo htmlspecialchars($vendor_name ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="Vendor or supplier name">
+                                </div>
+                            </div>
+                            <div class="mt-4">
+                                <label for="external_ticket_link" class="block text-sm font-medium text-gray-700 mb-1">External Ticket Link</label>
+                                <input type="url" id="external_ticket_link" name="external_ticket_link" value="<?php echo htmlspecialchars($external_ticket_link ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="https://support.example.com/ticket/12345">
+                            </div>
+                            <div class="mt-4">
+                                <label for="service_level_description" class="block text-sm font-medium text-gray-700 mb-1">Service Level / Notes</label>
+                                <textarea id="service_level_description" name="service_level_description" rows="3" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="Optional notes about expected service levels, escalation path, attachments, etc."><?php echo htmlspecialchars($service_level_description ?? ''); ?></textarea>
+                            </div>
                         </div>
+                        <?php endif; ?>
 
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
@@ -1429,10 +1425,7 @@ function getFontSize() {
                         </div>
                     </div>
 
-                    <!-- Inline skill list removed: use the category buttons above to open the skills picker modal -->
-                    <div class="p-4 border border-gray-200 rounded-lg bg-white">
-                        <p class="text-sm text-gray-700">The inline skill list has been removed to simplify the editor. Use the category buttons above to open the skills picker modal and select skills for this quest. Selected skills will appear in the Selected Skills area and be attached immediately when you update the quest.</p>
-                    </div>
+                    <!-- Inline skill list removed: skill picker modal is available via category buttons -->
 
                     <!-- Skills Modal (Edit page) - copied/adapted from create_quest -->
                     <div id="skillsModalEdit" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden flex items-center justify-center">
@@ -1618,58 +1611,7 @@ function getFontSize() {
                     </div>
                 </div>
 
-                <!-- Attachments Section -->
-                <div>
-                    <h2 class="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b border-gray-100">
-                        <i class="fas fa-paperclip text-indigo-500 mr-2"></i> Attachments (Optional)
-                    </h2>
-                    
-                    <!-- Existing Attachments -->
-                    <?php if (!empty($attachments)): ?>
-                        <div class="mb-4">
-                            <h3 class="text-md font-medium text-gray-700 mb-2">Current Attachments</h3>
-                            <div class="space-y-2">
-                                <?php foreach ($attachments as $attachment): ?>
-                                    <div class="flex items-center justify-between p-2 bg-gray-50 rounded">
-                                        <div class="flex items-center">
-                                            <?php
-                                            $file_icon = 'fa-file';
-                                            if (strpos($attachment['file_type'], 'image/') === 0) {
-                                                $file_icon = 'fa-file-image';
-                                            } elseif ($attachment['file_type'] === 'application/pdf') {
-                                                $file_icon = 'fa-file-pdf';
-                                            }
-                                            ?>
-                                            <i class="fas <?php echo $file_icon; ?> text-indigo-500 mr-2"></i>
-                                            <span class="text-sm"><?php echo htmlspecialchars($attachment['file_name']); ?></span>
-                                        </div>
-                                        <a href="<?php echo htmlspecialchars($attachment['file_path']); ?>" 
-                                           target="_blank" 
-                                           class="text-indigo-600 hover:text-indigo-800 ml-2">
-                                            <i class="fas fa-eye"></i>
-                                        </a>
-                                    </div>
-                                <?php endforeach; ?>
-                            </div>
-                        </div>
-                    <?php endif; ?>
-                    
-                    <!-- New Attachments -->
-                    <div class="border-2 border-dashed border-gray-200 rounded-lg p-6 text-center file-upload-hover">
-                        <input type="file" id="attachments" name="attachments[]" multiple 
-                               class="hidden" accept=".pdf,.jpg,.jpeg,.png">
-                        <label for="attachments" class="cursor-pointer">
-                            <div class="flex flex-col items-center justify-center">
-                                <i class="fas fa-cloud-upload-alt text-3xl text-indigo-500 mb-2"></i>
-                                <p class="text-sm text-gray-600 mb-1">
-                                    <span class="font-medium text-indigo-600">Click to upload</span> or drag and drop
-                                </p>
-                                <p class="text-xs text-gray-500">PDF, JPG, PNG (Max 5MB each)</p>
-                            </div>
-                        </label>
-                    </div>
-                    <div id="fileList" class="mt-2 space-y-2"></div>
-                </div>
+                <!-- Attachments removed from edit page -->
 
                 <!-- Assignment Section -->
                 <div class="max-w-2xl mx-auto">
@@ -2555,6 +2497,11 @@ const categoryConfigEdit = {
 };
 
 function showCategorySkills(categoryId, categoryName) {
+    // Prevent opening the skills modal when client_support quests are locked
+    if (clientSupportLocked) {
+        alert('Skills for Client & Support Operations are fixed and cannot be changed on this page.');
+        return;
+    }
     currentCategory = categoryId;
     currentCategoryName = categoryName;
 
@@ -2874,6 +2821,24 @@ let skillNamesCache = {}; // Cache skill_id => skill_name for reliable display
 let customSkillCounter = 1000; // Counter for custom skill IDs
 const MAX_SKILLS = 5; // Reduced from 8 to 5 for focused mastery (Bundle 2)
 
+// If this quest is a Client & Support Operations quest, lock the skills so they
+// cannot be unselected or replaced on the edit page (behaviour mirrors create_quest auto-attach)
+const serverDisplayType = '<?php echo $display_type; ?>';
+const clientSupportLocked = (serverDisplayType === 'client_support');
+let lockedSkills = new Set(); // skill IDs that must not be removed
+
+if (clientSupportLocked) {
+    // Populate lockedSkills from server-provided quest_skills (if available)
+    try {
+        const __existing = <?php echo json_encode($quest_skills ?: []); ?>;
+        __existing.forEach(s => {
+            if (s && s.skill_id) lockedSkills.add(String(s.skill_id));
+        });
+    } catch (e) {
+        console.error('Failed to initialize locked skills for client_support:', e);
+    }
+}
+
 // Load existing quest skills on page load
 document.addEventListener('DOMContentLoaded', function() {
     // Initialize selected employees (for edit mode)
@@ -2936,10 +2901,41 @@ document.addEventListener('DOMContentLoaded', function() {
         hint.innerHTML = 'Tip: Selecting 1–2 skills = 100% XP each, 3 skills = 90%, 4 = 75%, 5 = 60%. Focus for faster mastery.';
         target.parentElement.insertBefore(hint, target.nextSibling);
     }
+
+    // If this is a Client & Support Operations quest, disable the category buttons and prevent opening the skills modal
+    if (clientSupportLocked) {
+        // Disable category buttons
+        document.querySelectorAll('.skill-category-btn').forEach(btn => {
+            try { btn.disabled = true; btn.classList.add('opacity-60', 'cursor-not-allowed'); btn.title = 'Skills fixed for Client & Support Operations'; } catch(e){}
+        });
+        // Disable apply button in modal (if present)
+        const applyBtn = document.getElementById('applySkillsBtnEdit');
+        if (applyBtn) { applyBtn.disabled = true; applyBtn.classList.add('opacity-60'); applyBtn.title = 'Skills fixed for Client & Support Operations'; }
+        // Disable any add-custom buttons that might open the modal
+        document.querySelectorAll('button[onclick*="showCustomSkillModal"]').forEach(b => { try { b.disabled = true; b.classList.add('opacity-60'); b.title='Cannot add skills to Client & Support Operations'; } catch(e){} });
+    }
 });
 
 // Toggle skill selection (for checkboxes)
 function toggleSkillSelection(checkbox) {
+    // Prevent modifying skills when client_support quests are locked
+    if (clientSupportLocked) {
+        const sid = String(checkbox.dataset.skillId);
+        if (checkbox.checked) {
+            // trying to add a skill
+            alert('Cannot add skills: this Client & Support Operations quest has fixed skills that cannot be modified.');
+            checkbox.checked = false;
+            return;
+        } else {
+            // trying to remove a skill
+            if (lockedSkills.has(sid)) {
+                alert('This skill is required for Client & Support Operations and cannot be removed.');
+                checkbox.checked = true;
+                return;
+            }
+            // allow removal of non-locked skills (rare) — but in practice category modal is blocked
+        }
+    }
     const skillItem = checkbox.closest('.skill-item');
     const skillId = checkbox.dataset.skillId;
     const skillName = checkbox.dataset.skillName;
@@ -3007,6 +3003,10 @@ function closeCustomSkillModal() {
 }
 
 function addCustomSkill() {
+    if (clientSupportLocked) {
+        alert('Cannot add custom skills to a Client & Support Operations quest. The required skills are fixed.');
+        return;
+    }
     const skillName = document.getElementById('customSkillName').value.trim();
     const tier = parseInt(document.getElementById('customSkillTier').value);
     const categoryId = document.getElementById('modalCategoryId').value;
@@ -3447,9 +3447,8 @@ function removeSkill(skillId) {
 
 // Form validation before submit
 document.querySelector('form').addEventListener('submit', function(e) {
-    // Allow empty skill selection when quest type is Client & Support Operations
-    var displayTypeEl = document.getElementById('display_type');
-    var isClientSupport = displayTypeEl && displayTypeEl.value === 'client_support';
+    // Allow empty skill selection when quest type is Client & Support Operations (server-determined)
+    var isClientSupport = <?php echo json_encode(($display_type === 'client_support')); ?>;
     if (!isClientSupport && selectedSkills.size === 0) {
         e.preventDefault();
         alert('Please select at least one skill for this quest.');
@@ -3463,51 +3462,7 @@ document.querySelector('form').addEventListener('submit', function(e) {
     }
 });
 
-// Toggle UI when quest type changes on edit page
-function updateQuestTypeUI_Edit() {
-    var sel = document.getElementById('display_type');
-    if (!sel) return;
-    var isClient = sel.value === 'client_support';
-    // client details
-    var clientDetails = document.getElementById('clientDetails');
-    if (clientDetails) clientDetails.style.display = isClient ? 'block' : 'none';
-    // locked skills
-    var locked = document.getElementById('lockedSkillsContainer');
-    if (locked) locked.style.display = isClient ? 'block' : 'none';
-    // If switching to client_support, populate locked container with auto skills
-    try {
-        const clientAutoSkills = <?php echo json_encode($client_auto_skills); ?>;
-        if (isClient && locked) {
-            locked.innerHTML = '';
-            clientAutoSkills.forEach(function(skill){
-                const html = `
-                    <div class="inline-flex items-center px-3 py-1 bg-indigo-100 text-indigo-800 text-xs rounded-full border border-indigo-200 mr-2 mb-2">
-                        <span class="font-medium">${skill.skill_name}</span>
-                        <span class="ml-2 text-gray-600 text-xs">T${skill.tier}</span>
-                        <span class="ml-2 text-yellow-600 text-xs">(Custom)</span>
-                    </div>
-                `;
-                locked.insertAdjacentHTML('beforeend', html);
-            });
-        }
-    } catch(e) { /* ignore JSON/DOM errors */ }
-    // hide category buttons
-    var catButtons = document.querySelectorAll('.skill-category-btn');
-    catButtons.forEach(function(b){ b.style.display = isClient ? 'none' : 'inline-flex'; });
-    // hide add custom
-    var addBtns = document.querySelectorAll('[onclick="showCustomSkillModal()"]');
-    addBtns.forEach(function(b){ b.style.display = isClient ? 'none' : 'inline-block'; });
-    // mark global flag used by submit handler
-    window.isClientSupport = isClient;
-}
-
-document.addEventListener('DOMContentLoaded', function() {
-    var sel = document.getElementById('display_type');
-    if (sel) {
-        sel.addEventListener('change', updateQuestTypeUI_Edit);
-        updateQuestTypeUI_Edit();
-    }
-});
+// display_type related UI handlers removed from edit page (no select to change)
 </script>
 </body>
 </html>
