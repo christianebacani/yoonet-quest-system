@@ -202,6 +202,17 @@ try {
     error_log("Database error fetching data: " . $e->getMessage());
 }
 
+// Fetch quest types for display_type select
+try {
+    $qstmt = $pdo->query("SELECT type_key, name FROM quest_types ORDER BY id");
+    $quest_types = $qstmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (PDOException $e) {
+    $quest_types = [
+        ['type_key' => 'custom', 'name' => 'Custom'],
+        ['type_key' => 'client_support', 'name' => 'Client & Support Operations']
+    ];
+}
+
 // Auto skills for Client & Support Operations (used for display when switching types)
 $client_auto_skills = [
     ['skill_name' => 'Client Communication', 'category_name' => 'Client & Support Operations', 'tier' => 3, 'is_custom' => false],
@@ -1224,8 +1235,9 @@ function getFontSize() {
                         <div>
                             <label for="display_type" class="block text-sm font-medium text-gray-700 mb-1">Quest Type*</label>
                             <select name="display_type" id="display_type" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300">
-                                <option value="custom" <?php echo ($display_type === 'custom') ? 'selected' : ''; ?>>Custom Quest (default)</option>
-                                <option value="client_support" <?php echo ($display_type === 'client_support') ? 'selected' : ''; ?>>Client &amp; Support Operations</option>
+                                <?php foreach ($quest_types as $qt): ?>
+                                    <option value="<?php echo htmlspecialchars($qt['type_key']); ?>" <?php echo ($display_type === $qt['type_key']) ? 'selected' : (!isset($display_type) && $qt['type_key']=='custom' ? 'selected' : ''); ?>><?php echo htmlspecialchars($qt['name']); ?></option>
+                                <?php endforeach; ?>
                             </select>
                             <p class="text-xs text-gray-500 mt-1">If you change to <strong>Client &amp; Support Operations</strong>, required skills will be auto-attached and locked.</p>
                         </div>
