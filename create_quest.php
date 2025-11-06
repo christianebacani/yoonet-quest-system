@@ -38,17 +38,26 @@ try {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )");
 
-    // Ensure only the two supported quest types exist (remove any migrated/legacy entries)
-    try {
-        $pdo->exec("DELETE FROM quest_types WHERE type_key NOT IN ('custom','client_support')");
+    // Check if table is empty
+    $stmt = $pdo->query("SELECT COUNT(*) FROM quest_types");
+    $count = $stmt->fetchColumn();
+    
+    if ($count == 0) {
+        // Insert the two supported quest types: custom and client_support
+        $defaultTypes = [
+            ['type_key' => 'custom', 'name' => 'Custom', 'description' => 'User-defined/custom quests', 'icon' => 'fa-star'],
+            ['type_key' => 'client_support', 'name' => 'Client & Support Operations', 'description' => 'Client support related quests (auto-attached skills)', 'icon' => 'fa-headset']
+        ];
 
-        // Upsert the canonical two quest types (idempotent)
-        $pdo->exec("INSERT INTO quest_types (type_key, name, description, icon) VALUES
-            ('custom', 'Custom', 'User-defined/custom quests', 'fa-star'),
-            ('client_support', 'Client & Support Operations', 'Client support related quests (auto-attached skills)', 'fa-headset')
-            ON DUPLICATE KEY UPDATE name=VALUES(name), description=VALUES(description), icon=VALUES(icon)");
-    } catch (PDOException $e) {
-        error_log("Error enforcing canonical quest types: " . $e->getMessage());
+        $stmt = $pdo->prepare("INSERT INTO quest_types (type_key, name, description, icon) VALUES (:type_key, :name, :description, :icon)");
+        foreach ($defaultTypes as $t) {
+            $stmt->execute([
+                ':type_key' => $t['type_key'],
+                ':name' => $t['name'],
+                ':description' => $t['description'],
+                ':icon' => $t['icon']
+            ]);
+        }
     }
 } catch (PDOException $e) {
     error_log("Error setting up quest types: " . $e->getMessage());
@@ -66,6 +75,13 @@ try {
     $pdo->exec("ALTER TABLE quests ADD COLUMN IF NOT EXISTS client_reference VARCHAR(255) DEFAULT NULL");
     $pdo->exec("ALTER TABLE quests ADD COLUMN IF NOT EXISTS sla_priority ENUM('low','medium','high') DEFAULT 'medium'");
     $pdo->exec("ALTER TABLE quests ADD COLUMN IF NOT EXISTS expected_response VARCHAR(100) DEFAULT NULL");
+    $pdo->exec("ALTER TABLE quests ADD COLUMN IF NOT EXISTS client_contact_email VARCHAR(255) DEFAULT NULL");
+    $pdo->exec("ALTER TABLE quests ADD COLUMN IF NOT EXISTS client_contact_phone VARCHAR(50) DEFAULT NULL");
+    $pdo->exec("ALTER TABLE quests ADD COLUMN IF NOT EXISTS sla_due_hours INT(11) DEFAULT NULL");
+    $pdo->exec("ALTER TABLE quests ADD COLUMN IF NOT EXISTS external_ticket_link VARCHAR(500) DEFAULT NULL");
+    $pdo->exec("ALTER TABLE quests ADD COLUMN IF NOT EXISTS service_level_description TEXT DEFAULT NULL");
+    $pdo->exec("ALTER TABLE quests ADD COLUMN IF NOT EXISTS vendor_name VARCHAR(255) DEFAULT NULL");
+    $pdo->exec("ALTER TABLE quests ADD COLUMN IF NOT EXISTS estimated_hours DECIMAL(6,2) DEFAULT NULL");
     $pdo->exec("ALTER TABLE quests 
                 ADD COLUMN IF NOT EXISTS visibility ENUM('public', 'private') DEFAULT 'public'");
     $pdo->exec("ALTER TABLE quests 
@@ -132,8 +148,9 @@ try {
     $skills = $stmt->fetchAll(PDO::FETCH_ASSOC);
     // Fetch quest types from DB (populated by migration/create_quest.php setup)
     try {
-        $qstmt = $pdo->query("SELECT type_key, name FROM quest_types ORDER BY id");
-        $quest_types = $qstmt->fetchAll(PDO::FETCH_ASSOC);
+    // Only fetch the two supported quest types
+    $qstmt = $pdo->query("SELECT type_key, name FROM quest_types WHERE type_key IN ('custom','client_support') ORDER BY id");
+    $quest_types = $qstmt->fetchAll(PDO::FETCH_ASSOC);
     } catch (PDOException $e) {
         // If quest_types doesn't exist yet, fall back to defaults
         $quest_types = [
@@ -225,6 +242,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $client_reference = trim($_POST['client_reference'] ?? '');
     $sla_priority = $_POST['sla_priority'] ?? 'medium';
     $expected_response = trim($_POST['expected_response'] ?? '');
+    // Additional client/support details
+    $client_contact_email = trim($_POST['client_contact_email'] ?? '');
+    $client_contact_phone = trim($_POST['client_contact_phone'] ?? '');
+    $sla_due_hours = isset($_POST['sla_due_hours']) && $_POST['sla_due_hours'] !== '' ? intval($_POST['sla_due_hours']) : null;
+    $external_ticket_link = trim($_POST['external_ticket_link'] ?? '');
+    $service_level_description = trim($_POST['service_level_description'] ?? '');
+    $vendor_name = trim($_POST['vendor_name'] ?? '');
+    $estimated_hours = isset($_POST['estimated_hours']) && $_POST['estimated_hours'] !== '' ? floatval($_POST['estimated_hours']) : null;
     
     // Handle selected skills with tiers
     $selected_skills = isset($_POST['quest_skills']) ? $_POST['quest_skills'] : [];
@@ -334,8 +359,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 // Create the quest (include display_type and optional client/support fields)
                 $stmt = $pdo->prepare("INSERT INTO quests 
-                    (title, description, status, due_date, created_by, quest_assignment_type, visibility, display_type, quest_type, recurrence_pattern, recurrence_end_date, publish_at, client_name, client_reference, sla_priority, expected_response, created_at) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())");
+                    (title, description, status, due_date, created_by, quest_assignment_type, visibility, display_type, quest_type, recurrence_pattern, recurrence_end_date, publish_at, client_name, client_reference, sla_priority, expected_response, client_contact_email, client_contact_phone, sla_due_hours, external_ticket_link, service_level_description, vendor_name, estimated_hours, created_at) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())");
                 $stmt->execute([
                     $title,
                     $description,
@@ -352,7 +377,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $client_name ?: null,
                     $client_reference ?: null,
                     in_array($sla_priority, ['low','medium','high']) ? $sla_priority : 'medium',
-                    $expected_response ?: null
+                    $expected_response ?: null,
+                    $client_contact_email ?: null,
+                    $client_contact_phone ?: null,
+                    $sla_due_hours,
+                    $external_ticket_link ?: null,
+                    $service_level_description ?: null,
+                    $vendor_name ?: null,
+                    $estimated_hours
                 ]);
                 $quest_id = $pdo->lastInsertId();
 
@@ -434,8 +466,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 
                 // Add quest skills with tiers
                 if (!empty($final_skill_ids)) {
-                    $stmt = $pdo->prepare("INSERT INTO quest_skills 
-                        (quest_id, skill_id, required_level) VALUES (?, ?, ?)");
+                    // Detect whether the quest_skills table has the required_level column.
+                    try {
+                        $colStmt = $pdo->prepare("SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'quest_skills' AND COLUMN_NAME = 'required_level'");
+                        $colStmt->execute();
+                        $has_required_level = intval($colStmt->fetchColumn()) > 0;
+                    } catch (PDOException $e) {
+                        // If detection fails, assume column is not present to avoid breaking creation
+                        $has_required_level = false;
+                    }
+
                     // Map tier number to required_level enum
                     function mapTierToLevel($tier) {
                         switch ($tier) {
@@ -447,10 +487,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             default: return 'beginner';
                         }
                     }
-                    foreach ($final_skill_ids as $skill_id) {
-                        $tier = isset($skill_tiers[$skill_id]) ? intval($skill_tiers[$skill_id]) : 1;
-                        $level = mapTierToLevel($tier);
-                        $stmt->execute([$quest_id, $skill_id, $level]);
+
+                    if ($has_required_level) {
+                        $stmt = $pdo->prepare("INSERT INTO quest_skills (quest_id, skill_id, required_level) VALUES (?, ?, ?)");
+                        foreach ($final_skill_ids as $skill_id) {
+                            $tier = isset($skill_tiers[$skill_id]) ? intval($skill_tiers[$skill_id]) : 1;
+                            $level = mapTierToLevel($tier);
+                            $stmt->execute([$quest_id, $skill_id, $level]);
+                        }
+                    } else {
+                        // Fallback: insert without the required_level column if it doesn't exist
+                        $stmt = $pdo->prepare("INSERT INTO quest_skills (quest_id, skill_id) VALUES (?, ?)");
+                        foreach ($final_skill_ids as $skill_id) {
+                            $stmt->execute([$quest_id, $skill_id]);
+                        }
                     }
                 }
                 
@@ -482,6 +532,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 
                 $pdo->commit();
                 
+                // No template attachments by default (feature removed)
+
                 $assignment_count = count($all_assignments);
                 $success = 'Quest created successfully' . 
                            ($assignment_count > 0 ? " and assigned to $assignment_count employee(s)!" : '!');
@@ -1235,7 +1287,7 @@ function getFontSize() {
         <?php endif; ?>
 
         <?php if ($success): ?>
-            <div class="bg-green-50 border-l-4 border-green-500 p-4 mb-6 rounded-lg">
+            <div id="successMessage" class="bg-green-50 border-l-4 border-green-500 p-4 mb-6 rounded-lg">
                 <div class="flex">
                     <div class="flex-shrink-0">
                         <i class="fas fa-check-circle text-green-500 mt-1 mr-3"></i>
@@ -1266,7 +1318,7 @@ function getFontSize() {
                                     <option value="<?php echo htmlspecialchars($qt['type_key']); ?>" <?php echo (isset($display_type) && $display_type == $qt['type_key']) ? 'selected' : (!isset($display_type) && $qt['type_key']=='custom' ? 'selected' : ''); ?>><?php echo htmlspecialchars($qt['name']); ?></option>
                                 <?php endforeach; ?>
                             </select>
-                            <p class="text-xs text-gray-500 mt-1">Choose the quest type. Selecting <strong>Client &amp; Support Operations</strong> will auto-attach required skills and show extra client details.</p>
+                            <p class="text-xs text-gray-500 mt-1">Choose the quest type. Selecting <strong>Client &amp; Support Operations</strong> will auto-attach required skills and reveal client/SLA fields for outsourcing requests.</p>
                         </div>
 
                         <!-- Client / Support extra details are rendered below title & description (moved) -->
@@ -1275,6 +1327,7 @@ function getFontSize() {
                             <input type="text" id="title" name="title" value="<?php echo htmlspecialchars($title ?? ''); ?>" 
                                    class="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300"
                                    placeholder="Enter quest title" required maxlength="255">
+                            <p class="text-xs text-gray-500 mt-1">Keep the title short and descriptive. Use client/ticket code if needed, but avoid internal-only jargon.</p>
                         </div>
 
                         <div>
@@ -1282,10 +1335,12 @@ function getFontSize() {
                             <textarea id="description" name="description" rows="4"
                                       class="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300"
                                       placeholder="Describe the quest requirements and objectives" required maxlength="2000"><?php echo htmlspecialchars($description ?? ''); ?></textarea>
+                            <p class="text-xs text-gray-500 mt-1">Provide clear acceptance criteria, expected outputs, and any steps or context reviewers need. Attach sample files if helpful.</p>
                         </div>
 
                         <!-- Client / Support extra details (moved below title & description) -->
                         <div id="clientDetails" style="display: <?php echo (isset($display_type) && $display_type === 'client_support') ? 'block' : 'none'; ?>;">
+                            <p class="text-xs text-gray-500 mb-2">These fields capture client-facing details and SLA expectations. Fill them when the quest relates to external clients or support tickets.</p>
                             <div>
                                 <label for="client_name" class="block text-sm font-medium text-gray-700 mb-1">Client Name</label>
                                 <input type="text" id="client_name" name="client_name" value="<?php echo htmlspecialchars($client_name ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="Client or account name">
@@ -1307,6 +1362,38 @@ function getFontSize() {
                                     <label for="expected_response" class="block text-sm font-medium text-gray-700 mb-1">Expected Response</label>
                                     <input type="text" id="expected_response" name="expected_response" value="<?php echo htmlspecialchars($expected_response ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="e.g., 24 hours">
                                 </div>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
+                                <div>
+                                    <label for="client_contact_email" class="block text-sm font-medium text-gray-700 mb-1">Client Contact Email</label>
+                                    <input type="email" id="client_contact_email" name="client_contact_email" value="<?php echo htmlspecialchars($client_contact_email ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="name@client.com">
+                                </div>
+                                <div>
+                                    <label for="client_contact_phone" class="block text-sm font-medium text-gray-700 mb-1">Client Contact Phone</label>
+                                    <input type="text" id="client_contact_phone" name="client_contact_phone" value="<?php echo htmlspecialchars($client_contact_phone ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="+1 555 000 0000">
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mt-4">
+                                <div>
+                                    <label for="sla_due_hours" class="block text-sm font-medium text-gray-700 mb-1">SLA Due (hours)</label>
+                                    <input type="number" id="sla_due_hours" name="sla_due_hours" min="0" step="1" value="<?php echo htmlspecialchars($sla_due_hours ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="24">
+                                </div>
+                                <div>
+                                    <label for="estimated_hours" class="block text-sm font-medium text-gray-700 mb-1">Estimated Effort (hrs)</label>
+                                    <input type="number" id="estimated_hours" name="estimated_hours" min="0" step="0.25" value="<?php echo htmlspecialchars($estimated_hours ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="e.g., 3.5">
+                                </div>
+                                <div>
+                                    <label for="vendor_name" class="block text-sm font-medium text-gray-700 mb-1">Vendor / Provider</label>
+                                    <input type="text" id="vendor_name" name="vendor_name" value="<?php echo htmlspecialchars($vendor_name ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="Vendor or supplier name">
+                                </div>
+                            </div>
+                            <div class="mt-4">
+                                <label for="external_ticket_link" class="block text-sm font-medium text-gray-700 mb-1">External Ticket Link</label>
+                                <input type="url" id="external_ticket_link" name="external_ticket_link" value="<?php echo htmlspecialchars($external_ticket_link ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="https://support.example.com/ticket/12345">
+                            </div>
+                            <div class="mt-4">
+                                <label for="service_level_description" class="block text-sm font-medium text-gray-700 mb-1">Service Level / Notes</label>
+                                <textarea id="service_level_description" name="service_level_description" rows="3" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="Optional notes about expected service levels, escalation path, attachments, etc."><?php echo htmlspecialchars($service_level_description ?? ''); ?></textarea>
                             </div>
                         </div>
 
@@ -1443,6 +1530,8 @@ function getFontSize() {
                                     <div class="text-xs text-blue-600 italic">No skills selected yet</div>
                                 </div>
                             </div>
+
+                                <p class="text-xs text-gray-500">Tip: For client-facing quests, keep skills focused on customer handling and diagnosis. Auto-attached skills will be added if you choose the Client & Support type.</p>
 
                             <!-- Category Buttons -->
                             <div class="mb-4">
@@ -1588,7 +1677,7 @@ function getFontSize() {
                 </div>
 
 
-                                <p class="text-xs text-gray-500">PDF, JPG, PNG (Max 5MB each)</p>
+                                <!-- File type hint removed per UX request -->
                             </div>
                         </label>
                     </div>
@@ -3532,4 +3621,117 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     </script>
 </body>
+<script>
+// Toggle client details visibility when quest type changes
+document.addEventListener('DOMContentLoaded', function() {
+    var displaySelect = document.getElementById('display_type');
+    var clientDetails = document.getElementById('clientDetails');
+    function updateClientDetails() {
+        if (!displaySelect || !clientDetails) return;
+        if (displaySelect.value === 'client_support') {
+            clientDetails.style.display = 'block';
+        } else {
+            clientDetails.style.display = 'none';
+        }
+    }
+    if (displaySelect) displaySelect.addEventListener('change', updateClientDetails);
+
+    // Play a short chime and animate success message when present
+    var successEl = document.getElementById('successMessage');
+    if (successEl) {
+        // small pulse animation
+        successEl.classList.add('pulse-animate');
+        // play chime using WebAudio API
+        try {
+            var ctx = new (window.AudioContext || window.webkitAudioContext)();
+            var o = ctx.createOscillator();
+            var g = ctx.createGain();
+            o.type = 'sine';
+            o.frequency.setValueAtTime(880, ctx.currentTime);
+            g.gain.setValueAtTime(0, ctx.currentTime);
+            g.gain.linearRampToValueAtTime(0.18, ctx.currentTime + 0.01);
+            g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6);
+            o.connect(g); g.connect(ctx.destination);
+            o.start();
+            o.stop(ctx.currentTime + 0.7);
+        } catch (e) {
+            // ignore audio errors
+            console.warn('Audio not available', e);
+        }
+
+        // small confetti burst
+        var colors = ['#FFD166','#06D6A0','#118AB2','#EF476F','#FFD700'];
+        for (var i=0;i<12;i++) {
+            (function(i){
+                var dot = document.createElement('div');
+                dot.style.position = 'fixed';
+                dot.style.left = (50 + (Math.random()*40-20)) + '%';
+                dot.style.top = (30 + Math.random()*10) + '%';
+                dot.style.width = '10px';
+                dot.style.height = '10px';
+                dot.style.borderRadius = '3px';
+                dot.style.background = colors[Math.floor(Math.random()*colors.length)];
+                dot.style.opacity = '0.95';
+                dot.style.zIndex = 99999;
+                dot.style.transform = 'translateY(0) scale(1)';
+                dot.style.transition = 'transform 900ms cubic-bezier(.2,.8,.2,1), opacity 900ms ease-out';
+                document.body.appendChild(dot);
+                setTimeout(function(){
+                    dot.style.transform = 'translateY(' + (-120 - Math.random()*140) + 'px) rotate(' + (Math.random()*360) + 'deg) scale(1.2)';
+                    dot.style.opacity = '0';
+                }, 20 + i*30);
+                setTimeout(function(){ document.body.removeChild(dot); }, 1200 + i*30);
+            })(i);
+        }
+    }
+});
+</script>
+<script>
+// Inline helper microcopy for key form fields to reduce creator confusion
+document.addEventListener('DOMContentLoaded', function() {
+    var help = {
+        'title': 'Keep it short and specific (<=255 chars).',
+        'description': 'What to do and how you’ll accept it (brief).',
+        'display_type': 'Pick Client Support for tickets; Custom for other tasks.',
+        'quest_type': 'Choose size/complexity — larger = more XP.',
+    'quest_assignment_type': 'Optional = opt-in; Mandatory = auto-assigned.',
+    'due_date': 'Deadline for completion (local time).',
+        'sla_due_hours': 'SLA response time (hours from assignment).',
+        'client_contact_email': 'Client contact email (optional).',
+        'external_ticket_link': 'Optional ticket URL (include https://).',
+        'estimated_hours': 'Estimated work duration (hours).'
+    };
+
+    Object.keys(help).forEach(function(name) {
+        try {
+            // Try by name selector first
+            var els = document.querySelectorAll('[name="' + name + '"]');
+            if (!els || els.length === 0) {
+                // Fallback to id selector
+                var el = document.getElementById(name);
+                if (el) els = [el];
+            }
+            if (!els || els.length === 0) return;
+
+            els.forEach(function(el) {
+                // Avoid duplicating help text
+                var next = el.nextElementSibling;
+                if (next && next.classList && next.classList.contains('field-helper')) return;
+
+                var p = document.createElement('p');
+                p.className = 'field-helper text-xs text-gray-500 mt-1';
+                p.style.marginTop = '0.25rem';
+                p.textContent = help[name];
+                // Insert after the element
+                if (el.parentNode) {
+                    el.parentNode.insertBefore(p, el.nextSibling);
+                }
+            });
+        } catch (e) {
+            // ignore injection errors
+            console.warn('Helper injection error for', name, e);
+        }
+    });
+});
+</script>
 </html>
