@@ -40,7 +40,7 @@ mysql -u root -p yoonet_quest -e "SHOW TABLES;"
 - Skill categories (Technical, Design, Project Management, etc.)
 - Predefined skills library
 - Sample user accounts for testing
-- Quest categories (for reference)
+ - Quest types (for reference)
 
 #### ✅ **System Features**
 - **Quest Assignment Types**:

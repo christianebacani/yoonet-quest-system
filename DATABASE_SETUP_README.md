@@ -81,7 +81,7 @@ After running the script, you should see:
 - **users** - User accounts and profiles
 - **quests** - Quest definitions
 - **user_quests** - Quest assignments and submissions
-- **quest_categories** - Quest categorization
+- **quest_types** - Quest types (e.g. custom, client_support)
 
 ### Skill System Tables
 - **user_skills** - User skill declarations
@@ -126,7 +126,7 @@ The system uses two main roles:
 SHOW TABLES;
 
 -- Verify default data
-SELECT COUNT(*) FROM quest_categories;
+SELECT COUNT(*) FROM quest_types;
 SELECT COUNT(*) FROM skill_categories;
 SELECT COUNT(*) FROM predefined_skills;
 
