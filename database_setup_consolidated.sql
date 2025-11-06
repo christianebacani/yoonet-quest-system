@@ -611,14 +611,14 @@ INSERT IGNORE INTO `quest_types` (`type_key`, `name`, `description`, `icon`, `cr
 SELECT LOWER(REPLACE(name, ' ', '_')) AS type_key, name, description, icon, created_at
 FROM `quest_categories`;
 
--- Drop the legacy quest_categories table now that gidata is migrated
+-- Drop the legacy quest_categories table now that data is migrated
 DROP TABLE IF EXISTS `quest_categories`;
 
--- Ensure only the two supported quest types exist now.
--- Delete any migrated or legacy entries that are not the two supported keys.
-DELETE FROM `quest_types` WHERE `type_key` NOT IN ('custom','client_support');
+-- Ensure only the two supported quest types exist (remove any migrated or legacy extras).
+-- WARNING: destructive. Please BACKUP your database before running this section.
+DELETE FROM `quest_types` WHERE `type_key` NOT IN ('custom', 'client_support');
 
--- Re-insert the canonical two quest types in case they were removed or not present.
+-- Ensure the two canonical types exist after cleanup
 INSERT IGNORE INTO `quest_types` (`type_key`, `name`, `description`, `icon`) VALUES
 ('custom', 'Custom', 'User-defined/custom quests', '📦'),
 ('client_support', 'Client & Support Operations', 'Client support related quests (auto-attached skills)', '🎧');
@@ -675,6 +675,13 @@ ALTER TABLE `quests`
   ADD COLUMN IF NOT EXISTS `client_reference` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   ADD COLUMN IF NOT EXISTS `sla_priority` enum('low','medium','high') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT 'medium',
   ADD COLUMN IF NOT EXISTS `expected_response` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS `client_contact_email` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS `client_contact_phone` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS `sla_due_hours` int(11) DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS `external_ticket_link` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS `service_level_description` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS `vendor_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS `estimated_hours` decimal(6,2) DEFAULT NULL,
   ADD COLUMN IF NOT EXISTS `visibility` enum('public','private') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT 'public',
   ADD COLUMN IF NOT EXISTS `recurrence_pattern` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   ADD COLUMN IF NOT EXISTS `recurrence_end_date` datetime DEFAULT NULL,
@@ -683,6 +690,11 @@ ALTER TABLE `quests`
 -- Normalize any legacy values and set sensible defaults
 UPDATE `quests` SET `quest_type` = 'routine' WHERE `quest_type` IS NULL OR `quest_type` = 'single';
 -- Leave existing 'recurring' values untouched if present
+
+-- Ensure `quest_skills.required_level` exists for older databases.
+-- This is idempotent and safe to run. Recommended: BACKUP your DB before running the consolidated script.
+ALTER TABLE `quest_skills`
+  ADD COLUMN IF NOT EXISTS `required_level` enum('beginner','intermediate','advanced','expert') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT 'beginner';
 
 -- Add an index for quest_type to help filtering by type
 -- NOTE: Creating an index can require creating a temporary copy of the table
