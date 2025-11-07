@@ -2,6 +2,9 @@
 <?php
 // Use only the new base points and tier names logic (single progression, no quest type)
 function getTierBasePoints($tier) {
+    // Align tier base points with the rest of the app (T1..T5)
+    // These values are used across the UI and skill components.
+    // Canonical mapping: T1..T5 => 2, 5, 12, 25, 50
     $points = [1 => 2, 2 => 5, 3 => 12, 4 => 25, 5 => 50];
     $tier = (int)$tier;
     if ($tier < 1 || $tier > 5) $tier = 2;
@@ -30,6 +33,151 @@ $employee_id_param = isset($_GET['employee_id']) ? trim((string)$_GET['employee_
 $submission_id = isset($_GET['submission_id']) ? (int)$_GET['submission_id'] : 0;
 $error = '';
 $success = '';
+
+// Initialize variables to avoid undefined variable/array key warnings when data is missing
+$employeeIdForSubmission = $employee_id_param !== '' ? $employee_id_param : '';
+$user = [];
+$quest = [];
+$latestSubmission = [];
+$quest_skills = [];
+
+// Instantiate skill manager helper
+try {
+    $skillManager = new SkillProgression($pdo);
+} catch (Throwable $e) {
+    error_log('Failed to initialize SkillProgression: ' . $e->getMessage());
+    $skillManager = null;
+}
+
+// Load quest, submission and skills from DB when identifiers are provided
+try {
+    // Prefer explicit submission_id when provided
+    if ($submission_id > 0) {
+        $stmt = $pdo->prepare("SELECT qs.*, q.title AS quest_title, q.id AS quest_id FROM quest_submissions qs LEFT JOIN quests q ON qs.quest_id = q.id WHERE qs.id = ? LIMIT 1");
+        $stmt->execute([$submission_id]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (is_array($row) && !empty($row)) {
+            $latestSubmission = $row;
+            $quest_id = (int)($row['quest_id'] ?? $quest_id);
+            if (empty($user_id) && !empty($row['user_id'])) { $user_id = (int)$row['user_id']; }
+            if (empty($employeeIdForSubmission) && !empty($row['employee_id'])) { $employeeIdForSubmission = $row['employee_id']; }
+        }
+    }
+
+    // Load quest record when quest_id present
+    if ($quest_id > 0 && (empty($quest) || !isset($quest['id']))) {
+        $stmt = $pdo->prepare("SELECT * FROM quests WHERE id = ? LIMIT 1");
+        $stmt->execute([$quest_id]);
+        $q = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($q) { $quest = $q; }
+    }
+
+    // If no explicit submission found, try to get latest submission for this quest + user/employee
+    if (empty($latestSubmission) && $quest_id > 0 && ($user_id > 0 || $employeeIdForSubmission !== '')) {
+        if ($user_id > 0) {
+            $stmt = $pdo->prepare("SELECT qs.*, q.title AS quest_title, q.id AS quest_id FROM quest_submissions qs LEFT JOIN quests q ON qs.quest_id = q.id WHERE qs.quest_id = ? AND qs.user_id = ? ORDER BY qs.id DESC LIMIT 1");
+            $stmt->execute([$quest_id, $user_id]);
+        } else {
+            $stmt = $pdo->prepare("SELECT qs.*, q.title AS quest_title, q.id AS quest_id FROM quest_submissions qs LEFT JOIN quests q ON qs.quest_id = q.id WHERE qs.quest_id = ? AND qs.employee_id = ? ORDER BY qs.id DESC LIMIT 1");
+            $stmt->execute([$quest_id, $employeeIdForSubmission]);
+        }
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (is_array($row) && !empty($row)) {
+            $latestSubmission = $row;
+            if (empty($user_id) && !empty($row['user_id'])) { $user_id = (int)$row['user_id']; }
+            if (empty($employeeIdForSubmission) && !empty($row['employee_id'])) { $employeeIdForSubmission = $row['employee_id']; }
+            if (empty($quest) && !empty($row['quest_id'])) {
+                $stmt2 = $pdo->prepare("SELECT * FROM quests WHERE id = ? LIMIT 1");
+                $stmt2->execute([(int)$row['quest_id']]);
+                $q2 = $stmt2->fetch(PDO::FETCH_ASSOC);
+                if ($q2) $quest = $q2;
+            }
+        }
+    }
+
+    // Load user details if available
+    if ((empty($user) || !isset($user['full_name'])) && ($user_id > 0 || $employeeIdForSubmission !== '')) {
+        if ($user_id > 0) {
+            $stmt = $pdo->prepare('SELECT id, full_name, email, employee_id FROM users WHERE id = ? LIMIT 1');
+            $stmt->execute([$user_id]);
+        } else {
+            $stmt = $pdo->prepare('SELECT id, full_name, email, employee_id FROM users WHERE employee_id = ? LIMIT 1');
+            $stmt->execute([$employeeIdForSubmission]);
+        }
+        $u = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($u) { $user = $u; if (empty($user_id)) $user_id = (int)($u['id'] ?? 0); }
+    }
+
+    // Fetch quest skills via skill manager helper
+    if ($skillManager && $quest_id > 0) {
+        $quest_skills = $skillManager->getQuestSkills($quest_id) ?: [];
+
+        // Normalize quest_skills: ensure each row has skill_name and tier_level
+        try {
+            $ids = [];
+            foreach ((array)$quest_skills as $r) {
+                if (empty($r['skill_name']) && !empty($r['skill_id'])) { $ids[] = (int)$r['skill_id']; }
+            }
+            $nameMap = [];
+            if (!empty($ids)) {
+                $ids = array_values(array_unique(array_filter($ids)));
+                $ph = implode(',', array_fill(0, count($ids), '?'));
+                $stmt = $pdo->prepare("SELECT id, skill_name FROM comprehensive_skills WHERE id IN ($ph)");
+                $stmt->execute($ids);
+                while ($r = $stmt->fetch(PDO::FETCH_ASSOC)) { $nameMap[(int)$r['id']] = (string)$r['skill_name']; }
+            }
+
+            $normalized = [];
+            foreach ((array)$quest_skills as $r) {
+                $name = '';
+                if (!empty($r['skill_name'])) { $name = (string)$r['skill_name']; }
+                elseif (!empty($r['skill_id']) && isset($nameMap[(int)$r['skill_id']])) { $name = $nameMap[(int)$r['skill_id']]; }
+                if ($name === '') { continue; }
+
+                // Normalize tier level to T1..T5
+                $tier = 'T2';
+                $tierDetected = false;
+                if (isset($r['tier_level'])) {
+                    $tv = $r['tier_level'];
+                    if (is_numeric($tv)) { $t = (int)$tv; if ($t < 1) $t = 1; if ($t > 5) $t = 5; $tier = 'T'.$t; $tierDetected = true; }
+                    elseif (is_string($tv) && preg_match('~^T[1-5]$~', $tv)) { $tier = $tv; $tierDetected = true; }
+                } elseif (isset($r['tier'])) {
+                    $t = (int)$r['tier']; if ($t < 1) $t = 1; if ($t > 5) $t = 5; $tier = 'T'.$t; $tierDetected = true;
+                } elseif (isset($r['required_level'])) {
+                    // Accept a wider set of labels (including 'master') and be forgiving on case/whitespace
+                    $map = ['beginner'=>'T1','intermediate'=>'T2','advanced'=>'T3','expert'=>'T4','master'=>'T5'];
+                    $rl = strtolower(trim((string)$r['required_level'])); if (isset($map[$rl])) { $tier = $map[$rl]; $tierDetected = true; }
+                }
+
+                // Fallback: if no explicit tier info was detected, derive tier from base_points when available
+                if (!$tierDetected) {
+                    $bp = 0;
+                    if (isset($r['base_points'])) { $bp = (int)$r['base_points']; }
+                    elseif (isset($r['basepoints'])) { $bp = (int)$r['basepoints']; }
+                    elseif (isset($r['base'])) { $bp = (int)$r['base']; }
+                    if ($bp > 0) {
+                        // find closest tier by comparing to getTierBasePoints
+                        $bestT = 2; $bestDiff = PHP_INT_MAX;
+                        for ($tt = 1; $tt <= 5; $tt++) {
+                            $tp = getTierBasePoints($tt);
+                            $diff = abs($tp - $bp);
+                            if ($diff < $bestDiff) { $bestDiff = $diff; $bestT = $tt; }
+                        }
+                        $tier = 'T' . $bestT;
+                    }
+                }
+
+                $normalized[] = array_merge($r, ['skill_name' => $name, 'tier_level' => $tier]);
+            }
+            $quest_skills = $normalized;
+        } catch (Throwable $e) {
+            error_log('quest_assessment skill normalization failed: ' . $e->getMessage());
+        }
+    }
+
+} catch (PDOException $e) {
+    error_log('quest_assessment data load failed: ' . $e->getMessage());
+}
 
 // Ensure required tables exist to prevent submission errors on fresh databases
 try {
@@ -89,9 +237,12 @@ if ($quest_id && !$user_id) {
         if ($submission_id > 0) {
             $stmt = $pdo->prepare("SELECT u.id AS user_id, qs.quest_id, u.employee_id FROM quest_submissions qs LEFT JOIN users u ON qs.employee_id = u.employee_id WHERE qs.id = ?");
             $stmt->execute([$submission_id]);
-            $user = $stmt->fetch(PDO::FETCH_ASSOC);
-            if (!$user_id) { $user_id = (int)$user['id']; }
-            if (!$employeeIdForSubmission) { $employeeIdForSubmission = $user['employee_id']; }
+            $fetched = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (is_array($fetched) && !empty($fetched)) {
+                $user = $fetched;
+                if (empty($user_id) && isset($user['user_id'])) { $user_id = (int)$user['user_id']; }
+                if (empty($employeeIdForSubmission) && !empty($user['employee_id'])) { $employeeIdForSubmission = $user['employee_id']; }
+            }
         }
     } catch (PDOException $e) {
         error_log('user resolve by employee_id failed: ' . $e->getMessage());
@@ -637,14 +788,47 @@ if (isset($_GET['success'])) {
                             elseif (!empty($submissionText) && filter_var($submissionText, FILTER_VALIDATE_URL)) { $link = $submissionText; }
                         }
                         if (!$rendered && $link !== '') {
-                            echo '<div class="preview-block">'
-                                . '<div>External Link:</div>'
-                                . '<div class="btn-group" style="margin-top:8px;">'
-                                . '<a class="btn btn-primary btn-sm" href="' . htmlspecialchars($link) . '" target="_blank" rel="noopener">Open Link</a>'
-                                . '</div>'
-                                . '<div style="margin-top:6px;color:#374151;word-break:break-all;">' . htmlspecialchars($link) . '</div>'
+                            $stype = isset($latestSubmission['submission_type']) ? strtolower(trim((string)$latestSubmission['submission_type'])) : '';
+                            // If submission was saved as a link (gdrive), show the raw link instead of file action buttons
+                            if ($stype === 'link') {
+                                echo '<div class="preview-block">'
+                                    . '<div style="margin-bottom:8px;color:#374151;word-break:break-all;">'
+                                    . htmlspecialchars($link)
+                                    . '</div>'
+                                    . '</div>';
+                                $rendered = true;
+                            } elseif ($stype === 'text') {
+                                // If submission was saved as text, render the text content directly
+                                $txt = $textContent ?: ($submissionText ?? '');
+                                echo '<div class="preview-block"><div class="preview-text">' . htmlspecialchars($txt) . '</div></div>';
+                                $rendered = true;
+                            } else {
+                                // default: render as file-like link/buttons
+                                // Friendly filename/title for URLs (use path basename or host)
+                                $linkPath = parse_url($link, PHP_URL_PATH) ?: '';
+                                $linkName = $linkPath !== '' ? basename($linkPath) : '';
+                                if ($linkName === '' || $linkName === '/') { $linkName = parse_url($link, PHP_URL_HOST) ?: $link; }
+                                $lnExt = strtolower(pathinfo($linkName, PATHINFO_EXTENSION));
+                                $inlineId = 'inline-'.md5($link);
+
+                                echo '<div class="preview-block">'
+                                    . '<div class="btn-group" style="display:flex; gap:8px; flex-wrap:wrap;">'
+                                    . '<a class="btn btn-primary btn-sm" href="' . htmlspecialchars($link) . '" target="_blank" rel="noopener">Open</a>'
+                                    . '<a class="btn btn-secondary btn-sm view-newtab" href="' . htmlspecialchars($link) . '" data-abs="' . htmlspecialchars($link) . '" data-ext="' . htmlspecialchars($lnExt) . '" target="_blank" rel="noopener">View in new tab</a>'
+                                    . '<a class="btn btn-outline-primary btn-sm" href="' . htmlspecialchars($link) . '" download>Download</a>'
+                                    . '</div>'
+                                    . '<div class="glightbox-inline" id="' . $inlineId . '">'
+                                        . '<div class="preview-container">'
+                                            . '<div class="preview-header"><div class="preview-title"><span class="badge-file ' . (in_array($lnExt, ['pdf']) ? 'badge-pdf' : (in_array($lnExt, ['jpg','jpeg','png','gif','webp']) ? 'badge-img' : 'badge-link')) . '">' . htmlspecialchars(strtoupper($lnExt ?: 'LNK')) . '</span><span>' . htmlspecialchars($linkName) . '</span></div></div>'
+                                            . '<div class="preview-body" style="padding:12px;">'
+                                                . '<div style="margin-bottom:8px;color:#374151;word-break:break-all;">' . htmlspecialchars($link) . '</div>'
+                                                . '<div><a class="btn btn-secondary btn-sm" href="' . htmlspecialchars($link) . '" target="_blank" rel="noopener">Open in new tab</a></div>'
+                                            . '</div>'
+                                        . '</div>'
+                                    . '</div>'
                                 . '</div>';
-                            $rendered = true;
+                                $rendered = true;
+                            }
                         }
 
                         // Plain text content fallback
