@@ -231,6 +231,9 @@ try {
     // Continue; if permissions prevent DDL, later operations may still succeed if tables already exist
 }
 
+// Detect client & support quests early for POST handling as well
+$isClientSupport = isset($quest['display_type']) && $quest['display_type'] === 'client_support';
+
 // Try to resolve missing identifiers gracefully before redirecting
 if ($quest_id && !$user_id) {
     try {
@@ -285,65 +288,146 @@ if (empty($error) && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['subm
         $tierMultipliers = [1 => 0.85, 2 => 0.95, 3 => 1.00, 4 => 1.15, 5 => 1.30];
         $tierPattern = '/\(T([1-5])\)$/';
 
-        foreach ($assessments as $skill_name => $assessment) {
-            $performance = (float)($assessment['performance'] ?? 1.0);
-            $base_points_raw = (int)($assessment['base_points'] ?? 0);
-            $notes = sanitize_input($assessment['notes'] ?? '');
+        // Special-case grading for Client & Support Operations quests: one overall grade applied to all auto-attached skills
+        if ($isClientSupport) {
+            $overall_perf = isset($_POST['client_support_performance']) ? (float)$_POST['client_support_performance'] : 1.0;
+            $notes_overall = sanitize_input($_POST['client_support_notes'] ?? '');
 
-            // Use base_points_raw directly (already dynamically set by quest type/tier)
-            $base_points = (int)round($base_points_raw * $breadthFactor);
-
-            // Skip zero-point awards (e.g., Not performed)
-            if ($base_points <= 0 || $performance <= 0) { continue; }
-
-            // Award skill points
-            $result = $skillManager->awardSkillPoints($user_id, $skill_name, $base_points, $performance);
-            if (!($result['success'] ?? false)) {
-                throw new Exception('Failed to award points for ' . $skill_name . ': ' . ($result['error'] ?? 'unknown error'));
+            // Compute early-submission bonus (2% per full day early, capped at 20%) using submitted_at and quest due_date
+            $bonus_percent = 0.0;
+            $submitted_at_ts = !empty($latestSubmission['submitted_at']) ? strtotime($latestSubmission['submitted_at']) : 0;
+            $due_ts = !empty($quest['due_date']) ? strtotime($quest['due_date']) : 0;
+            if ($due_ts && $submitted_at_ts && $submitted_at_ts < $due_ts) {
+                $days_early = (int)floor(($due_ts - $submitted_at_ts) / 86400);
+                if ($days_early > 0) {
+                    $bonus_percent = min(0.02 * $days_early, 0.20); // cap 20%
+                }
             }
 
-            $awarded_skills[] = [
-                'skill' => $skill_name,
-                'points' => $result['points_awarded'],
-                'level' => $result['new_level'],
-                'stage' => $result['new_stage']
-            ];
-            $total_points += $result['points_awarded'];
+            // Final multiplier applies the bonus on top of selected performance
+            $final_multiplier = $overall_perf * (1.0 + $bonus_percent);
 
-            // Save detailed assessment row for this skill
-            try {
-                $label = 'Meets Expectations';
-                if ($performance == 0.0) $label = 'Not performed';
-                elseif ($performance < 1.0) $label = 'Below Expectations';
-                elseif ($performance > 1.0 && $performance <= 1.2) $label = 'Exceeds Expectations';
-                elseif ($performance > 1.2) $label = 'Exceptional';
+            // Determine a human label from the core selected performance (not including early bonus)
+            $label = 'Meets Expectations';
+            if ($overall_perf == 0.0) $label = 'Not completed';
+            elseif ($overall_perf < 1.0) $label = 'Below Expectations';
+            elseif ($overall_perf > 1.0 && $overall_perf <= 1.2) $label = 'Exceeds Expectations';
+            elseif ($overall_perf > 1.2) $label = 'Exceptional';
 
-                $reviewedBy = $_SESSION['employee_id'] ?? (string)($_SESSION['user_id'] ?? '');
-                $stmt = $pdo->prepare("INSERT INTO quest_assessment_details 
-                    (quest_id, user_id, submission_id, skill_name, base_points, performance_multiplier, performance_label, adjusted_points, notes, reviewed_by, reviewed_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
-                    ON DUPLICATE KEY UPDATE 
-                        base_points = VALUES(base_points),
-                        performance_multiplier = VALUES(performance_multiplier),
-                        performance_label = VALUES(performance_label),
-                        adjusted_points = VALUES(adjusted_points),
-                        notes = VALUES(notes),
-                        reviewed_by = VALUES(reviewed_by),
-                        reviewed_at = VALUES(reviewed_at)");
-                $stmt->execute([
-                    $quest_id,
-                    $user_id,
-                    $currentSubmissionId,
-                    $skill_name,
-                    $base_points_raw, /* store original base */
-                    $performance,
-                    $label,
-                    (int)round($base_points * $performance), /* adjusted_points reflects modified base */
-                    $notes,
-                    $reviewedBy,
-                ]);
-            } catch (PDOException $e) {
-                error_log('Failed to save assessment detail: ' . $e->getMessage());
+            // Apply to each auto-attached skill (quest_skills normalized earlier)
+            foreach ($quest_skills as $skill) {
+                $skill_name = isset($skill['skill_name']) ? (string)$skill['skill_name'] : null;
+                $tier_level = isset($skill['tier_level']) ? (string)$skill['tier_level'] : 'T2';
+                $tier_num = (int)str_replace('T', '', $tier_level);
+                $base_points_raw = getTierBasePoints($tier_num);
+                $base_points = (int)round($base_points_raw * $breadthFactor);
+
+                if (!$skill_name || $base_points <= 0 || $final_multiplier <= 0) { continue; }
+
+                $result = $skillManager->awardSkillPoints($user_id, $skill_name, $base_points, $final_multiplier);
+                if (!($result['success'] ?? false)) {
+                    throw new Exception('Failed to award points for ' . $skill_name . ': ' . ($result['error'] ?? 'unknown error'));
+                }
+
+                $awarded_skills[] = [
+                    'skill' => $skill_name,
+                    'points' => $result['points_awarded'],
+                    'level' => $result['new_level'],
+                    'stage' => $result['new_stage']
+                ];
+                $total_points += $result['points_awarded'];
+
+                // persist per-skill record but mark as overall client_support grade
+                try {
+                    $reviewedBy = $_SESSION['employee_id'] ?? (string)($_SESSION['user_id'] ?? '');
+                    $stmt = $pdo->prepare("INSERT INTO quest_assessment_details 
+                        (quest_id, user_id, submission_id, skill_name, base_points, performance_multiplier, performance_label, adjusted_points, notes, reviewed_by, reviewed_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+                        ON DUPLICATE KEY UPDATE 
+                            base_points = VALUES(base_points),
+                            performance_multiplier = VALUES(performance_multiplier),
+                            performance_label = VALUES(performance_label),
+                            adjusted_points = VALUES(adjusted_points),
+                            notes = VALUES(notes),
+                            reviewed_by = VALUES(reviewed_by),
+                            reviewed_at = VALUES(reviewed_at)");
+                    $stmt->execute([
+                        $quest_id,
+                        $user_id,
+                        $currentSubmissionId,
+                        $skill_name,
+                        $base_points_raw,
+                        $final_multiplier,
+                        $label,
+                        (int)round($base_points * $final_multiplier),
+                        $notes_overall,
+                        $reviewedBy,
+                    ]);
+                } catch (PDOException $e) {
+                    error_log('Failed to save client_support assessment detail: ' . $e->getMessage());
+                }
+            }
+        } else {
+            foreach ($assessments as $skill_name => $assessment) {
+                $performance = (float)($assessment['performance'] ?? 1.0);
+                $base_points_raw = (int)($assessment['base_points'] ?? 0);
+                $notes = sanitize_input($assessment['notes'] ?? '');
+
+                // Use base_points_raw directly (already dynamically set by quest type/tier)
+                $base_points = (int)round($base_points_raw * $breadthFactor);
+
+                // Skip zero-point awards (e.g., Not performed)
+                if ($base_points <= 0 || $performance <= 0) { continue; }
+
+                // Award skill points
+                $result = $skillManager->awardSkillPoints($user_id, $skill_name, $base_points, $performance);
+                if (!($result['success'] ?? false)) {
+                    throw new Exception('Failed to award points for ' . $skill_name . ': ' . ($result['error'] ?? 'unknown error'));
+                }
+
+                $awarded_skills[] = [
+                    'skill' => $skill_name,
+                    'points' => $result['points_awarded'],
+                    'level' => $result['new_level'],
+                    'stage' => $result['new_stage']
+                ];
+                $total_points += $result['points_awarded'];
+
+                // Save detailed assessment row for this skill
+                try {
+                    $label = 'Meets Expectations';
+                    if ($performance == 0.0) $label = 'Not performed';
+                    elseif ($performance < 1.0) $label = 'Below Expectations';
+                    elseif ($performance > 1.0 && $performance <= 1.2) $label = 'Exceeds Expectations';
+                    elseif ($performance > 1.2) $label = 'Exceptional';
+
+                    $reviewedBy = $_SESSION['employee_id'] ?? (string)($_SESSION['user_id'] ?? '');
+                    $stmt = $pdo->prepare("INSERT INTO quest_assessment_details 
+                        (quest_id, user_id, submission_id, skill_name, base_points, performance_multiplier, performance_label, adjusted_points, notes, reviewed_by, reviewed_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+                        ON DUPLICATE KEY UPDATE 
+                            base_points = VALUES(base_points),
+                            performance_multiplier = VALUES(performance_multiplier),
+                            performance_label = VALUES(performance_label),
+                            adjusted_points = VALUES(adjusted_points),
+                            notes = VALUES(notes),
+                            reviewed_by = VALUES(reviewed_by),
+                            reviewed_at = VALUES(reviewed_at)");
+                    $stmt->execute([
+                        $quest_id,
+                        $user_id,
+                        $currentSubmissionId,
+                        $skill_name,
+                        $base_points_raw, /* store original base */
+                        $performance,
+                        $label,
+                        (int)round($base_points * $performance), /* adjusted_points reflects modified base */
+                        $notes,
+                        $reviewedBy,
+                    ]);
+                } catch (PDOException $e) {
+                    error_log('Failed to save assessment detail: ' . $e->getMessage());
+                }
             }
         }
         
@@ -1149,6 +1233,8 @@ if (isset($_GET['success'])) {
             <?php 
                 $safe_skills = is_array($quest_skills) ? $quest_skills : []; 
                 $gradedAlready = in_array(strtolower(trim((string)($latestSubmission['status'] ?? ''))), ['approved','rejected'], true);
+                // Detect client & support quests (they use auto-attached skills and a single assessment instance)
+                $isClientSupport = isset($quest['display_type']) && $quest['display_type'] === 'client_support';
                 // Load existing assessment details per skill if graded
                 $existingAssessments = [];
                 if ($gradedAlready && !empty($latestSubmission['id'])) {
@@ -1164,13 +1250,126 @@ if (isset($_GET['success'])) {
                 }
             ?>
             <form method="post" id="assessmentForm">
+                <?php if ($isClientSupport): ?>
+                    <div class="card" style="border-left:4px solid #f59e0b;">
+                        <div style="font-weight:600;color:#92400e;margin-bottom:6px;">Client &amp; Support Operations — Overall assessment</div>
+                        <div style="margin-bottom:8px;">This quest type uses auto-attached skills and is graded once for the entire submission. Choose the overall performance below; points will be applied to every auto-selected skill/tier for this quest.</div>
+                        <?php
+                            $existingOverall = null;
+                            if ($gradedAlready && !empty($latestSubmission['id'])) {
+                                $stmt = $pdo->prepare("SELECT performance_multiplier, performance_label, notes FROM quest_assessment_details WHERE submission_id = ? LIMIT 1");
+                                try { $stmt->execute([(int)$latestSubmission['id']]); $existingOverall = $stmt->fetch(PDO::FETCH_ASSOC); } catch (Exception $e) { /* ignore */ }
+                            }
+
+                            // Provide timestamps for client-side early-bonus calculation
+                            $submitted_at_ts = !empty($latestSubmission['submitted_at']) ? strtotime($latestSubmission['submitted_at']) : 0;
+                            $due_ts = !empty($quest['due_date']) ? strtotime($quest['due_date']) : 0;
+
+                            // Determine which base performance option was selected when grading
+                            $existingSelectedBase = null; // one of 0.0,0.8,1.0,1.2,1.4
+                            if ($gradedAlready && !empty($latestSubmission['id'])) {
+                                // Try to derive stored multiplier from any assessment detail row
+                                $storedMult = null;
+                                if (!empty($existingAssessments)) {
+                                    $any = reset($existingAssessments);
+                                    $storedMult = isset($any['performance_multiplier']) ? (float)$any['performance_multiplier'] : null;
+                                } else {
+                                    // Fallback: try to fetch a single stored multiplier directly
+                                    try {
+                                        $stmt = $pdo->prepare("SELECT performance_multiplier FROM quest_assessment_details WHERE submission_id = ? LIMIT 1");
+                                        $stmt->execute([(int)$latestSubmission['id']]);
+                                        $r = $stmt->fetch(PDO::FETCH_ASSOC);
+                                        $storedMult = $r ? (float)($r['performance_multiplier'] ?? null) : null;
+                                    } catch (Exception $e) { $storedMult = null; }
+                                }
+
+                                if ($storedMult !== null) {
+                                    $bonus_percent = 0.0;
+                                    if ($due_ts && $submitted_at_ts && $submitted_at_ts < $due_ts) {
+                                        $days_early = (int)floor(($due_ts - $submitted_at_ts) / 86400);
+                                        if ($days_early > 0) $bonus_percent = min(0.02 * $days_early, 0.20);
+                                    }
+                                    $candidates = [0.0, 0.8, 1.0, 1.2, 1.4];
+                                    $best = null; $bestDiff = PHP_INT_MAX;
+                                    foreach ($candidates as $c) {
+                                        $expected = $c * (1.0 + $bonus_percent);
+                                        $diff = abs($storedMult - $expected);
+                                        if ($diff < $bestDiff) { $bestDiff = $diff; $best = $c; }
+                                    }
+                                    $existingSelectedBase = $best;
+                                }
+                            }
+
+                            // Compute total awarded points (fresh sum) when graded to ensure accurate display
+                            $gradedTotal = 0;
+                            if ($gradedAlready && !empty($latestSubmission['id'])) {
+                                try {
+                                    $stmt = $pdo->prepare("SELECT SUM(adjusted_points) AS s FROM quest_assessment_details WHERE submission_id = ?");
+                                    $stmt->execute([(int)$latestSubmission['id']]);
+                                    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+                                    $gradedTotal = (int)($row['s'] ?? 0);
+                                } catch (Exception $e) { $gradedTotal = 0; }
+                            }
+                        ?>
+                        <div>
+                            <select name="client_support_performance" class="performance-select" id="clientSupportPerf" <?= $gradedAlready ? 'disabled' : '' ?> style="width:100%;max-width:420px;padding:8px;border-radius:6px;border:1px solid #d1d5db;"
+                                data-submitted-ts="<?= (int)$submitted_at_ts ?>" data-due-ts="<?= (int)$due_ts ?>" data-skill-count="<?= count($quest_skills) ?>" data-graded="<?= $gradedAlready ? '1' : '0' ?>">
+                                <option value="0.0" <?= ($existingSelectedBase === 0.0)?'selected':'' ?>>Not completed (0%) = 0 pts</option>
+                                <option value="0.8" <?= ($existingSelectedBase === 0.8)?'selected':'' ?>>Completed but Below Expectations (-20%)</option>
+                                <option value="1.0" <?= ($existingSelectedBase === 1.0)?'selected':'' ?>>Completed (+0%)</option>
+                                <option value="1.2" <?= ($existingSelectedBase === 1.2)?'selected':'' ?>>Completed and Exceeds Expectations (+20%)</option>
+                                <option value="1.4" <?= ($existingSelectedBase === 1.4)?'selected':'' ?>>Exceptional Work (+40%)</option>
+                            </select>
+                        </div>
+                        <div style="margin-top:8px;font-size:0.9em;color:#374151;">Early submission bonus: up to 2% per day early, capped at 20% (applied on top of the selected performance multiplier).</div>
+                        <div style="margin-top:8px;"><label for="client_support_notes">Notes (optional):</label><br/><textarea name="client_support_notes" id="client_support_notes" rows="3" style="width:100%;max-width:720px;"><?= htmlspecialchars($existingOverall['notes'] ?? '') ?></textarea></div>
+
+                        <!-- Dynamic preview of points when grading client-support quests -->
+                        <div id="clientSupportPreview" style="margin-top:12px;">
+                            <?php if ($gradedAlready): ?>
+                                <div class="card" style="border-left:4px solid #10B981;">
+                                    <div style="font-weight:700;color:#065F46;margin-bottom:6px;">Points awarded</div>
+                                    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+                                        <div style="font-size:1.25rem;font-weight:700;color:#111827;">Total: <span id="clientTotalPoints"><?= (int)$gradedTotal ?></span> pts</div>
+                                        <div style="color:#6b7280;">Awarded across <?= count($existingAssessments) ?> skills</div>
+                                    </div>
+                                    <div style="margin-top:10px;display:grid;gap:8px;">
+                                        <?php foreach ($existingAssessments as $ea): ?>
+                                            <div style="display:flex;justify-content:space-between;align-items:center;padding:8px;border-radius:8px;background:#fff;border:1px solid #e5e7eb;">
+                                                <div style="font-weight:600;color:#111827;"><?= htmlspecialchars($ea['skill_name']) ?></div>
+                                                <div style="color:#374151;"><?= (int)$ea['adjusted_points'] ?> pts</div>
+                                            </div>
+                                        <?php endforeach; ?>
+                                    </div>
+                                </div>
+                            <?php else: ?>
+                                <div class="card" style="background:#f8fafc;border:1px solid #e2e8f0;padding:12px;border-radius:10px;">
+                                    <div style="font-weight:700;color:#111827;margin-bottom:8px;">Preview: estimated points per skill</div>
+                                    <div id="clientSkillList" style="display:grid;gap:8px;">
+                                        <?php foreach ($quest_skills as $qs): $sname = $qs['skill_name'] ?? 'Skill'; $t = isset($qs['tier_level']) ? (int)str_replace('T','',$qs['tier_level']) : 2; $base_raw = getTierBasePoints($t); ?>
+                                            <div class="" style="display:flex;justify-content:space-between;align-items:center;padding:8px;border-radius:8px;background:#fff;border:1px solid #e5e7eb;" data-base="<?= (int)$base_raw ?>">
+                                                <div style="font-weight:600;color:#111827;"><?= htmlspecialchars($sname) ?></div>
+                                                <div style="color:#374151;"><span class="cs-adj" data-skill="<?= htmlspecialchars($sname) ?>"><?= (int)$base_raw ?></span> pts</div>
+                                            </div>
+                                        <?php endforeach; ?>
+                                    </div>
+                                    <div style="margin-top:10px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+                                        <div style="font-size:1.1rem;font-weight:700;color:#111827;">Estimated total: <span id="clientTotalPoints">0</span> pts</div>
+                                        <div style="color:#6b7280;">Based on selected performance and early-bonus</div>
+                                    </div>
+                                </div>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                <?php endif; ?>
                 <?php if ($gradedAlready): ?>
                     <div class="card" style="border-left:4px solid #10B981;">
                         <div style="font-weight:600; color:#065F46;">This submission is already graded.</div>
                         <div class="meta">Reviewed by: <?= htmlspecialchars((string)($latestSubmission['reviewed_by'] ?? '')) ?><?= !empty($latestSubmission['reviewed_at']) ? ' • ' . htmlspecialchars(date('M d, Y g:i A', strtotime($latestSubmission['reviewed_at']))) : '' ?></div>
                     </div>
                 <?php endif; ?>
-                <?php foreach ($safe_skills as $skill): ?>
+                <?php if (!$isClientSupport): ?>
+                    <?php foreach ($safe_skills as $skill): ?>
                     <?php 
                     $skill_name = isset($skill['skill_name']) ? (string)$skill['skill_name'] : 'Skill';
                     $tier_level = isset($skill['tier_level']) ? (string)$skill['tier_level'] : 'T2';
@@ -1194,7 +1393,7 @@ if (isset($_GET['success'])) {
                         
                         <div class="performance-section">
                             <div class="performance-label">Performance:</div>
-                            <select class="performance-select" name="assessments[<?= $skill_name ?>][performance]" id="perf_<?= $safeId ?>" data-skill="<?= $safeId ?>" data-base="<?= $base_points ?>" onchange="onPerfChange(this)" <?= $gradedAlready ? 'disabled' : '' ?>>
+                            <select class="performance-select" name="assessments[<?= $skill_name ?>][performance]" id="perf_<?= $safeId ?>" data-skill="<?= $safeId ?>" data-base="<?= $base_points ?>" onchange="onPerfChange(this)" <?= ($gradedAlready || ($isClientSupport?true:false)) ? 'disabled' : '' ?>>
                                 <option value="0.0" <?= ($selectedMultiplier==0.0?'selected':'') ?>>Not performed (0%) = 0 pts</option>
                                 <option value="0.8" <?= ($selectedMultiplier==0.8?'selected':'') ?>>Below Expectations (-20%) = <?= round($base_points*0.8) ?> pts</option>
                                 <option value="1.0" <?= ($selectedMultiplier==1.0?'selected':'') ?>>Meets Expectations (+0%) = <?= $base_points ?> pts</option>
@@ -1225,7 +1424,11 @@ if (isset($_GET['success'])) {
                             <?php endif; ?>
                         <?php endif; ?>
                     </div>
-                <?php endforeach; ?>
+                    <?php endforeach; ?>
+                <?php else: ?>
+                    <!-- For Client & Support Operations we show a compact skills summary above and
+                         do not render per-skill assessment controls to avoid confusion. -->
+                <?php endif; ?>
                 
                 <!-- Removed green Total Points box as requested -->
                 
@@ -1301,6 +1504,17 @@ if (isset($_GET['success'])) {
             updateTotal();
         }
 
+        // Update color for performance select elements (also used by client-support overall select)
+        function applyPerfColor(sel){
+            sel.classList.remove('pf-none','pf-below','pf-meets','pf-exceeds','pf-exceptional');
+            const v = parseFloat(sel.value);
+            if (v === 0) sel.classList.add('pf-none');
+            else if (v < 1) sel.classList.add('pf-below');
+            else if (v === 1) sel.classList.add('pf-meets');
+            else if (v > 1 && v <= 1.2) sel.classList.add('pf-exceeds');
+            else sel.classList.add('pf-exceptional');
+        }
+
         function updateTotal(){
             // Kept for future use; gracefully no-op if total display is removed
             let total = 0; const breakdown = [];
@@ -1339,6 +1553,70 @@ if (isset($_GET['success'])) {
                 applyPerfColor(sel);
                 sel.addEventListener('change', () => applyPerfColor(sel));
             });
+
+                // Client & Support: dynamic preview update
+            const csSel = document.getElementById('clientSupportPerf');
+            if (csSel) {
+                // compute and update preview based on selection, early-bonus and breadthFactor
+                const updateClientPreview = () => {
+                    try {
+                        applyPerfColor(csSel);
+                        const perf = parseFloat(csSel.value) || 1.0;
+                        const subTs = parseInt(csSel.getAttribute('data-submitted-ts') || '0', 10);
+                        const dueTs = parseInt(csSel.getAttribute('data-due-ts') || '0', 10);
+                        let bonus = 0.0;
+                        if (subTs && dueTs && subTs < dueTs) {
+                            const daysEarly = Math.floor((dueTs - subTs) / 86400);
+                            if (daysEarly > 0) bonus = Math.min(0.02 * daysEarly, 0.20);
+                        }
+                        const finalMult = perf * (1.0 + bonus);
+
+                        // breadthFactor rules (same logic as server)
+                        const skillCount = parseInt(csSel.getAttribute('data-skill-count') || '0', 10);
+                        let breadth = 1.0;
+                        if (skillCount === 3) breadth = 0.90;
+                        else if (skillCount === 4) breadth = 0.75;
+                        else if (skillCount >= 5) breadth = 0.60;
+
+                        // update each skill adjusted value
+                        let total = 0;
+                        const dynamicEls = document.querySelectorAll('#clientSkillList [data-base]');
+                        if (dynamicEls.length > 0) {
+                            dynamicEls.forEach(el => {
+                                const base = parseFloat(el.getAttribute('data-base')) || 0;
+                                const adj = Math.round(base * breadth * finalMult);
+                                const span = el.querySelector('.cs-adj');
+                                if (span) span.textContent = adj;
+                                total += adj;
+                            });
+                        } else {
+                            // For graded view, avoid overwriting server-calculated total; instead, try to sum existing displayed adjusted values
+                            const listed = document.querySelectorAll('#clientSupportPreview .card [data-base]');
+                            if (listed.length > 0) {
+                                listed.forEach(el => { const base = parseInt(el.getAttribute('data-base')||'0',10)||0; total += base; });
+                            } else {
+                                // Fallback: sum any .cs-adj spans if present
+                                document.querySelectorAll('.cs-adj').forEach(s => { total += parseInt(s.textContent || '0', 10) || 0; });
+                            }
+                        }
+
+                        const totalEl = document.getElementById('clientTotalPoints');
+                        // Only overwrite the server-provided total if this is not a graded view
+                        if (csSel.getAttribute('data-graded') !== '1') {
+                            if (totalEl) totalEl.textContent = total;
+                        }
+                    } catch (err) { console.error('client preview update failed', err); }
+                };
+
+                if (csSel.getAttribute('data-graded') !== '1') {
+                    csSel.addEventListener('change', updateClientPreview);
+                    // initial run
+                    updateClientPreview();
+                } else {
+                    // still apply color but do not run preview update that would overwrite server total
+                    applyPerfColor(csSel);
+                }
+            }
 
             // Handle Office (docx) previews via Mammoth in an inline lightbox
             // Prefetch and convert before opening to avoid any lingering "Loading preview…" in the modal

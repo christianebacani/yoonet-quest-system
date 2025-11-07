@@ -373,6 +373,12 @@ function format_display_name($userRow) {
         $middle = mb_convert_case($middle, MB_CASE_TITLE, "UTF-8");
     }
 
+    // Defensive cleanup: remove stray trailing punctuation from parsed name parts
+    // This prevents producing duplicate commas when input already contains commas/periods
+    $last = rtrim($last, " ,.");
+    $first = rtrim($first, " ,.");
+    $middle = trim($middle);
+
     // If we have explicit last & first, prefer them
     if ($last !== '' || $first !== '') {
         $display = '';
@@ -403,12 +409,16 @@ function format_display_name($userRow) {
     if (strpos($full, ',') !== false) {
         [$maybe_last, $rest] = array_map($norm, array_map('trim', explode(',', $full, 2)));
         // Title-case parsed name parts for consistent display
-        $maybe_last = mb_convert_case($maybe_last, MB_CASE_TITLE, "UTF-8");
-        $rest_parts = preg_split('/\s+/', $rest);
-        $maybe_first = $rest_parts[0] ?? '';
-        $maybe_middle = count($rest_parts) > 1 ? implode(' ', array_slice($rest_parts, 1)) : '';
-        $maybe_first = mb_convert_case($maybe_first, MB_CASE_TITLE, "UTF-8");
-        $maybe_middle = mb_convert_case($maybe_middle, MB_CASE_TITLE, "UTF-8");
+    $maybe_last = mb_convert_case($maybe_last, MB_CASE_TITLE, "UTF-8");
+    $rest_parts = preg_split('/\s+/', $rest);
+    $maybe_first = $rest_parts[0] ?? '';
+    $maybe_middle = count($rest_parts) > 1 ? implode(' ', array_slice($rest_parts, 1)) : '';
+    // Normalize casing
+    $maybe_first = mb_convert_case($maybe_first, MB_CASE_TITLE, "UTF-8");
+    $maybe_middle = mb_convert_case($maybe_middle, MB_CASE_TITLE, "UTF-8");
+    // Trim any trailing punctuation from parsed tokens (commas, periods) to avoid duplication
+    $maybe_first = rtrim($maybe_first, " ,.");
+    $maybe_middle = trim($maybe_middle);
 
         $display = $maybe_last !== '' ? $maybe_last : '';
         if ($maybe_first !== '') {
@@ -434,6 +444,10 @@ function format_display_name($userRow) {
     $lastTok = mb_convert_case($lastTok, MB_CASE_TITLE, "UTF-8");
     $firstTok = mb_convert_case($firstTok, MB_CASE_TITLE, "UTF-8");
     $middleTok = mb_convert_case($middleTok, MB_CASE_TITLE, "UTF-8");
+    // Trim trailing punctuation from tokens to ensure consistent separator usage
+    $lastTok = rtrim($lastTok, " ,.");
+    $firstTok = rtrim($firstTok, " ,.");
+    $middleTok = trim($middleTok);
 
     $display = $lastTok . ', ' . $firstTok;
     if ($middleTok !== '') {
