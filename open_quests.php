@@ -320,7 +320,20 @@ document.addEventListener('DOMContentLoaded', function() {
     .oq-table th { background: #f9fafb; font-size: 14px; font-weight: 600; color: #374151; }
     .oq-table tr:last-child td { border-bottom: none; }
     .badge { display: inline-block; padding: 4px 12px; border-radius: 9999px; font-size: 0.98em; font-weight: 600; letter-spacing: 0.01em; }
-    .badge-quest { background: #e0e7ff; color: #3730a3; border: 1px solid #6366f1; }
+    /* Ensure long quest titles wrap nicely inside the pill and don't break layout */
+    .badge-quest {
+        background: #e0e7ff;
+        color: #3730a3;
+        border: 1px solid #6366f1;
+        display: inline-block;
+        max-width: 46ch; /* approximate readable width, adapts to font */
+        white-space: normal; /* allow wrapping */
+        overflow-wrap: anywhere; /* break long words if needed */
+        word-break: break-word;
+        vertical-align: middle;
+        line-height: 1.25;
+        padding: 8px 14px; /* slightly larger padding for multi-line */
+    }
     .badge-due { background: #fef3c7; color: #92400e; border: 1px solid #f59e0b; }
         @media (max-width: 600px) {
             .container { padding: 0 2vw; }
