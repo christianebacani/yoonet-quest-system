@@ -858,8 +858,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($submission) && is_array($su
         document.addEventListener('DOMContentLoaded', function(){
             var ov = document.getElementById('successOverlay');
             if (ov) {
-                // determine kind: edit page -> 'edit'
-                launchConfetti('edit');
+                // use the same success sound/animation as submission creation
+                launchConfetti('create');
             }
         });
     })();
