@@ -493,8 +493,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         }
                     }
 
-                    // Canonical base points for tiers T1..T5
-                    $tierToBase = [1 => 25, 2 => 40, 3 => 55, 4 => 70, 5 => 85];
+                    // Canonical base points for tiers T1..T5 (consistent mapping)
+                    $tierToBase = [1 => 2, 2 => 5, 3 => 12, 4 => 25, 5 => 50];
 
                     if ($has_tier_level) {
                         // Prefer storing explicit tier_level (numeric) when possible
@@ -2835,12 +2835,14 @@ function getFontSize() {
         }
 
         // Central mapping for base points per tier by quest type
+        // Use a consistent base-points mapping per tier across quest types
+        // T1..T5 => 2, 5, 12, 25, 50
         const questTypeTierPoints = {
-            routine:  [2, 4, 6, 8, 10],      // Routine Task
-            minor:    [5, 10, 15, 20, 25],   // Minor Quest
-            standard: [10, 20, 30, 40, 50],  // Standard Quest
-            major:    [20, 40, 60, 80, 100], // Major Quest
-            project:  [40, 80, 120, 160, 200]// Major Project
+            routine:  [2, 5, 12, 25, 50],
+            minor:    [2, 5, 12, 25, 50],
+            standard: [2, 5, 12, 25, 50],
+            major:    [2, 5, 12, 25, 50],
+            project:  [2, 5, 12, 25, 50]
         };
 
         // Helper to get points for a given tier (1-based) and quest type

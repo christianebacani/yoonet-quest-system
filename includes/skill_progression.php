@@ -225,12 +225,30 @@ class SkillProgression {
                     VALUES (?, ?, ?, ?)
                 ");
                 
+                // Canonical base points mapping for tiers T1..T5
+                $tierToBase = [1 => 2, 2 => 5, 3 => 12, 4 => 25, 5 => 50];
                 foreach ($skills as $skill) {
+                    // Determine base_points: prefer explicit, otherwise derive from tier_level/tier
+                    $bp = null;
+                    if (isset($skill['base_points']) && $skill['base_points'] !== null) {
+                        $bp = (int)$skill['base_points'];
+                    } else {
+                        $tierRaw = $skill['tier_level'] ?? $skill['tier'] ?? null;
+                        $t = 1;
+                        if ($tierRaw !== null) {
+                            if (is_numeric($tierRaw)) {
+                                $t = intval($tierRaw);
+                            } elseif (is_string($tierRaw) && preg_match('/T?([1-5])/i', $tierRaw, $m)) {
+                                $t = intval($m[1]);
+                            }
+                        }
+                        $bp = $tierToBase[$t] ?? $tierToBase[1];
+                    }
                     $stmt->execute([
                         $quest_id,
                         $skill['name'],
-                        $skill['base_points'] ?? 25,
-                        $skill['tier_level'] ?? 'T1'
+                        $bp,
+                        $skill['tier_level'] ?? ($skill['tier'] ?? 'T1')
                     ]);
                 }
             }
