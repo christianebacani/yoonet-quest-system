@@ -512,6 +512,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $quest_id && $employee_id) {
         }
     });
     </script>
+    <script>
+    // Confetti + sound on successful create (matches edit animation, different sound)
+    (function() {
+        function launchConfetti(kind) {
+            var c = document.createElement('canvas');
+            c.style.position = 'fixed'; c.style.left = 0; c.style.top = 0; c.style.width = '100%'; c.style.height = '100%';
+            c.style.pointerEvents = 'none'; c.style.zIndex = 99999; document.body.appendChild(c);
+            var ctx = c.getContext('2d');
+            function resize() { c.width = window.innerWidth; c.height = window.innerHeight; }
+            resize(); window.addEventListener('resize', resize);
+            var particles = []; var colors = ['#ef4444','#f59e0b','#fde68a','#34d399','#60a5fa','#a78bfa','#fb7185'];
+            for (var i=0;i<120;i++){ particles.push({ x: Math.random()*c.width, y: Math.random()*c.height - c.height/2, vx: (Math.random()-0.5)*8, vy: Math.random()*6+2, r: Math.random()*8+4, color: colors[Math.floor(Math.random()*colors.length)], rot: Math.random()*360, vr: (Math.random()-0.5)*10 }); }
+            var ticks=0, raf;
+            function frame(){ ctx.clearRect(0,0,c.width,c.height); for(var i=0;i<particles.length;i++){ var p=particles[i]; p.x+=p.vx; p.y+=p.vy; p.vy+=0.12; p.rot+=p.vr; ctx.save(); ctx.translate(p.x,p.y); ctx.rotate(p.rot*Math.PI/180); ctx.fillStyle=p.color; ctx.fillRect(-p.r/2,-p.r/2,p.r,p.r*0.6); ctx.restore(); } ticks++; if(ticks>220){ cancelAnimationFrame(raf); document.body.removeChild(c); window.removeEventListener('resize', resize); } else raf=requestAnimationFrame(frame); }
+            playSuccessSound(kind); raf=requestAnimationFrame(frame);
+        }
+        function playSuccessSound(kind){ try{ var ctx=new (window.AudioContext||window.webkitAudioContext)(); var now=ctx.currentTime; if(kind==='create'){ var freqs=[520,680,880]; freqs.forEach(function(f,idx){ var o=ctx.createOscillator(), g=ctx.createGain(); o.type='sine'; o.frequency.value=f; g.gain.value=0.0001; o.connect(g); g.connect(ctx.destination); var t=now+idx*0.06; g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.12,t+0.02); g.gain.exponentialRampToValueAtTime(0.0001,t+0.22); o.start(t); o.stop(t+0.26); }); } else { var freqs=[330,440,550]; freqs.forEach(function(f){ var o=ctx.createOscillator(), g=ctx.createGain(); o.type='sine'; o.frequency.value=f; g.gain.value=0.0001; o.connect(g); g.connect(ctx.destination); g.gain.setValueAtTime(0.0001,now); g.gain.exponentialRampToValueAtTime(0.14,now+0.02); g.gain.exponentialRampToValueAtTime(0.0001,now+0.4); o.start(now); o.stop(now+0.45); }); } }catch(e){} }
+        document.addEventListener('DOMContentLoaded', function(){ var ov = document.getElementById('successOverlay'); if(ov){ launchConfetti('create'); } });
+    })();
+    </script>
     <style>
         .modern-radio-group {
             display: flex;

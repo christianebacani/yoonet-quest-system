@@ -651,6 +651,7 @@ if (isset($_GET['success'])) {
                     elseif ($status === 'approved') { $badgeClass = 'badge badge-approved'; $badgeLabel = 'Graded'; }
                     elseif ($status === 'rejected') { $badgeClass = 'badge badge-rejected'; $badgeLabel = 'Declined'; }
                 ?>
+                <div id="submissionPreview">
                 <div class="card">
                     <div class="submission-header">
                         <div>
@@ -818,6 +819,7 @@ if (isset($_GET['success'])) {
                             echo '<div class="preview-block">No preview available. Check attachments or links in the submission record.</div>';
                         }
                     ?>
+                </div>
                 </div>
             <?php else: ?>
                 <div class="card">
@@ -1140,6 +1142,54 @@ if (isset($_GET['success'])) {
                 });
             });
         });
+    </script>
+    <script>
+        // Listen for submission updates from other tabs/windows and reload to show fresh DB state
+        window.addEventListener('storage', function(e){
+            try {
+                if (!e) return;
+                if (e.key === 'yqs_submission_updated') {
+                    var payload = null;
+                    try { payload = JSON.parse(e.newValue); } catch(err) { payload = e.newValue; }
+                    // If payload has submission_id and it matches current view or no id provided, fetch partial update
+                    var sid = payload && payload.submission_id ? payload.submission_id : null;
+                    if (!sid || sid == <?= (int)$submission_id ?>) {
+                        // fetch partial HTML and replace preview
+                        fetch('ajax_get_submission.php?submission_id=' + <?= (int)$submission_id ?>)
+                            .then(function(r){ if (!r.ok) throw new Error('fetch failed'); return r.text(); })
+                            .then(function(html){
+                                var cont = document.getElementById('submissionPreview');
+                                if (cont) cont.innerHTML = html;
+                            }).catch(function(err){ console.error('Partial refresh failed, reloading', err); setTimeout(function(){ location.reload(); }, 300); });
+                    } else {
+                        // submission update for different id — ignore
+                    }
+                }
+            } catch(err) { console.error(err); }
+        });
+
+        // Also listen via BroadcastChannel for modern cross-tab notifications
+        try {
+            if (window.BroadcastChannel) {
+                var bc = new BroadcastChannel('yqs_updates');
+                bc.addEventListener('message', function(ev) {
+                    try {
+                        var d = ev && ev.data ? ev.data : null;
+                        console.log('Received broadcast update', d);
+                        // if message indicates submission_updated, reload to fetch latest DB row
+                        if (!d || d.type === 'submission_updated') {
+                            var sid = d && d.id ? d.id : null;
+                            if (!sid || sid == <?= (int)$submission_id ?>) {
+                                fetch('ajax_get_submission.php?submission_id=' + <?= (int)$submission_id ?>)
+                                    .then(function(r){ if (!r.ok) throw new Error('fetch failed'); return r.text(); })
+                                    .then(function(html){ var cont = document.getElementById('submissionPreview'); if (cont) cont.innerHTML = html; })
+                                    .catch(function(err){ console.error('Broadcast partial refresh failed, reloading', err); setTimeout(function(){ location.reload(); }, 300); });
+                            }
+                        }
+                    } catch(e) { console.error(e); }
+                });
+            }
+        } catch(e) { console.error('BroadcastChannel not available', e); }
     </script>
 </body>
 </html>

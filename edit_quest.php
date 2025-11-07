@@ -3462,6 +3462,15 @@ function updateSkillDisplay() {
                 5: 'bg-red-100 text-red-800 border-red-300'
             };
 
+            // Friendly tier names mapping
+            const tierNames = {
+                1: 'Beginner',
+                2: 'Intermediate',
+                3: 'Advanced',
+                4: 'Expert',
+                5: 'Master'
+            };
+
             // Make custom label look like create_quest ("(Custom)") for visual parity
             const customBadge = isCustom ? '<span class="ml-1 text-yellow-600">(Custom)</span>' : '';
             // Avoid duplicating "(Custom)" when category is already 'Custom' — show category only for non-custom skills
@@ -3471,11 +3480,12 @@ function updateSkillDisplay() {
             const canRemove = !(clientSupportLocked && lockedSkills.has(skillId));
             const removeButton = canRemove ? `<button type="button" class="ml-2 text-gray-400 hover:text-red-500" onclick="removeSkill('${skillId}')"><i class="fas fa-times text-xs"></i></button>` : '';
 
-            return `<span class="inline-flex items-center px-3 py-1 bg-indigo-50 text-indigo-800 text-xs rounded-full border ${tierColors[tier]}">
+            const tierLabel = tierNames[tier] || ('T' + tier);
+            return `<span class="inline-flex items-center px-3 py-1 rounded-full border text-xs ${tierColors[tier]}" style="gap:0.5rem;">
                         <span class="font-medium">${skillName}</span>
                         ${customBadge}
                         ${categorySpan}
-                        <span class="ml-2 bg-white px-1.5 py-0.5 rounded-full text-xs font-bold">T${tier}</span>
+                        <span class="ml-2 bg-white px-2 py-0.5 rounded-full text-xs font-bold">${tierLabel}</span>
                         ${removeButton}
                     </span>`;
         }).join('');

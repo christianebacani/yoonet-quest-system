@@ -2532,8 +2532,10 @@ function getFontSize() {
             });
         });
 
-        // Enhanced skill selection functionality
-        let selectedSkills = new Set();
+    // Enhanced skill selection functionality
+    let selectedSkills = new Set();
+    // Store tiers independently to avoid object reference issues: { skillId: tier }
+    let skillTiers = {};
     const MAX_SKILLS = 5; // Reduced from 8 to 5 for focused mastery (Bundle 2)
         let customSkillCounter = 1000; // Start custom skill IDs from 1000
         let currentCategory = '';
@@ -2685,10 +2687,13 @@ function getFontSize() {
                         opt.textContent = `${tierNames[idx]} (${points} pts)`;
                         tierSelect.appendChild(opt);
                     });
-                    // Set default to Intermediate (2nd tier)
-                    tierSelect.value = '2';
+                    // Set default to existing selection if present in skillTiers, otherwise Intermediate (2nd tier)
+                    const existingTier = (skillTiers && skillTiers[String(skill.skill_id)]) || skill.tier || 2;
+                    tierSelect.value = String(existingTier);
                     if (basePointsDiv) {
-                        basePointsDiv.textContent = `Base Points: ${tierPoints[1]} (Intermediate)`;
+                        const idx = parseInt(tierSelect.value, 10) - 1;
+                        const name = ['Beginner', 'Intermediate', 'Advanced', 'Expert', 'Master'][idx] || 'Intermediate';
+                        basePointsDiv.textContent = `Base Points: ${tierPoints[idx]} (${name})`;
                     }
                     // Update base points display on change
                     tierSelect.addEventListener('change', function() {
@@ -2762,12 +2767,16 @@ function getFontSize() {
         
         // Function to apply selected skills from modal
         function applySelectedSkills() {
-            // Clear current selections for this category
+            // Clear current selections for this category (collect then remove to avoid mutating while iterating)
+            const toRemove = [];
             selectedSkills.forEach(skill => {
-                if (skill.category === currentCategoryName) {
-                    selectedSkills.delete(skill);
-                }
+                try {
+                    if (String(skill.category) === String(currentCategoryName)) {
+                        toRemove.push(skill);
+                    }
+                } catch (e) { /* ignore malformed entries */ }
             });
+            toRemove.forEach(s => selectedSkills.delete(s));
             
             // Add new selections with tier values
             const selectedCheckboxes = document.querySelectorAll('.skill-modal-checkbox:checked');
@@ -2782,9 +2791,10 @@ function getFontSize() {
                     id: skillId,
                     name: skillName,
                     category: categoryName,
-                    isCustom: false,
-                    tier: tier
+                    isCustom: false
                 });
+                // Keep tier mapping in skillTiers (store as integer)
+                skillTiers[String(skillId)] = parseInt(tier, 10) || 2;
             });
             
             updateSkillDisplay();
@@ -2905,9 +2915,9 @@ function getFontSize() {
                 id: customId,
                 name: skillName,
                 category: categoryName,
-                isCustom: true,
-                tier: tier
+                isCustom: true
             });
+            skillTiers[customId] = parseInt(tier, 10) || 2;
             
             updateSkillDisplay();
             updateHiddenInputs(); // Update hidden inputs when custom skill is added
@@ -2948,18 +2958,46 @@ function getFontSize() {
             if (uniqueSkills.length === 0) {
                 badgesContainer.innerHTML = '<div class="text-xs text-blue-600 italic">No skills selected yet</div>';
             } else {
-                // Create badges for selected skills
+                // Create badges for selected skills (show category + tier) with tier color mapping and normalized category
+                const tierColors = {
+                    1: 'bg-gray-100 text-gray-800 border-gray-300',
+                    2: 'bg-blue-100 text-blue-800 border-blue-300',
+                    3: 'bg-green-100 text-green-800 border-green-300',
+                    4: 'bg-yellow-100 text-yellow-800 border-yellow-300',
+                    5: 'bg-red-100 text-red-800 border-red-300'
+                };
+
+                function normalizeCategoryName(cat) {
+                    if (!cat) return '';
+                    const lower = String(cat).toLowerCase();
+                    if (lower.includes('technical')) return 'Technical Skills';
+                    if (lower.includes('communicat') || lower.includes('client') || lower.includes('support')) return 'Communication Skills';
+                    if (lower.includes('soft')) return 'Soft Skills';
+                    if (lower.includes('business')) return 'Business Skills';
+                    return cat;
+                }
+
                 uniqueSkills.forEach(skill => {
+                    // Prefer explicit mapping in skillTiers, fallback to skill.tier property
+                    const tierNum = parseInt(skillTiers[String(skill.id)] || skill.tier, 10) || 2;
+                    // Use friendly tier names instead of T1..T5
+                    const tierName = getTierName(String(tierNum));
+                    const catNorm = skill.category ? normalizeCategoryName(skill.category) : '';
+                    const categorySpan = catNorm ? `<span class="ml-2 text-xs text-gray-500">(${catNorm})</span>` : '';
+                    const customBadge = skill.isCustom ? '<span class="ml-1 text-yellow-600">(Custom)</span>' : '';
+                    const colorClass = tierColors[tierNum] || tierColors[2];
                     const badgeHTML = `
-                        <div class="inline-flex items-center px-3 py-1 bg-indigo-100 text-indigo-800 text-xs rounded-full border border-indigo-200">
+                        <span class="inline-flex items-center px-3 py-1 rounded-full border text-xs ${colorClass}" style="gap:0.5rem;">
                             <span class="font-medium">${skill.name}</span>
-                            ${skill.isCustom ? '<span class="ml-1 text-yellow-600">(Custom)</span>' : ''}
+                            ${customBadge}
+                            ${categorySpan}
+                            <span class="ml-2 bg-white px-2 py-0.5 rounded-full text-xs font-bold">${tierName}</span>
                             <button type="button" 
                                     onclick="removeSkill('${skill.id}')" 
-                                    class="ml-2 text-indigo-600 hover:text-indigo-800">
+                                    class="ml-2 text-current opacity-80 hover:opacity-100" style="background:transparent;border:0;padding:0;margin:0;">
                                 <i class="fas fa-times text-xs"></i>
                             </button>
-                        </div>
+                        </span>
                     `;
                     badgesContainer.insertAdjacentHTML('beforeend', badgeHTML);
                 });
@@ -3042,7 +3080,7 @@ function getFontSize() {
                 const tierInput = document.createElement('input');
                 tierInput.type = 'hidden';
                 tierInput.name = `skill_tiers[${skill.id}]`;
-                tierInput.value = skill.tier || '2';
+                tierInput.value = (skillTiers[String(skill.id)] || skill.tier || '2');
                 form.appendChild(tierInput);
                 
                 // Add custom skill data if applicable
@@ -3089,6 +3127,8 @@ function getFontSize() {
                     category: categoryName,
                     isCustom: isCustom
                 });
+                // default tier for newly checked skills
+                skillTiers[String(skillId)] = 2;
                 
                 // Show tier selector for predefined skills
                 if (tierSelector && !isCustom) {
@@ -3102,6 +3142,8 @@ function getFontSize() {
                         selectedSkills.delete(skill);
                     }
                 });
+                // remove tier mapping
+                if (skillTiers[String(skillId)]) delete skillTiers[String(skillId)];
                 
                 // Hide tier selector for predefined skills
                 if (tierSelector && !isCustom) {
@@ -3155,6 +3197,20 @@ function getFontSize() {
                 noResults.classList.add('hidden');
             }
         }
+
+        // Global delegated listener: update skillTiers when any tier-select changes (modal or inline)
+        document.addEventListener('change', function(e) {
+            const t = e.target;
+            if (!t) return;
+            if (t.classList && t.classList.contains('tier-selector')) {
+                const sid = t.getAttribute('data-skill-id') || t.dataset.skillId || '';
+                if (sid) {
+                    skillTiers[String(sid)] = parseInt(t.value, 10) || 2;
+                    // live update preview
+                    try { updateSkillDisplay(); updateHiddenInputs(); } catch(err) { /* ignore */ }
+                }
+            }
+        }, true);
         
         // Function to clear employee search
         function clearEmployeeSearch() {
@@ -3546,12 +3602,21 @@ document.addEventListener('DOMContentLoaded', function() {
     function renderClientAutoSkillsInto(container) {
         if (!container) return;
         container.innerHTML = '';
+        const tierColors = {
+            1: 'bg-gray-100 text-gray-800 border-gray-300',
+            2: 'bg-blue-100 text-blue-800 border-blue-300',
+            3: 'bg-green-100 text-green-800 border-green-300',
+            4: 'bg-yellow-100 text-yellow-800 border-yellow-300',
+            5: 'bg-red-100 text-red-800 border-red-300'
+        };
         clientAutoSkills.forEach(function(skill){
+            const tierName = (typeof getTierName === 'function') ? getTierName(String(skill.tier)) : ('T'+skill.tier);
+            const colorClass = tierColors[skill.tier] || tierColors[2];
             const html = `
-                <div class="inline-flex items-center px-3 py-1 bg-indigo-100 text-indigo-800 text-xs rounded-full border border-indigo-200">
+                <div class="inline-flex items-center px-3 py-1 rounded-full border text-xs ${colorClass}">
                     <span class="font-medium">${skill.skill_name}</span>
-                    <span class="ml-2 text-gray-600 text-xs">T${skill.tier}</span>
-                    <span class="ml-2 text-yellow-600 text-xs">(Custom)</span>
+                    <span class="ml-2 bg-white px-2 py-0.5 rounded-full text-xs font-bold">${tierName}</span>
+                    <span class="ml-2 text-yellow-600 text-xs">(Auto)</span>
                 </div>
             `;
             container.insertAdjacentHTML('beforeend', html);

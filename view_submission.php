@@ -86,6 +86,7 @@ if (empty($error)) {
         $bn = $path !== '' ? basename($path) : '';
         $fileName = $bn !== '' ? $bn : ($u['host'] ?? 'external link');
         // Try to infer extension from link path
+        
         $extLower = strtolower(pathinfo($path, PATHINFO_EXTENSION));
         $fileType = $extLower ? strtoupper($extLower) : 'LINK';
     } elseif (!empty($textContent)) {
@@ -184,6 +185,7 @@ try {
                 <?php echo htmlspecialchars($error); ?>
             </div>
         <?php else: ?>
+            <div id="submissionPreview">
             <div class="card">
                 <div class="row" style="margin-bottom:8px;">
                     <div class="file-pill">📄 <?php echo htmlspecialchars($fileName ?: 'Submission'); ?><?php if ($fileType): ?> <span style="margin-left:6px; font-weight:700; color:#111827;">• <?php echo htmlspecialchars($fileType); ?></span><?php endif; ?></div>
@@ -324,6 +326,7 @@ try {
                     </div>
                 <?php endif; ?>
             </div>
+            </div>
         <?php endif; ?>
     </div>
 
@@ -409,6 +412,34 @@ try {
             });
 
             // Removed custom 'view-newtab' handler to avoid duplicate behaviors; rely on default anchor behavior
+        })();
+    </script>
+    <script>
+        (function(){
+            const sid = <?php echo (int)$submission_id; ?>;
+            function refreshPreview(){
+                fetch('ajax_get_submission.php?submission_id=' + sid)
+                    .then(function(r){ if (!r.ok) throw new Error('fetch failed'); return r.text(); })
+                    .then(function(html){ var cont = document.getElementById('submissionPreview'); if (cont) cont.innerHTML = html; })
+                    .catch(function(){ try { location.reload(); } catch(e) { console.error(e); } });
+            }
+
+            window.addEventListener('storage', function(e){
+                if (!e) return;
+                if (e.key === 'yqs_submission_updated') {
+                    var payload = null;
+                    try { payload = JSON.parse(e.newValue); } catch(err) { payload = e.newValue; }
+                    var sid2 = payload && payload.submission_id ? payload.submission_id : null;
+                    if (!sid2 || sid2 == sid) refreshPreview();
+                }
+            });
+
+            if (window.BroadcastChannel) {
+                try {
+                    var bc = new BroadcastChannel('yqs_updates');
+                    bc.addEventListener('message', function(ev){ var d = ev && ev.data ? ev.data : null; if (!d) return; if (d.type === 'submission_updated') { var sid2 = d.id || null; if (!sid2 || sid2 == sid) refreshPreview(); } });
+                } catch(e) { console.error('BroadcastChannel init failed', e); }
+            }
         })();
     </script>
 </body>

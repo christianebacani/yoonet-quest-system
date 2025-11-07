@@ -76,6 +76,137 @@ if (!empty($submission) && is_array($submission)) {
     }
 }
 ?>
+<?php
+// Handle form POST to update an existing submission
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($submission) && is_array($submission)) {
+    $employee_id = $_SESSION['employee_id'] ?? '';
+    // ownership check
+    if (!empty($submission['employee_id']) && $employee_id && ((string)$submission['employee_id'] !== (string)$employee_id)) {
+        $error = 'You do not have permission to edit this submission.';
+    } else {
+        $submission_type = $_POST['submission_type'] ?? '';
+        $commentsPost = trim($_POST['comments'] ?? '');
+        $drive_link = trim($_POST['drive_link'] ?? '');
+        $text_content = trim($_POST['text_content'] ?? ($_POST['text'] ?? ''));
+        $allowed_exts = ['pdf','doc','docx','jpg','jpeg','png','txt','zip'];
+        $max_size = 5 * 1024 * 1024;
+        $valid = true;
+        $newFilePath = '';
+
+        // only allow edit if not graded/approved/rejected
+        $st = strtolower(trim($submission['status'] ?? 'pending'));
+        if (in_array($st, ['approved','rejected','graded','final'], true)) {
+            $error = 'This submission cannot be edited because it has already been finalized.';
+            $valid = false;
+        }
+
+        // File handling if file chosen
+        if ($valid && $submission_type === 'file') {
+            if (!empty($_FILES['quest_file']) && $_FILES['quest_file']['error'] !== UPLOAD_ERR_NO_FILE) {
+                $file = $_FILES['quest_file'];
+                if ($file['error'] !== UPLOAD_ERR_OK) {
+                    $error = 'File upload error: ' . (int)$file['error'];
+                    $valid = false;
+                } else {
+                    $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+                    if (!in_array($ext, $allowed_exts, true)) { $error = 'Invalid file type.'; $valid = false; }
+                    elseif ($file['size'] > $max_size) { $error = 'File too large (max 5MB).'; $valid = false; }
+                    else {
+                        $upload_dir = __DIR__ . '/uploads/quest_submissions/';
+                        if (!is_dir($upload_dir)) { mkdir($upload_dir, 0777, true); }
+                        $new_name = ($employee_id ?: 'u') . '_' . time() . '.' . $ext;
+                        $dest = $upload_dir . $new_name;
+                        if (move_uploaded_file($file['tmp_name'], $dest)) {
+                            $newFilePath = 'uploads/quest_submissions/' . $new_name;
+                        } else { $error = 'Failed to move uploaded file.'; $valid = false; }
+                    }
+                }
+            }
+        }
+
+        // validate link
+        if ($valid && $submission_type === 'link') {
+            if (empty($drive_link) || !filter_var($drive_link, FILTER_VALIDATE_URL)) { $error = 'Please enter a valid URL.'; $valid = false; }
+        }
+
+        // validate text
+        if ($valid && $submission_type === 'text') {
+            if (empty($text_content)) { $error = 'Please enter your text submission.'; $valid = false; }
+        }
+
+        // Build UPDATE using $qsCols (columns inspected earlier)
+        if ($valid) {
+            $updateParts = [];
+            $params = [];
+
+            if (in_array('submission_type', $qsCols, true)) { $updateParts[] = 'submission_type = ?'; $params[] = $submission_type; }
+            // File path (try common variants)
+            if ($submission_type === 'file' && $newFilePath !== '') {
+                if (in_array('file_path', $qsCols, true)) { $updateParts[] = 'file_path = ?'; $params[] = $newFilePath; }
+                elseif (in_array('filepath', $qsCols, true)) { $updateParts[] = 'filepath = ?'; $params[] = $newFilePath; }
+            }
+            // If switching away from file, clear any previous file path so view shows the new type
+            if ($submission_type !== 'file') {
+                if (in_array('file_path', $qsCols, true)) { $updateParts[] = 'file_path = ?'; $params[] = ''; }
+                elseif (in_array('filepath', $qsCols, true)) { $updateParts[] = 'filepath = ?'; $params[] = ''; }
+            }
+            // Drive/link
+            if ($submission_type === 'link') {
+                if (in_array('drive_link', $qsCols, true)) { $updateParts[] = 'drive_link = ?'; $params[] = $drive_link; }
+                elseif (in_array('link', $qsCols, true)) { $updateParts[] = 'link = ?'; $params[] = $drive_link; }
+            }
+            // If switching away from link, clear any previous drive/link value
+            if ($submission_type !== 'link') {
+                if (in_array('drive_link', $qsCols, true)) { $updateParts[] = 'drive_link = ?'; $params[] = ''; }
+                elseif (in_array('link', $qsCols, true)) { $updateParts[] = 'link = ?'; $params[] = ''; }
+            }
+            // Text content - try both possible column names
+            if ($submission_type === 'text') {
+                if (in_array('text_content', $qsCols, true)) { $updateParts[] = 'text_content = ?'; $params[] = $text_content; }
+                elseif (in_array('submission_text', $qsCols, true)) { $updateParts[] = 'submission_text = ?'; $params[] = $text_content; }
+            }
+            // If switching away from text, clear any previous text fields
+            if ($submission_type !== 'text') {
+                if (in_array('text_content', $qsCols, true)) { $updateParts[] = 'text_content = ?'; $params[] = ''; }
+                if (in_array('submission_text', $qsCols, true)) { $updateParts[] = 'submission_text = ?'; $params[] = ''; }
+            }
+            if (in_array('comments', $qsCols, true)) { $updateParts[] = 'comments = ?'; $params[] = $commentsPost; }
+            if (in_array('status', $qsCols, true)) { $updateParts[] = 'status = ?'; $params[] = 'submitted'; }
+            if (in_array('updated_at', $qsCols, true)) { $updateParts[] = 'updated_at = NOW()'; }
+            elseif (in_array('submitted_at', $qsCols, true)) { $updateParts[] = 'submitted_at = NOW()'; }
+
+            if (!empty($updateParts)) {
+                $sql = 'UPDATE quest_submissions SET ' . implode(', ', $updateParts) . ' WHERE id = ? LIMIT 1';
+                $params[] = $submission_id;
+                try {
+                    $ustmt = $pdo->prepare($sql);
+                    $ustmt->execute($params);
+
+                    // If file replaced, remove old file (best-effort)
+                    if (!empty($newFilePath) && !empty($submission['file_path']) && $submission['file_path'] !== $newFilePath) {
+                        $old = __DIR__ . '/' . $submission['file_path'];
+                        if (is_file($old)) { @unlink($old); }
+                    }
+
+                    // refresh submission for UI
+                    $rs = $pdo->prepare("SELECT * FROM quest_submissions WHERE id = ?");
+                    $rs->execute([$submission_id]);
+                    $submission = $rs->fetch(PDO::FETCH_ASSOC) ?: $submission;
+                    $success = 'Submission updated successfully!';
+                    // Broadcast update to other contexts (BroadcastChannel + localStorage)
+                    // BroadcastChannel (modern browsers)
+                    echo "<script>try{ if(window.BroadcastChannel){ var bc=new BroadcastChannel('yqs_updates'); bc.postMessage({type:'submission_updated', id:".((int)$submission_id)."}); }}catch(e){};</script>";
+                } catch (PDOException $uex) {
+                    error_log('edit_submission update failed: ' . $uex->getMessage());
+                    $error = 'Failed to save changes. Please try again.';
+                }
+            } else {
+                $error = 'Nothing to update.';
+            }
+        }
+    }
+}
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -165,6 +296,25 @@ if (!empty($submission) && is_array($submission)) {
                     .modern-success-card { padding: 24px 4vw 18px 4vw; min-width: 0; }
                 }
                 </style>
+                <script>
+                // Notify other windows/tabs that a submission was updated so they can refresh
+                (function(){
+                    try {
+                        // set a localStorage flag (other tabs can listen)
+                        try { localStorage.setItem('yqs_submission_updated', JSON.stringify({ submission_id: <?php echo (int)$submission_id; ?>, ts: Date.now() })); } catch(e){}
+                    } catch(e){}
+                    // try to refresh opener or parent window if present
+                    document.addEventListener('DOMContentLoaded', function(){
+                        try {
+                            if (window.opener && !window.opener.closed) {
+                                window.opener.location.reload();
+                            } else if (window.parent && window.parent !== window) {
+                                try { window.parent.location.reload(); } catch(e) {}
+                            }
+                        } catch(e){}
+                    });
+                })();
+                </script>
             <?php }
             if (empty($success)) { ?>
             <form method="post" enctype="multipart/form-data" id="submissionForm">
@@ -332,6 +482,93 @@ if (!empty($submission) && is_array($submission)) {
             });
         }
     });
+    </script>
+    <script>
+    // Confetti canvas + sound for success (shared behavior)
+    (function() {
+        function launchConfetti(kind) {
+            // create canvas
+            var c = document.createElement('canvas');
+            c.style.position = 'fixed'; c.style.left = 0; c.style.top = 0; c.style.width = '100%'; c.style.height = '100%';
+            c.style.pointerEvents = 'none'; c.style.zIndex = 99999; document.body.appendChild(c);
+            var ctx = c.getContext('2d');
+            function resize() { c.width = window.innerWidth; c.height = window.innerHeight; }
+            resize(); window.addEventListener('resize', resize);
+
+            var particles = [];
+            var colors = ['#ef4444','#f59e0b','#fde68a','#34d399','#60a5fa','#a78bfa','#fb7185'];
+            for (var i=0;i<120;i++) {
+                particles.push({
+                    x: Math.random()*c.width,
+                    y: Math.random()*c.height - c.height/2,
+                    vx: (Math.random()-0.5)*8,
+                    vy: Math.random()*6+2,
+                    r: Math.random()*8+4,
+                    color: colors[Math.floor(Math.random()*colors.length)],
+                    rot: Math.random()*360,
+                    vr: (Math.random()-0.5)*10
+                });
+            }
+
+            var ticks = 0;
+            var raf;
+            function frame() {
+                ctx.clearRect(0,0,c.width,c.height);
+                for (var i=0;i<particles.length;i++) {
+                    var p = particles[i];
+                    p.x += p.vx; p.y += p.vy; p.vy += 0.12; p.rot += p.vr;
+                    ctx.save();
+                    ctx.translate(p.x,p.y); ctx.rotate(p.rot*Math.PI/180);
+                    ctx.fillStyle = p.color; ctx.fillRect(-p.r/2,-p.r/2,p.r,p.r*0.6);
+                    ctx.restore();
+                }
+                ticks++; if (ticks>220) { cancelAnimationFrame(raf); document.body.removeChild(c); window.removeEventListener('resize', resize); }
+                else raf = requestAnimationFrame(frame);
+            }
+            playSuccessSound(kind);
+            raf = requestAnimationFrame(frame);
+        }
+
+        function playSuccessSound(kind) {
+            try {
+                var ctx = new (window.AudioContext || window.webkitAudioContext)();
+                var now = ctx.currentTime;
+                if (kind === 'create') {
+                    // brief 3-note ascending arpeggio
+                    var freqs = [440, 660, 880];
+                    freqs.forEach(function(f, idx){
+                        var o = ctx.createOscillator(); var g = ctx.createGain();
+                        o.type = 'sine'; o.frequency.value = f; g.gain.value = 0.001;
+                        o.connect(g); g.connect(ctx.destination);
+                        var t = now + idx*0.08;
+                        g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.12, t+0.02);
+                        g.gain.exponentialRampToValueAtTime(0.0001, t+0.28);
+                        o.start(t); o.stop(t+0.3);
+                    });
+                } else {
+                    // edit: single warm chord
+                    var freqs = [330, 440, 550];
+                    freqs.forEach(function(f){
+                        var o = ctx.createOscillator(); var g = ctx.createGain();
+                        o.type = 'sine'; o.frequency.value = f; g.gain.value = 0.0001;
+                        o.connect(g); g.connect(ctx.destination);
+                        g.gain.setValueAtTime(0.0001, now); g.gain.exponentialRampToValueAtTime(0.14, now+0.02);
+                        g.gain.exponentialRampToValueAtTime(0.0001, now+0.4);
+                        o.start(now); o.stop(now+0.45);
+                    });
+                }
+            } catch (e) { /* audio not supported */ }
+        }
+
+        // auto-launch when success overlay present
+        document.addEventListener('DOMContentLoaded', function(){
+            var ov = document.getElementById('successOverlay');
+            if (ov) {
+                // determine kind: edit page -> 'edit'
+                launchConfetti('edit');
+            }
+        });
+    })();
     </script>
     <style>
         .modern-radio-group {
