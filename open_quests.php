@@ -316,7 +316,7 @@ document.addEventListener('DOMContentLoaded', function() {
         .btn:hover { background:#3737b8; color:#fff; }
     .empty { text-align:center; color:#6B7280; padding:40px; font-size:1.1rem; }
     .oq-table { width:100%; border-collapse: collapse; background:#fff; border-radius:8px; overflow:hidden; }
-    .oq-table th, .oq-table td { border-bottom: 1px solid #eee; padding: 10px; text-align:left; font-size: 1rem; }
+    .oq-table th, .oq-table td { border-bottom: 1px solid #eee; padding: 10px; text-align:left; font-size: 1rem; vertical-align: middle; }
     .oq-table th { background: #f9fafb; font-size: 14px; font-weight: 600; color: #374151; }
     .oq-table tr:last-child td { border-bottom: none; }
     .badge { display: inline-block; padding: 4px 12px; border-radius: 9999px; font-size: 0.98em; font-weight: 600; letter-spacing: 0.01em; }
@@ -325,14 +325,18 @@ document.addEventListener('DOMContentLoaded', function() {
         background: #e0e7ff;
         color: #3730a3;
         border: 1px solid #6366f1;
-        display: inline-block;
-        max-width: 46ch; /* approximate readable width, adapts to font */
+        display: -webkit-box; /* enable line-clamp */
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2; /* show up to 2 lines */
+        max-width: 42ch; /* reasonable width for titles */
         white-space: normal; /* allow wrapping */
-        overflow-wrap: anywhere; /* break long words if needed */
-        word-break: break-word;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        line-height: 1.2;
+        padding: 8px 12px; /* compact padding for multi-line */
+        border-radius: 9999px;
         vertical-align: middle;
-        line-height: 1.25;
-        padding: 8px 14px; /* slightly larger padding for multi-line */
+        box-sizing: border-box;
     }
     .badge-due { background: #fef3c7; color: #92400e; border: 1px solid #f59e0b; }
         @media (max-width: 600px) {
