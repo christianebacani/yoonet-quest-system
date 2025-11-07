@@ -295,6 +295,18 @@
     </div>
 
     <!-- Assignment Section (partial - show employees list like create_quest) -->
+    <?php
+    // Only show the assignment UI when in create/edit mode, or when viewing as the quest creator.
+    // For viewers who are not the creator (e.g. submitters), we hide this section to avoid confusion.
+    $show_assignment_section = true;
+    if (isset($mode) && $mode === 'view') {
+        // If $is_creator is not set or false, don't show the assignment section in view mode
+        if (empty($is_creator) || !$is_creator) {
+            $show_assignment_section = false;
+        }
+    }
+    if ($show_assignment_section):
+    ?>
     <?php if (isset($mode) && $mode === 'view'): ?>
     <div class="w-full mt-6">
         <div class="card p-6">
@@ -385,7 +397,9 @@
         </div>
     </div>
 
-    <!-- Submit Button area (we'll keep button visible but in view mode we'll disable it via JS) -->
+        <?php endif; // end show_assignment_section ?>
+
+        <!-- Submit Button area (we'll keep button visible but in view mode we'll disable it via JS) -->
     <?php if (!isset($mode) || $mode !== 'view'): ?>
     <div class="mt-8 pt-6 border-t border-gray-100">
         <div class="flex justify-center">
