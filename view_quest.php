@@ -103,6 +103,13 @@ try {
 }
 
 // Render page (minimal, reusing site CSS)
+// Decide where the Back link should go. If we were opened from My Quests, return there.
+$back_link = 'created_quests.php';
+if (isset($_GET['from']) && $_GET['from'] === 'my_quests') {
+    $back_link = 'my_quests.php';
+} elseif (!empty($_SERVER['HTTP_REFERER']) && strpos($_SERVER['HTTP_REFERER'], 'my_quests.php') !== false) {
+    $back_link = 'my_quests.php';
+}
 ?>
 <!doctype html>
 <html lang="en">
@@ -131,7 +138,7 @@ try {
 <body>
 <div class="container">
     <?php if (!isset($quest['display_type']) || $quest['display_type'] !== 'client_support'): ?>
-        <a href="created_quests.php" class="btn btn-ghost">← Back</a>
+        <a href="<?php echo htmlspecialchars($back_link); ?>" class="btn btn-ghost">← Back</a>
         <h1><?php echo htmlspecialchars($quest['title']); ?></h1>
         <div class="meta">Status: <?php echo htmlspecialchars($quest['status']); ?> | Due: <?php echo !empty($quest['due_date']) ? htmlspecialchars($quest['due_date']) : '—'; ?></div>
 
@@ -140,7 +147,7 @@ try {
             <div><?php echo nl2br(htmlspecialchars($quest['description'])); ?></div>
         </div>
     <?php else: ?>
-        <a href="created_quests.php" class="btn btn-ghost">← Back</a>
+        <a href="<?php echo htmlspecialchars($back_link); ?>" class="btn btn-ghost">← Back</a>
     <?php endif; ?>
 
     <?php if (isset($quest['display_type']) && $quest['display_type'] === 'client_support'): ?>

@@ -63,7 +63,7 @@ try {
         // prevents optional 'assigned' entries from showing until the user
         // accepts them (they become 'in_progress').
         // Allowed statuses chosen to cover typical lifecycle states.
-    $sql = "SELECT uq.*, q.title, q.description, q.due_date, q.quest_assignment_type, q.id as quest_id
+    $sql = "SELECT uq.*, q.title, q.description, q.due_date, q.quest_assignment_type, q.display_type, q.id as quest_id
             FROM user_quests uq
             JOIN quests q ON uq.quest_id = q.id
             WHERE uq.employee_id = ?
@@ -232,29 +232,32 @@ if (isset($_GET['debug'])) {
                             <td style="padding:10px 8px;vertical-align:middle;">
                                 <div class="action-group">
                                 <?php
-                                // If the quest is marked missed, do not show submit button
-                                                        if ($uqStatus === 'missed') {
-                                                            // Show a submit-looking button but disabled so users see the familiar affordance
-                                                            // while being unable to act. This mirrors classroom behaviour (grayed/disabled).
-                                                            echo '<button class="action-btn action-disabled action-small" disabled title="Deadline passed — submissions are closed" aria-disabled="true">Submit</button>';
-                                                        } elseif (!$isSubmitted) {
-                                                            echo '<a class="action-btn action-primary" href="submit_quest.php?quest_id=' . (int)$q['quest_id'] . '" role="button">Submit</a>';
+                                // Actions mapping for submitter view:
+                                // - Pending (not submitted): View Quest Details + Submit
+                                // - Submitted (not graded): View Submission + Edit Submission
+                                // - Graded: View Grade + View Submission
+                                // - Missed: disabled Submit
+
+                                if ($uqStatus === 'missed') {
+                                    // Missed: show disabled submit button
+                                    echo '<button class="action-btn action-disabled action-small" disabled title="Deadline passed — submissions are closed" aria-disabled="true">Submit</button>';
+
                                 } elseif ($isGraded) {
-                                    // Graded: show View Submission and View Grade
-                                    echo '<a class="action-btn action-primary" href="view_submission.php?submission_id=' . (int)($submission['id'] ?? 0) . '" role="button">View Submission</a>';
+                                    // Graded: show View Grade and View Submission
                                     echo '<a class="action-btn action-accent" href="view_grade.php?submission_id=' . (int)($submission['id'] ?? 0) . '" role="button">View Grade</a>';
-                                } elseif (!empty($submission['id'])) {
+                                    echo '<a class="action-btn action-primary" href="view_submission.php?submission_id=' . (int)($submission['id'] ?? 0) . '" role="button">View Submission</a>';
+
+                                } elseif ($isSubmitted) {
                                     // Submitted but not graded: show View Submission and Edit Submission
-                                    echo '<a class="action-btn action-primary" href="view_submission.php?submission_id=' . (int)($submission['id']) . '" role="button">View Submission</a>';
-                                    echo '<a class="action-btn action-primary" href="edit_submission.php?submission_id=' . (int)($submission['id']) . '" role="button">Edit Submission</a>';
+                                    echo '<a class="action-btn action-primary" href="view_submission.php?submission_id=' . (int)($submission['id'] ?? 0) . '" role="button">View Submission</a>';
+                                    echo '<a class="action-btn action-primary" href="edit_submission.php?submission_id=' . (int)($submission['id'] ?? 0) . '" role="button">Edit Submission</a>';
+
                                 } else {
-                                    echo '<span class="action-btn action-secondary action-small" aria-hidden="true">Submitted</span>';
+                                    // Pending: show View Quest Details + Submit
+                                    echo '<a class="action-btn action-secondary" href="view_quest.php?id=' . (int)$q['quest_id'] . '&from=my_quests" role="button">View Quest Details</a>';
+                                    echo '<a class="action-btn action-primary" href="submit_quest.php?quest_id=' . (int)$q['quest_id'] . '" role="button">Submit</a>';
                                 }
-                                
-                                // end action buttons
-                                
-                                
-                                
+
                                 ?>
                                 </div>
                             </td>
