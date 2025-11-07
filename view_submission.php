@@ -49,6 +49,18 @@ if (empty($error)) {
     $quest = [ 'id' => (int)$submission['quest_id'], 'title' => (string)$submission['quest_title'] ];
 }
 
+// Try to fetch quest display_type for specialized rendering
+if (empty($error)) {
+    try {
+        $qstmt = $pdo->prepare("SELECT display_type FROM quests WHERE id = ? LIMIT 1");
+        $qstmt->execute([(int)$submission['quest_id']]);
+        $qrow = $qstmt->fetch(PDO::FETCH_ASSOC);
+        if ($qrow) { $quest['display_type'] = $qrow['display_type'] ?? null; }
+    } catch (PDOException $e) {
+        // ignore
+    }
+}
+
 // Helper to get absolute-ish URL for local files (relative path works under same site)
 $filePath = '';
 $driveLink = '';
@@ -366,6 +378,63 @@ try {
                             <div style="font-weight:600;margin-bottom:6px;">Comments</div>
                             <div style="background:#fff;border:1px solid #e5e7eb;padding:12px;border-radius:8px;color:#111827;"><?php echo nl2br(htmlspecialchars($submission['comments'])); ?></div>
                         </div>
+                    <?php endif; ?>
+                    
+                    <?php
+                        // If this quest is client_support, render all client/support specific submitted fields
+                        $isClientSupport = (isset($quest['display_type']) && $quest['display_type'] === 'client_support');
+                        // Also render if there are known client fields present
+                        $hasClientFields = !empty($submission['ticket_reference'] ?? $submission['ticket_id'] ?? $submission['action_taken'] ?? $submission['time_spent'] ?? $submission['evidence_json'] ?? $submission['evidence']);
+                        if ($isClientSupport || $hasClientFields):
+                            $ticket = $submission['ticket_reference'] ?? $submission['ticket_id'] ?? $submission['ticket'] ?? '';
+                            $action_taken = $submission['action_taken'] ?? $submission['text_content'] ?? $submission['text'] ?? '';
+                            $time_spent = $submission['time_spent'] ?? $submission['time_spent_hours'] ?? $submission['time_spent_hrs'] ?? '';
+                            $resolution_status = $submission['resolution_status'] ?? '';
+                            $follow_up = $submission['follow_up_required'] ?? $submission['follow_up'] ?? '';
+                            // Evidence: support multiple storage formats
+                            $evidence_list = [];
+                            if (!empty($submission['evidence_json'])) {
+                                $tmp = json_decode($submission['evidence_json'], true);
+                                if (is_array($tmp)) $evidence_list = $tmp;
+                            } elseif (!empty($submission['evidence'])) {
+                                $tmp = json_decode($submission['evidence'], true);
+                                if (is_array($tmp)) $evidence_list = $tmp; else $evidence_list = array_map('trim', explode(',', $submission['evidence']));
+                            }
+                    ?>
+                    <div style="margin-top:12px;">
+                        <div style="font-weight:700;margin-bottom:8px;">Client & Support Details</div>
+                        <div class="card" style="padding:12px;">
+                            <?php if (!empty($ticket)): ?>
+                                <div style="margin-bottom:8px;"><strong>Ticket / Reference ID:</strong> <?php echo htmlspecialchars($ticket); ?></div>
+                            <?php endif; ?>
+                            <?php if (!empty($action_taken)): ?>
+                                <div style="margin-bottom:8px;"><strong>Action Taken / Resolution:</strong>
+                                    <div style="background:#fff;border:1px solid #e5e7eb;padding:10px;border-radius:8px;color:#111827;margin-top:6px;white-space:pre-wrap;"><?php echo nl2br(htmlspecialchars($action_taken)); ?></div>
+                                </div>
+                            <?php endif; ?>
+                            <?php if ($time_spent !== ''): ?>
+                                <div style="margin-bottom:8px;"><strong>Time Spent (hours):</strong> <?php echo htmlspecialchars($time_spent); ?></div>
+                            <?php endif; ?>
+                            <?php if (!empty($evidence_list)): ?>
+                                <div style="margin-bottom:8px;"><strong>Evidence Provided:</strong>
+                                    <ul style="margin-top:6px;">
+                                        <?php foreach ($evidence_list as $ev): ?><li><?php echo htmlspecialchars($ev); ?></li><?php endforeach; ?>
+                                    </ul>
+                                </div>
+                            <?php endif; ?>
+                            <?php if (!empty($filePath)): ?>
+                                <div style="margin-bottom:8px;"><strong>Supporting file:</strong>
+                                    <div style="margin-top:6px;"><a href="<?php echo htmlspecialchars($absUrl); ?>" target="_blank" rel="noopener"><?php echo htmlspecialchars($fileName); ?></a> <?php if (!$isLink): ?>• <a href="<?php echo htmlspecialchars($absUrl); ?>" download>Download</a><?php endif; ?></div>
+                                </div>
+                            <?php endif; ?>
+                            <?php if ($resolution_status !== ''): ?>
+                                <div style="margin-bottom:8px;"><strong>Resolution Outcome:</strong> <?php echo htmlspecialchars($resolution_status); ?></div>
+                            <?php endif; ?>
+                            <?php if ($follow_up !== ''): ?>
+                                <div style="margin-bottom:8px;"><strong>Follow-up required:</strong> <?php echo ($follow_up=='1' || strtolower($follow_up)==='yes' || $follow_up===true) ? 'Yes' : 'No'; ?></div>
+                            <?php endif; ?>
+                        </div>
+                    </div>
                     <?php endif; ?>
             </div>
             </div>

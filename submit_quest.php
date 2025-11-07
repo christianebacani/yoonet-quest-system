@@ -134,6 +134,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $quest_id && $employee_id) {
         if (!empty($evidence) && is_array($evidence)) {
             $evidence_json = json_encode(array_values($evidence));
         }
+        $resolution_status = trim($_POST['resolution_status'] ?? '');
+        $follow_up_required = isset($_POST['follow_up_required']) ? 1 : 0;
 
         // Merge ticket and time into comments for backward compatibility if DB lacks dedicated columns
         if (!empty($ticket_reference) || $time_spent_hours !== null) {
@@ -229,10 +231,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $quest_id && $employee_id) {
             $valid = false;
         }
     } elseif ($submission_type === 'text') {
-        $text = trim($_POST['text_content'] ?? '');
-        if (empty($text)) {
-            $error = 'Please enter your text submission.';
-            $valid = false;
+        // For client_support quests we use 'action_taken' as the text input (already set earlier).
+        if (isset($quest['display_type']) && $quest['display_type'] === 'client_support') {
+            // $text should already be populated from the client_support handling above; re-check it here
+            if (empty($text)) {
+                $error = 'Please describe the action taken to resolve the client request or complete the task.';
+                $valid = false;
+            }
+        } else {
+            $text = trim($_POST['text_content'] ?? '');
+            if (empty($text)) {
+                $error = 'Please enter your text submission.';
+                $valid = false;
+            }
         }
     } else {
         $error = 'Invalid submission type.';
@@ -328,6 +339,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $quest_id && $employee_id) {
         // Optional comments
         if ($valid && in_array('comments', $questSubmissionColumns, true)) {
             $insertColumns[] = 'comments'; $placeholders[] = '?'; $params[] = $comments;
+        }
+
+        // Client & Support specific fields: ticket, time spent, evidence JSON, resolution status, follow-up
+        if ($valid) {
+            // ticket_reference or ticket_id
+            if (in_array('ticket_reference', $questSubmissionColumns, true)) { $insertColumns[] = 'ticket_reference'; $placeholders[] = '?'; $params[] = $ticket_reference; }
+            elseif (in_array('ticket_id', $questSubmissionColumns, true)) { $insertColumns[] = 'ticket_id'; $placeholders[] = '?'; $params[] = $ticket_reference; }
+
+            // time_spent_hours or time_spent
+            if (in_array('time_spent_hours', $questSubmissionColumns, true)) { $insertColumns[] = 'time_spent_hours'; $placeholders[] = '?'; $params[] = $time_spent_hours; }
+            elseif (in_array('time_spent', $questSubmissionColumns, true)) { $insertColumns[] = 'time_spent'; $placeholders[] = '?'; $params[] = $time_spent_hours; }
+
+            // evidence_json or evidence
+            if (in_array('evidence_json', $questSubmissionColumns, true)) { $insertColumns[] = 'evidence_json'; $placeholders[] = '?'; $params[] = $evidence_json; }
+            elseif (in_array('evidence', $questSubmissionColumns, true)) { $insertColumns[] = 'evidence'; $placeholders[] = '?'; $params[] = $evidence_json; }
+
+            // resolution_status
+            if (in_array('resolution_status', $questSubmissionColumns, true)) { $insertColumns[] = 'resolution_status'; $placeholders[] = '?'; $params[] = $resolution_status ?? ''; }
+
+            // follow_up_required
+            if (in_array('follow_up_required', $questSubmissionColumns, true)) { $insertColumns[] = 'follow_up_required'; $placeholders[] = '?'; $params[] = $follow_up_required ?? 0; }
         }
 
         // status
