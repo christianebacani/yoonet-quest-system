@@ -140,8 +140,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $quest_id && $employee_id) {
                     $new_name = $employee_id . '_' . time() . '.' . $ext;
                     $dest = $upload_dir . $new_name;
                     if (move_uploaded_file($file['tmp_name'], $dest)) {
-                        $file_path = 'uploads/quest_submissions/' . $new_name;
-                    } else {
+                            $file_path = 'uploads/quest_submissions/' . $new_name;
+                            // preserve original uploaded filename for display if DB supports it
+                            $original_filename = $file['name'];
+                        } else {
                         $error = 'Failed to move uploaded file. Check server permissions.';
                         $valid = false;
                     }
@@ -188,6 +190,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $quest_id && $employee_id) {
             $schemaStmt = $pdo->query("SHOW COLUMNS FROM quest_submissions");
             $cols = $schemaStmt->fetchAll(PDO::FETCH_ASSOC);
             foreach ($cols as $c) { $questSubmissionColumns[] = $c['Field']; }
+            // If DB doesn't have any original-filename column, try to add a conservative one for display
+            $origCols = ['file_name','original_name','original_filename','file_original_name','original_file_name'];
+            $hasOrig = false;
+            foreach ($origCols as $oc) { if (in_array($oc, $questSubmissionColumns, true)) { $hasOrig = true; break; } }
+            if (!$hasOrig) {
+                try {
+                    $pdo->exec("ALTER TABLE quest_submissions ADD COLUMN IF NOT EXISTS file_name VARCHAR(255) DEFAULT '' NULL");
+                    // refresh columns
+                    $schemaStmt = $pdo->query("SHOW COLUMNS FROM quest_submissions");
+                    $cols = $schemaStmt->fetchAll(PDO::FETCH_ASSOC);
+                    $questSubmissionColumns = [];
+                    foreach ($cols as $c) { $questSubmissionColumns[] = $c['Field']; }
+                } catch (PDOException $altex) {
+                    // ignore alter errors; it's best-effort
+                    error_log('Could not add file_name column to quest_submissions: ' . $altex->getMessage());
+                }
+            }
         } catch (PDOException $schemaEx) {
             // If schema inspection fails, fallback to a conservative set of columns
             error_log('Unable to inspect quest_submissions schema: ' . $schemaEx->getMessage());
@@ -215,6 +234,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $quest_id && $employee_id) {
         $hasContentColumn = false;
         if ($submission_type === 'file' && in_array('file_path', $questSubmissionColumns, true)) {
             $insertColumns[] = 'file_path'; $placeholders[] = '?'; $params[] = $file_path; $hasContentColumn = true;
+            // If the schema has a column to preserve the original uploaded filename, store it
+            $origCols = ['file_name','original_name','original_filename','file_original_name','original_file_name'];
+            $storedOriginal = $original_filename ?? basename($file_path);
+            foreach ($origCols as $oc) {
+                if (in_array($oc, $questSubmissionColumns, true)) {
+                    $insertColumns[] = $oc; $placeholders[] = '?'; $params[] = $storedOriginal; break;
+                }
+            }
         } elseif ($submission_type === 'link' && in_array('drive_link', $questSubmissionColumns, true)) {
             $insertColumns[] = 'drive_link'; $placeholders[] = '?'; $params[] = $drive_link; $hasContentColumn = true;
         } elseif ($submission_type === 'text' && in_array('text_content', $questSubmissionColumns, true)) {

@@ -72,7 +72,17 @@ $inlineId = '';
 $isLink = false;
 if (empty($error)) {
     if (!empty($filePath)) {
-        $fileName = basename($filePath);
+        // Prefer an explicitly stored original filename if present in the submission row
+        $fileNameCandidates = [
+            $submission['file_name'] ?? null,
+            $submission['original_name'] ?? null,
+            $submission['original_filename'] ?? null,
+            $submission['file_original_name'] ?? null,
+            $submission['original_file_name'] ?? null,
+        ];
+        $fileName = '';
+        foreach ($fileNameCandidates as $c) { if (!empty($c)) { $fileName = $c; break; } }
+        if (empty($fileName)) { $fileName = basename($filePath); }
         $absUrl = $filePath; // relative URL should work
         $extLower = strtolower(pathinfo($absUrl, PATHINFO_EXTENSION));
         $fileType = strtoupper($extLower);

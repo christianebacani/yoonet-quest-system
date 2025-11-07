@@ -141,6 +141,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($submission) && is_array($su
         }
 
         // validate link
+        // allow clients to request removal of existing file via hidden flag
+        $removeFileFlag = !empty($_POST['remove_file']) && $_POST['remove_file'] === '1';
+
         if ($valid && $submission_type === 'link') {
             if (empty($drive_link) || !filter_var($drive_link, FILTER_VALIDATE_URL)) { $error = 'Please enter a valid URL.'; $valid = false; }
         }
@@ -160,6 +163,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($submission) && is_array($su
             if ($submission_type === 'file' && $newFilePath !== '') {
                 if (in_array('file_path', $qsCols, true)) { $updateParts[] = 'file_path = ?'; $params[] = $newFilePath; }
                 elseif (in_array('filepath', $qsCols, true)) { $updateParts[] = 'filepath = ?'; $params[] = $newFilePath; }
+                // also update original filename/display name columns if present
+                $origCols = ['file_name','original_name','original_filename','file_original_name','original_file_name'];
+                $origName = $_FILES['quest_file']['name'] ?? basename($newFilePath);
+                foreach ($origCols as $oc) {
+                    if (in_array($oc, $qsCols, true)) { $updateParts[] = $oc . ' = ?'; $params[] = $origName; break; }
+                }
+            }
+            // If user requested to remove the file without uploading a new one, clear file_path and original name
+            if ($submission_type === 'file' && $newFilePath === '' && !empty($removeFileFlag)) {
+                if (in_array('file_path', $qsCols, true)) { $updateParts[] = 'file_path = ?'; $params[] = ''; }
+                elseif (in_array('filepath', $qsCols, true)) { $updateParts[] = 'filepath = ?'; $params[] = ''; }
+                foreach (['file_name','original_name','original_filename','file_original_name','original_file_name'] as $oc) {
+                    if (in_array($oc, $qsCols, true)) { $updateParts[] = $oc . ' = ?'; $params[] = ''; break; }
+                }
+                // remove stored file from disk (best-effort)
+                if (!empty($submission['file_path'])) { $oldp = __DIR__ . '/' . $submission['file_path']; if (is_file($oldp)) { @unlink($oldp); } }
             }
             // If switching away from file, clear any previous file path so view shows the new type
             if ($submission_type !== 'file') {
@@ -346,9 +365,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($submission) && is_array($su
                     <div id="dropzone" class="dropzone">Drag & drop your file here or click to select
                         <input class="form-input" type="file" id="quest_file" name="quest_file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.txt,.zip">
                     </div>
-                    <button type="button" id="clearFileBtn" class="btn btn-primary" style="margin-top:8px;display:none; background: linear-gradient(90deg, #6366f1 0%, #4f46e5 100%); color: #fff; border: none; border-radius: 8px; padding: 10px 28px; font-size: 1.05em; font-weight: 600; box-shadow: 0 2px 8px #6366f133; transition: background 0.2s, box-shadow 0.2s;">Unselect File</button>
+                    <button type="button" id="clearFileBtn" class="btn btn-primary" style="margin-top:8px;<?php echo !empty($submission['file_path']) ? 'display:inline-block;' : 'display:none;'; ?> background: linear-gradient(90deg, #6366f1 0%, #4f46e5 100%); color: #fff; border: none; border-radius: 8px; padding: 10px 28px; font-size: 1.05em; font-weight: 600; box-shadow: 0 2px 8px #6366f133; transition: background 0.2s, box-shadow 0.2s;">Unselect File</button>
                     <div class="error-message" id="fileError" style="display:none;"></div>
-                    <div class="file-info" id="fileInfo" style="margin-top:8px;"><?php if (!empty($submission['file_path'])) { echo htmlspecialchars(basename($submission['file_path'])); } ?></div>
+                    <div class="file-info" id="fileInfo" style="margin-top:8px;">
+                        <?php
+                            // Prefer stored original filename fields for display
+                            $fileNameCandidates = [
+                                $submission['file_name'] ?? null,
+                                $submission['original_name'] ?? null,
+                                $submission['original_filename'] ?? null,
+                                $submission['file_original_name'] ?? null,
+                                $submission['original_file_name'] ?? null,
+                            ];
+                            $displayName = '';
+                            foreach ($fileNameCandidates as $c) { if (!empty($c)) { $displayName = $c; break; } }
+                            if (empty($displayName) && !empty($submission['file_path'])) { $displayName = basename($submission['file_path']); }
+                            echo htmlspecialchars($displayName);
+                        ?>
+                    </div>
+                    <input type="hidden" name="remove_file" id="remove_file" value="0">
                     <div class="meta">PDF, DOC, DOCX, JPG, PNG, TXT, ZIP (Max 5MB)</div>
                     <div class="progress-bar" id="progressBar" style="display:none;"><div class="progress-bar-inner" id="progressBarInner"></div></div>
                 </div>
@@ -415,17 +450,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($submission) && is_array($su
             });
             fileInput.addEventListener('change', function() {
                 validateFiles();
+                // If user selects a new file, ensure remove flag is cleared
+                var removeInput = document.getElementById('remove_file'); if (removeInput) { removeInput.value = '0'; }
                 if (fileInput.files.length) {
                     clearFileBtn.style.display = 'inline-block';
                 } else {
-                    clearFileBtn.style.display = 'none';
+                    // if no file selected, hide only if there is no existing stored file name
+                    var hasStored = (fileInfo && fileInfo.textContent && fileInfo.textContent.trim() !== '');
+                    clearFileBtn.style.display = hasStored ? 'inline-block' : 'none';
                 }
             });
             // Unselect/Clear file button logic
             if (clearFileBtn) {
                 clearFileBtn.addEventListener('click', function() {
+                    // mark removal for server, clear file input and show placeholder
                     fileInput.value = '';
-                    fileInfo.textContent = '';
+                    var removeInput = document.getElementById('remove_file'); if (removeInput) { removeInput.value = '1'; }
+                    if (fileInfo) { fileInfo.textContent = 'No file selected'; }
                     fileError.style.display = 'none';
                     clearFileBtn.style.display = 'none';
                 });
