@@ -366,6 +366,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Description is required';
     } elseif (strlen($description) > 2000) {
         $error = 'Description must be less than 2000 characters';
+    } elseif (empty($due_date)) {
+        // Require due date when editing a quest
+        $error = 'Due date is required';
     } elseif (!in_array($quest_assignment_type, ['mandatory', 'optional'])) {
         $error = 'Please select a valid assignment type (mandatory or optional)';
     } elseif (!empty($due_date) && !strtotime($due_date)) {
