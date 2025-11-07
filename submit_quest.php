@@ -277,6 +277,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $quest_id && $employee_id) {
             foreach ($origCols as $oc) { if (in_array($oc, $questSubmissionColumns, true)) { $hasOrig = true; break; } }
             if (!$hasOrig) {
                 try {
+                    // Try to add a column to preserve original filenames. IF NOT EXISTS is supported on newer MySQL; wrap in try/catch for compatibility.
                     $pdo->exec("ALTER TABLE quest_submissions ADD COLUMN IF NOT EXISTS file_name VARCHAR(255) DEFAULT '' NULL");
                     // refresh columns
                     $schemaStmt = $pdo->query("SHOW COLUMNS FROM quest_submissions");
@@ -286,6 +287,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $quest_id && $employee_id) {
                 } catch (PDOException $altex) {
                     // ignore alter errors; it's best-effort
                     error_log('Could not add file_name column to quest_submissions: ' . $altex->getMessage());
+                }
+            }
+            // Ensure that if we have a file to save ($file_path) the DB has file_path and file_name columns
+            if (!empty($file_path)) {
+                if (!in_array('file_path', $questSubmissionColumns, true)) {
+                    try {
+                        $pdo->exec("ALTER TABLE quest_submissions ADD COLUMN file_path VARCHAR(255) NULL");
+                        $questSubmissionColumns[] = 'file_path';
+                    } catch (PDOException $altex) {
+                        error_log('Could not add file_path column to quest_submissions: ' . $altex->getMessage());
+                    }
+                }
+                if (!in_array('file_name', $questSubmissionColumns, true)) {
+                    try {
+                        $pdo->exec("ALTER TABLE quest_submissions ADD COLUMN file_name VARCHAR(255) NULL");
+                        $questSubmissionColumns[] = 'file_name';
+                    } catch (PDOException $altex) {
+                        // ignore
+                    }
                 }
             }
             // If this is a client_support submission and the DB does NOT have dedicated
@@ -355,12 +375,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $quest_id && $employee_id) {
         }
 
         // If a support file was uploaded for client_support (or any case where $file_path is set),
-        // ensure we save it into the `file_path` column when available even if submission_type is 'text'.
-        if (!empty($file_path) && in_array('file_path', $questSubmissionColumns, true)) {
-            if (!in_array('file_path', $insertColumns, true)) {
-                $insertColumns[] = 'file_path'; $placeholders[] = '?'; $params[] = $file_path;
+        // ensure we save it into an appropriate column so the view can always find it.
+        if (!empty($file_path)) {
+            // Prefer these columns (first match wins)
+            $pathColsPriority = ['file_path','support_file','supporting_file','uploaded_file','attachment','filepath','submission_file'];
+            $written = false;
+            foreach ($pathColsPriority as $pc) {
+                if (in_array($pc, $questSubmissionColumns, true)) {
+                    if (!in_array($pc, $insertColumns, true)) { $insertColumns[] = $pc; $placeholders[] = '?'; $params[] = $file_path; }
+                    $written = true; break;
+                }
             }
-            // Try to persist an original filename too
+            // If none of the expected columns exist, attempt a best-effort ALTER to add file_path
+            if (!$written) {
+                try {
+                    // Add column if possible (MySQL: ADD COLUMN)
+                    $pdo->exec("ALTER TABLE quest_submissions ADD COLUMN file_path VARCHAR(255) NULL");
+                    // refresh columns array and mark for insertion
+                    $questSubmissionColumns[] = 'file_path';
+                    $insertColumns[] = 'file_path'; $placeholders[] = '?'; $params[] = $file_path;
+                    $written = true;
+                } catch (PDOException $altex) {
+                    // ignore; if we can't alter the table, try fallback columns that might be present
+                    error_log('Could not add file_path column to quest_submissions: ' . $altex->getMessage());
+                }
+            }
+
+            // Persist original filename when possible
             $origCols = ['file_name','original_name','original_filename','file_original_name','original_file_name'];
             $storedOriginal = $original_filename ?? basename($file_path);
             foreach ($origCols as $oc) {

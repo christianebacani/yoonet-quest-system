@@ -115,13 +115,32 @@
             $uploadsDir = __DIR__ . '/uploads/quest_submissions/';
             if (is_dir($uploadsDir)) {
                 $candidates = [];
+                // Only consider files that clearly belong to this employee to avoid
+                // showing another user's support file when a submission row lacks
+                // an explicit file_path. This is conservative but prevents cross-user leaks.
                 foreach (scandir($uploadsDir) as $f) {
                     if ($f === '.' || $f === '..') continue;
                     $low = strtolower($f);
+
+                    // Require that the filename contains the employee id as a distinct token
+                    // (prefix like "EMPID_" or contains "_EMPID_" or ends with "_EMPID.ext").
+                    $hasEmpToken = false;
+                    if ($empId !== '') {
+                        if (strpos($low, $empId . '_') === 0) $hasEmpToken = true;
+                        elseif (strpos($low, '_' . $empId . '_') !== false) $hasEmpToken = true;
+                        elseif (preg_match('/(^|_)' . preg_quote(strtolower($empId), '/') . '(\.|_|$)/', $low)) $hasEmpToken = true;
+                    }
+
+                    if (!$hasEmpToken) {
+                        // skip files that do not contain the employee id
+                        continue;
+                    }
+
                     $score = 0;
                     if (strpos($low, $empId . '_') === 0) $score += 10;
                     if (strpos($low, '_support_') !== false || strpos($low, 'support_') === 0) $score += 8;
-                    if (strpos($low, 'ql' . ($submission['quest_id'] ?? '')) === 0) $score += 4;
+                    if (isset($submission['quest_id']) && $submission['quest_id'] !== null && strpos($low, 'ql' . ($submission['quest_id'])) !== false) $score += 4;
+
                     if ($score > 0) {
                         $full = $uploadsDir . $f;
                         if (file_exists($full)) $candidates[] = ['file' => $f, 'full' => $full, 'score' => $score, 'mtime' => filemtime($full)];
@@ -140,10 +159,16 @@
                     } else {
                         $absUrl = '/' . ltrim($filePath, '/');
                     }
-                }
             }
         }
     }
+}
+$scriptDir = rtrim(str_replace('\\','/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
+if (!empty($absUrl) && strpos($absUrl, 'http') !== 0 && strpos($absUrl, '/') === 0) {
+    if ($scriptDir && $scriptDir !== '/' && strpos($absUrl, $scriptDir) !== 0) {
+        $absUrl = $scriptDir . $absUrl;
+    }
+}
 $gviewUrl = '';
 $hasOpen = false;
 $inlineId = '';
@@ -610,15 +635,10 @@ try {
                                             <div class="file-pill" style="padding:6px 10px;"><?php echo htmlspecialchars($fileName); ?><?php if ($fileType): ?> <span style="margin-left:8px;font-weight:700;color:#111827;">• <?php echo htmlspecialchars($fileType); ?></span><?php endif; ?></div>
                                             <div style="display:flex;gap:8px;align-items:center;">
                                                 <?php if ($hasOpen && !empty($inlineId)): ?>
-                                                    <a href="#<?php echo $inlineId; ?>" class="btn glightbox" data-type="inline">Open</a>
+                                                    <?php $extForOpen = strtolower(pathinfo($absUrl, PATHINFO_EXTENSION)); $officeOpen = ($extForOpen === 'docx'); ?>
+                                                    <a href="#<?php echo $inlineId; ?>" class="btn glightbox<?php echo $officeOpen ? ' office-open' : ''; ?>" data-type="inline"<?php if ($officeOpen): ?> data-file="<?php echo htmlspecialchars($absUrl); ?>" data-inline="#<?php echo $inlineId; ?>"<?php endif; ?>>Open</a>
                                                 <?php elseif ($isLink && !empty($absUrl)): ?>
                                                     <a href="<?php echo htmlspecialchars($absUrl); ?>" target="_blank" rel="noopener" class="btn">Open</a>
-                                                <?php endif; ?>
-
-                                                <a href="<?php echo htmlspecialchars($absUrl); ?>" target="_blank" rel="noopener" class="btn btn-gray view-newtab" data-ext="<?php echo htmlspecialchars($extLower); ?>" data-abs="<?php echo htmlspecialchars($absUrl); ?>" <?php if (!empty($gviewUrl)): ?>data-gview="<?php echo htmlspecialchars($gviewUrl); ?>"<?php endif; ?>>View in new tab</a>
-
-                                                <?php if (!$isLink): ?>
-                                                    <a href="<?php echo htmlspecialchars($absUrl); ?>" download="<?php echo htmlspecialchars($downloadName ?? basename(parse_url($absUrl, PHP_URL_PATH) ?: $absUrl)); ?>" class="btn btn-green">Download</a>
                                                 <?php endif; ?>
                                             </div>
                                         </div>
