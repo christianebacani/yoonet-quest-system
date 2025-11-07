@@ -466,14 +466,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 
                 // Add quest skills with tiers
                 if (!empty($final_skill_ids)) {
-                    // Detect whether the quest_skills table has the required_level column.
+                    // Detect whether the quest_skills table has tier_level or required_level columns.
                     try {
-                        $colStmt = $pdo->prepare("SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'quest_skills' AND COLUMN_NAME = 'required_level'");
+                        $colStmt = $pdo->prepare("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'quest_skills'");
                         $colStmt->execute();
-                        $has_required_level = intval($colStmt->fetchColumn()) > 0;
+                        $cols = $colStmt->fetchAll(PDO::FETCH_COLUMN);
+                        $has_tier_level = in_array('tier_level', $cols, true);
+                        $has_required_level = in_array('required_level', $cols, true);
+                        $has_base_points = in_array('base_points', $cols, true);
                     } catch (PDOException $e) {
-                        // If detection fails, assume column is not present to avoid breaking creation
+                        // If detection fails, assume neither column is present to avoid breaking creation
+                        $has_tier_level = false;
                         $has_required_level = false;
+                        $has_base_points = false;
                     }
 
                     // Map tier number to required_level enum
@@ -482,24 +487,63 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             case 1: return 'beginner';
                             case 2: return 'intermediate';
                             case 3: return 'advanced';
-                            case 4:
-                            case 5: return 'expert';
+                            case 4: return 'expert';
+                            case 5: return 'master';
                             default: return 'beginner';
                         }
                     }
 
-                    if ($has_required_level) {
-                        $stmt = $pdo->prepare("INSERT INTO quest_skills (quest_id, skill_id, required_level) VALUES (?, ?, ?)");
-                        foreach ($final_skill_ids as $skill_id) {
-                            $tier = isset($skill_tiers[$skill_id]) ? intval($skill_tiers[$skill_id]) : 1;
-                            $level = mapTierToLevel($tier);
-                            $stmt->execute([$quest_id, $skill_id, $level]);
+                    // Canonical base points for tiers T1..T5
+                    $tierToBase = [1 => 25, 2 => 40, 3 => 55, 4 => 70, 5 => 85];
+
+                    if ($has_tier_level) {
+                        // Prefer storing explicit tier_level (numeric) when possible
+                        if ($has_base_points) {
+                            $stmt = $pdo->prepare("INSERT INTO quest_skills (quest_id, skill_id, tier_level, base_points) VALUES (?, ?, ?, ?)");
+                            foreach ($final_skill_ids as $skill_id) {
+                                $tier = isset($skill_tiers[$skill_id]) ? intval($skill_tiers[$skill_id]) : 1;
+                                $bp = $tierToBase[$tier] ?? $tierToBase[2];
+                                $stmt->execute([$quest_id, $skill_id, $tier, $bp]);
+                            }
+                        } else {
+                            $stmt = $pdo->prepare("INSERT INTO quest_skills (quest_id, skill_id, tier_level) VALUES (?, ?, ?)");
+                            foreach ($final_skill_ids as $skill_id) {
+                                $tier = isset($skill_tiers[$skill_id]) ? intval($skill_tiers[$skill_id]) : 1;
+                                $stmt->execute([$quest_id, $skill_id, $tier]);
+                            }
+                        }
+                    } elseif ($has_required_level) {
+                        // Older schemas may use required_level enum; map numeric tier to that enum
+                        if ($has_base_points) {
+                            $stmt = $pdo->prepare("INSERT INTO quest_skills (quest_id, skill_id, required_level, base_points) VALUES (?, ?, ?, ?)");
+                            foreach ($final_skill_ids as $skill_id) {
+                                $tier = isset($skill_tiers[$skill_id]) ? intval($skill_tiers[$skill_id]) : 1;
+                                $level = mapTierToLevel($tier);
+                                $bp = $tierToBase[$tier] ?? $tierToBase[2];
+                                $stmt->execute([$quest_id, $skill_id, $level, $bp]);
+                            }
+                        } else {
+                            $stmt = $pdo->prepare("INSERT INTO quest_skills (quest_id, skill_id, required_level) VALUES (?, ?, ?)");
+                            foreach ($final_skill_ids as $skill_id) {
+                                $tier = isset($skill_tiers[$skill_id]) ? intval($skill_tiers[$skill_id]) : 1;
+                                $level = mapTierToLevel($tier);
+                                $stmt->execute([$quest_id, $skill_id, $level]);
+                            }
                         }
                     } else {
-                        // Fallback: insert without the required_level column if it doesn't exist
-                        $stmt = $pdo->prepare("INSERT INTO quest_skills (quest_id, skill_id) VALUES (?, ?)");
-                        foreach ($final_skill_ids as $skill_id) {
-                            $stmt->execute([$quest_id, $skill_id]);
+                        // Fallback: insert without tier info if schema doesn't support it
+                        if ($has_base_points) {
+                            $stmt = $pdo->prepare("INSERT INTO quest_skills (quest_id, skill_id, base_points) VALUES (?, ?, ?)");
+                            foreach ($final_skill_ids as $skill_id) {
+                                $tier = isset($skill_tiers[$skill_id]) ? intval($skill_tiers[$skill_id]) : 1;
+                                $bp = $tierToBase[$tier] ?? $tierToBase[2];
+                                $stmt->execute([$quest_id, $skill_id, $bp]);
+                            }
+                        } else {
+                            $stmt = $pdo->prepare("INSERT INTO quest_skills (quest_id, skill_id) VALUES (?, ?)");
+                            foreach ($final_skill_ids as $skill_id) {
+                                $stmt->execute([$quest_id, $skill_id]);
+                            }
                         }
                     }
                 }
@@ -2476,46 +2520,7 @@ function getFontSize() {
                     }
                 });
                 
-                if (!isValid) {
-                    e.preventDefault();
-                    // Scroll to first error
-                    $('html, body').animate({
-                        scrollTop: $('.is-invalid').first().offset().top - 100
-                    }, 500);
-                } else {
-                    // Update form submission to use our filesToUpload array
-                    if (filesToUpload.length > 0) {
-                        // Create a DataTransfer object to hold our files
-                        const dataTransfer = new DataTransfer();
-                        filesToUpload.forEach(file => {
-                            dataTransfer.items.add(file);
-                        });
-                        
-                        // Replace the file input files with our DataTransfer files
-                        $('#attachments')[0].files = dataTransfer.files;
-                    }
-                }
-            });
-
-            // Style for invalid fields
-            $(document).on('input change', 'input, select, textarea', function() {
-                if ($(this).hasClass('is-invalid')) {
-                    $(this).removeClass('is-invalid');
-                    $(this).next('.error-message').remove();
-                }
-            });
-
-            // Drag and drop file upload
-            const fileUploadArea = $('.file-upload-hover');
-            
-            fileUploadArea.on('dragover', function(e) {
-                e.preventDefault();
-                e.stopPropagation();
-                $(this).addClass('border-indigo-400 bg-indigo-50');
-            });
-            
-            fileUploadArea.on('dragleave', function(e) {
-                e.preventDefault();
+                    
                 e.stopPropagation();
                 $(this).removeClass('border-indigo-400 bg-indigo-50');
             });
