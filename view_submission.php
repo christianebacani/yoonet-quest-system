@@ -221,44 +221,111 @@ try {
                     </div>
                 </div>
 
-                <?php if (!empty($filePath)): ?>
-                    <?php
+                <?php
+                    // Render file preview if present
+                    if (!empty($filePath)):
                         $web = $absUrl;
                         $ext = strtolower(pathinfo($web, PATHINFO_EXTENSION));
                         $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
                         $isLocal = (stripos($host, 'localhost') !== false) || (stripos($host, '127.0.0.1') !== false);
-                    ?>
-                    <?php if (in_array($ext, ['jpg','jpeg','png','gif','webp'])): ?>
-                        <div class="glightbox-inline" id="<?php echo $inlineId; ?>">
-                            <div class="preview-container">
-                                <div class="preview-header">
-                                    <div class="preview-title">
-                                        <span class="badge badge-img">IMG</span>
-                                        <span><?php echo htmlspecialchars($fileName); ?></span>
+                        if (in_array($ext, ['jpg','jpeg','png','gif','webp'])):
+                ?>
+                            <div class="glightbox-inline" id="<?php echo $inlineId; ?>">
+                                <div class="preview-container">
+                                    <div class="preview-header">
+                                        <div class="preview-title">
+                                            <span class="badge badge-img">IMG</span>
+                                            <span><?php echo htmlspecialchars($fileName); ?></span>
+                                        </div>
+                                        <div></div>
                                     </div>
-                                    <div></div>
-                                </div>
-                                <div class="preview-body">
-                                    <img style="max-width:100%;max-height:75vh;height:auto;display:block;margin:0 auto;background:#fff;" src="<?php echo htmlspecialchars($web); ?>" alt="<?php echo htmlspecialchars($fileName); ?>"/>
+                                    <div class="preview-body">
+                                        <img style="max-width:100%;max-height:75vh;height:auto;display:block;margin:0 auto;background:#fff;" src="<?php echo htmlspecialchars($web); ?>" alt="<?php echo htmlspecialchars($fileName); ?>"/>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    <?php elseif ($ext === 'pdf'): ?>
-                        <div class="glightbox-inline" id="<?php echo $inlineId; ?>">
-                            <div class="preview-container">
-                                <div class="preview-header">
-                                    <div class="preview-title">
-                                        <span class="badge badge-pdf">PDF</span>
-                                        <span><?php echo htmlspecialchars($fileName); ?></span>
+                        <?php elseif ($ext === 'pdf'): ?>
+                            <div class="glightbox-inline" id="<?php echo $inlineId; ?>">
+                                <div class="preview-container">
+                                    <div class="preview-header">
+                                        <div class="preview-title">
+                                            <span class="badge badge-pdf">PDF</span>
+                                            <span><?php echo htmlspecialchars($fileName); ?></span>
+                                        </div>
+                                        <div></div>
                                     </div>
-                                    <div></div>
-                                </div>
-                                <div class="preview-body">
-                                    <iframe src="<?php echo htmlspecialchars($web); ?>"></iframe>
+                                    <div class="preview-body">
+                                        <iframe src="<?php echo htmlspecialchars($web); ?>"></iframe>
+                                    </div>
                                 </div>
                             </div>
+                        <?php elseif (in_array($ext, ['txt','md','csv'])): ?>
+                            <div class="glightbox-inline" id="<?php echo $inlineId; ?>">
+                                <div class="preview-container">
+                                    <div class="preview-header">
+                                        <div class="preview-title">
+                                            <span class="badge badge-text">TEXT</span>
+                                            <span><?php echo htmlspecialchars($fileName); ?></span>
+                                        </div>
+                                        <div></div>
+                                    </div>
+                                    <div class="preview-body">
+                                        <pre style="white-space:pre-wrap; background:#111827; color:#e5e7eb; padding:12px; border-radius:8px; max-height:75vh; overflow:auto;"><?php echo htmlspecialchars(@file_get_contents($filePath)); ?></pre>
+                                    </div>
+                                </div>
+                            </div>
+                        <?php else: ?>
+                            <?php if ($ext === 'docx'): ?>
+                                <div class="glightbox-inline" id="<?php echo $inlineId; ?>">
+                                    <div class="preview-container">
+                                        <div class="preview-header">
+                                            <div class="preview-title">
+                                                <span class="badge badge-docx">DOCX</span>
+                                                <span><?php echo htmlspecialchars($fileName); ?></span>
+                                            </div>
+                                            <div></div>
+                                        </div>
+                                        <div class="preview-body">
+                                            <div class="docx-view"><div class="docx-html">Loading preview…</div></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            <?php else: ?>
+                                <div class="glightbox-inline" id="<?php echo $inlineId; ?>">
+                                    <div class="preview-container">
+                                        <div class="preview-header">
+                                            <div class="preview-title">
+                                                <span class="badge badge-other"><?php echo strtoupper(htmlspecialchars($ext)); ?></span>
+                                                <span><?php echo htmlspecialchars($fileName); ?></span>
+                                            </div>
+                                            <div></div>
+                                        </div>
+                                        <div class="preview-body">
+                                            <?php if (!$isLocal): ?>
+                                                <iframe src="<?php echo 'https://docs.google.com/gview?embedded=1&url=' . rawurlencode($web); ?>" height="640"></iframe>
+                                            <?php else: ?>
+                                                <div style="padding:12px; background:#fff;">Preview for this file type is not available on localhost. Use “View in new tab”.</div>
+                                            <?php endif; ?>
+                                        </div>
+                                    </div>
+                                </div>
+                            <?php endif; ?>
+                        <?php endif; ?>
+                    <?php endif; ?>
+
+                    <?php // Render external link if present (drive link or submissionText URL)
+                    if (!empty($driveLink) && filter_var($driveLink, FILTER_VALIDATE_URL)): ?>
+                        <div class="preview-block">
+                            <div>External Link:</div>
+                            <div class="btn-group" style="margin-top:8px;">
+                                <a class="btn btn-primary btn-sm" href="<?= htmlspecialchars($driveLink) ?>" target="_blank" rel="noopener">Open Link</a>
+                            </div>
+                            <div style="margin-top:6px;color:#374151;word-break:break-all;"><?= htmlspecialchars($driveLink) ?></div>
                         </div>
-                    <?php elseif (in_array($ext, ['txt','md','csv'])): ?>
+                    <?php endif; ?>
+
+                    <?php // Render inline text if present
+                    if (!empty($textContent)): ?>
                         <div class="glightbox-inline" id="<?php echo $inlineId; ?>">
                             <div class="preview-container">
                                 <div class="preview-header">
@@ -266,65 +333,29 @@ try {
                                         <span class="badge badge-text">TEXT</span>
                                         <span><?php echo htmlspecialchars($fileName); ?></span>
                                     </div>
-                                    <div></div>
                                 </div>
                                 <div class="preview-body">
-                                    <pre style="white-space:pre-wrap; background:#111827; color:#e5e7eb; padding:12px; border-radius:8px; max-height:75vh; overflow:auto;"><?php echo htmlspecialchars(@file_get_contents($filePath)); ?></pre>
+                                    <pre style="white-space:pre-wrap; background:#111827; color:#e5e7eb; padding:12px; border-radius:8px; max-height:75vh; overflow:auto;"><?php echo htmlspecialchars($textContent); ?></pre>
                                 </div>
                             </div>
                         </div>
-                    <?php else: ?>
-                        <?php if ($ext === 'docx'): ?>
-                            <div class="glightbox-inline" id="<?php echo $inlineId; ?>">
-                                <div class="preview-container">
-                                    <div class="preview-header">
-                                        <div class="preview-title">
-                                            <span class="badge badge-docx">DOCX</span>
-                                            <span><?php echo htmlspecialchars($fileName); ?></span>
-                                        </div>
-                                        <div></div>
-                                    </div>
-                                    <div class="preview-body">
-                                        <div class="docx-view"><div class="docx-html">Loading preview…</div></div>
-                                    </div>
-                                </div>
-                            </div>
-                        <?php else: ?>
-                            <div class="glightbox-inline" id="<?php echo $inlineId; ?>">
-                                <div class="preview-container">
-                                    <div class="preview-header">
-                                        <div class="preview-title">
-                                            <span class="badge badge-other"><?php echo strtoupper(htmlspecialchars($ext)); ?></span>
-                                            <span><?php echo htmlspecialchars($fileName); ?></span>
-                                        </div>
-                                        <div></div>
-                                    </div>
-                                    <div class="preview-body">
-                                        <?php if (!$isLocal): ?>
-                                            <iframe src="<?php echo 'https://docs.google.com/gview?embedded=1&url=' . rawurlencode($web); ?>" height="640"></iframe>
-                                        <?php else: ?>
-                                            <div style="padding:12px; background:#fff;">Preview for this file type is not available on localhost. Use “View in new tab”.</div>
-                                        <?php endif; ?>
-                                    </div>
-                                </div>
-                            </div>
-                        <?php endif; ?>
                     <?php endif; ?>
-                <?php elseif (!empty($textContent) || (!empty($submissionText) && !filter_var($submissionText, FILTER_VALIDATE_URL))): ?>
-                    <div class="glightbox-inline" id="<?php echo $inlineId; ?>">
-                        <div class="preview-container">
-                            <div class="preview-header">
-                                <div class="preview-title">
-                                    <span class="badge badge-text">TEXT</span>
-                                    <span><?php echo htmlspecialchars($fileName); ?></span>
+
+                    <?php if (!empty($submissionText) && !filter_var($submissionText, FILTER_VALIDATE_URL)): ?>
+                        <div class="glightbox-inline" id="<?php echo $inlineId; ?>">
+                            <div class="preview-container">
+                                <div class="preview-header">
+                                    <div class="preview-title">
+                                        <span class="badge badge-text">TEXT</span>
+                                        <span><?php echo htmlspecialchars($fileName); ?></span>
+                                    </div>
+                                </div>
+                                <div class="preview-body">
+                                    <pre style="white-space:pre-wrap; background:#111827; color:#e5e7eb; padding:12px; border-radius:8px; max-height:75vh; overflow:auto;"><?php echo htmlspecialchars($submissionText); ?></pre>
                                 </div>
                             </div>
-                            <div class="preview-body">
-                                <pre style="white-space:pre-wrap; background:#111827; color:#e5e7eb; padding:12px; border-radius:8px; max-height:75vh; overflow:auto;"><?php echo htmlspecialchars(!empty($textContent) ? $textContent : $submissionText); ?></pre>
-                            </div>
                         </div>
-                    </div>
-                <?php endif; ?>
+                    <?php endif; ?>
             </div>
             </div>
         <?php endif; ?>

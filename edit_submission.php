@@ -121,6 +121,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($submission) && is_array($su
                         } else { $error = 'Failed to move uploaded file.'; $valid = false; }
                     }
                 }
+
+                    // Enforce single content type for 'custom' quests: only one of file / link / text may be provided
+                    $isCustomQuest = (isset($quest['quest_type']) && $quest['quest_type'] === 'custom');
+                    if ($isCustomQuest) {
+                        $hasFileInput = isset($_FILES['quest_file']) && (!isset($_FILES['quest_file']['error']) || $_FILES['quest_file']['error'] !== UPLOAD_ERR_NO_FILE);
+                        $hasLinkInput = !empty(trim($_POST['drive_link'] ?? ''));
+                        $hasTextInput = !empty(trim($_POST['text_content'] ?? ''));
+                        $providedCount = 0;
+                        if ($hasFileInput) $providedCount++;
+                        if ($hasLinkInput) $providedCount++;
+                        if ($hasTextInput) $providedCount++;
+                        if ($providedCount > 1) {
+                            $error = 'For custom quests you may only submit one content type (file OR link OR text). Please provide only the selected type.';
+                            $valid = false;
+                        }
+                    }
             }
         }
 
