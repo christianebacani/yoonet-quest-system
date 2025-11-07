@@ -869,6 +869,180 @@ if (isset($_GET['success'])) {
                             echo '<div class="preview-block">No preview available. Check attachments or links in the submission record.</div>';
                         }
 
+                        // If this quest is client_support, render client/support specific submitted fields
+                        $isClientSupport = (isset($quest['display_type']) && $quest['display_type'] === 'client_support');
+                        // Safely detect if any client-related fields exist without triggering undefined-key notices
+                        $hasClientFields = false;
+                        $clientKeys = ['ticket_reference','ticket_id','ticket','action_taken','time_spent','time_spent_hours','time_spent_hrs','evidence_json','evidence','resolution_status','follow_up_required','follow_up','comments'];
+                        foreach ($clientKeys as $k) {
+                            if (!empty($latestSubmission[$k] ?? null)) { $hasClientFields = true; break; }
+                        }
+
+                        if ($isClientSupport || $hasClientFields) {
+                            $ticket = $latestSubmission['ticket_reference'] ?? $latestSubmission['ticket_id'] ?? $latestSubmission['ticket'] ?? '';
+                            $action_taken = $latestSubmission['action_taken'] ?? $latestSubmission['text_content'] ?? $latestSubmission['text'] ?? '';
+                            $time_spent = $latestSubmission['time_spent'] ?? $latestSubmission['time_spent_hours'] ?? $latestSubmission['time_spent_hrs'] ?? '';
+                            $resolution_status = $latestSubmission['resolution_status'] ?? '';
+                            $follow_up_raw = $latestSubmission['follow_up_required'] ?? $latestSubmission['follow_up'] ?? '';
+
+                            // Clean comments similar to view_submission
+                            $clean_comments = '';
+                            if (!empty($latestSubmission['comments'] ?? null)) {
+                                $clean_comments = (string)$latestSubmission['comments'];
+                                $clean_comments = preg_replace("/\r\n|\r/", "\n", $clean_comments);
+                                $lines = preg_split('/\n/', $clean_comments);
+                                $lines = array_map('rtrim', $lines);
+                                while (count($lines) && $lines[0] === '') { array_shift($lines); }
+                                while (count($lines) && end($lines) === '') { array_pop($lines); }
+                                $out = [];
+                                $prevEmpty = false;
+                                foreach ($lines as $ln) {
+                                    if ($ln === '') {
+                                        if (!$prevEmpty) { $out[] = ''; $prevEmpty = true; }
+                                    } else {
+                                        $out[] = $ln; $prevEmpty = false;
+                                    }
+                                }
+                                $clean_comments = implode("\n", $out);
+                                $clean_comments = trim($clean_comments);
+                            }
+
+                            // Evidence: support multiple storage formats
+                            $evidence_list = [];
+                            if (!empty($latestSubmission['evidence_json'] ?? null)) {
+                                $tmp = json_decode($latestSubmission['evidence_json'], true);
+                                if (is_array($tmp)) $evidence_list = $tmp;
+                            } elseif (!empty($latestSubmission['evidence'] ?? null)) {
+                                $evraw = $latestSubmission['evidence'];
+                                $tmp = json_decode($evraw, true);
+                                if (is_array($tmp)) $evidence_list = $tmp;
+                                else $evidence_list = array_filter(array_map('trim', explode(',', $evraw)));
+                            }
+
+                            echo '<div style="margin-top:12px;">';
+                            echo '<div class="section-title">Client & Support Details</div>';
+                            echo '<div class="card" style="padding:14px;">';
+                            echo '<dl style="display:grid;grid-template-columns:200px 1fr;gap:10px 18px;align-items:start;margin:0;">';
+
+                            // Ticket / Reference
+                            echo '<dt style="color:#6b7280;font-weight:700;">Ticket / Reference ID</dt>';
+                            echo '<dd style="margin:0;color:#111827;">' . ($ticket !== '' ? htmlspecialchars($ticket) : '<span style="color:#9CA3AF;font-style:italic;">— not provided —</span>') . '</dd>';
+
+                            // Action Taken
+                            echo '<dt style="color:#6b7280;font-weight:700;">Action Taken / Resolution (required)</dt>';
+                            echo '<dd style="margin:0;color:#111827;">';
+                            if (!empty($action_taken)) {
+                                echo '<div style="background:#fff;border:1px solid #e5e7eb;padding:10px;border-radius:8px;color:#111827;white-space:pre-wrap;">' . nl2br(htmlspecialchars($action_taken)) . '</div>';
+                            } else {
+                                echo '<span style="color:#9CA3AF;font-style:italic;">— not provided —</span>';
+                            }
+                            echo '</dd>';
+
+                            // Time Spent
+                            echo '<dt style="color:#6b7280;font-weight:700;">Time Spent (hours)</dt>';
+                            echo '<dd style="margin:0;color:#111827;">' . ($time_spent !== '' ? htmlspecialchars($time_spent) : '<span style="color:#9CA3AF;font-style:italic;">— not provided —</span>') . '</dd>';
+
+                            // Evidence / Attachments as checked disabled checkboxes
+                            echo '<dt style="color:#6b7280;font-weight:700;">Evidence / Attachments</dt>';
+                            echo '<dd style="margin:0;color:#111827;">';
+                            if (!empty($evidence_list)) {
+                                echo '<div style="display:flex;flex-direction:column;gap:8px;">';
+                                foreach ($evidence_list as $ev) {
+                                    $ev_trim = trim((string)$ev);
+                                    if ($ev_trim === '') continue;
+                                    $isUrl = filter_var($ev_trim, FILTER_VALIDATE_URL);
+                                    $label = $isUrl ? $ev_trim : $ev_trim;
+                                    $esc = htmlspecialchars($label);
+                                    echo '<label style="display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:8px;background:#f8fafc;border:1px solid #e5e7eb;">';
+                                    echo '<input type="checkbox" checked disabled style="width:16px;height:16px;" />';
+                                    if ($isUrl) {
+                                        echo '<a href="' . htmlspecialchars($ev_trim) . '" target="_blank" rel="noopener" style="color:#111827;text-decoration:underline;">' . $esc . '</a>';
+                                    } else {
+                                        echo '<span style="color:#111827;">' . $esc . '</span>';
+                                    }
+                                    echo '</label>';
+                                }
+                                echo '</div>';
+                            } else {
+                                echo '<span style="color:#9CA3AF;font-style:italic;">— none provided —</span>';
+                            }
+                            echo '</dd>';
+
+                            // Upload supporting file (reuse file preview if available)
+                            echo '<dt style="color:#6b7280;font-weight:700;">Upload supporting file</dt>';
+                            echo '<dd style="margin:0;color:#111827;">';
+                            if (!empty($filePath)) {
+                                // compute friendly names using available variables from preview logic
+                                $absVal = isset($abs) ? $abs : '';
+                                $displayFileName = '';
+                                if ($absVal !== '') {
+                                    $displayFileName = basename(parse_url($absVal, PHP_URL_PATH) ?: $absVal);
+                                } elseif (!empty($latestSubmission['file_name'])) {
+                                    $displayFileName = basename($latestSubmission['file_name']);
+                                } else {
+                                    $displayFileName = basename($filePath);
+                                }
+                                $displayFileType = '';
+                                if ($absVal !== '') $displayFileType = strtolower(pathinfo($absVal, PATHINFO_EXTENSION));
+                                elseif (!empty($latestSubmission['file_name'])) $displayFileType = strtolower(pathinfo($latestSubmission['file_name'], PATHINFO_EXTENSION));
+                                else $displayFileType = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
+
+                                echo '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">';
+                                echo '<div class="file-pill" style="padding:6px 10px;">' . htmlspecialchars($displayFileName) . ($displayFileType ? ' <span style="margin-left:8px;font-weight:700;color:#111827;">• ' . htmlspecialchars(strtoupper($displayFileType)) . '</span>' : '') . '</div>';
+                                echo '<div style="display:flex;gap:8px;align-items:center;">';
+                                if (!empty($inlineId) && $absVal !== '') {
+                                    $extForOpen = strtolower(pathinfo($absVal, PATHINFO_EXTENSION));
+                                    $officeOpen = ($extForOpen === 'docx');
+                                    echo '<a href="#' . $inlineId . '" class="btn glightbox' . ($officeOpen ? ' office-open' : '') . '" data-type="inline"' . ($officeOpen ? ' data-file="' . htmlspecialchars($absVal) . '" data-inline="#' . $inlineId . '"' : '') . '>Open</a>';
+                                } elseif (!empty($absVal)) {
+                                    echo '<a href="' . htmlspecialchars($absVal) . '" target="_blank" rel="noopener" class="btn btn-gray view-newtab" data-ext="' . htmlspecialchars($displayFileType) . '" data-abs="' . htmlspecialchars($absVal) . '">View in new tab</a>';
+                                }
+                                $isLink = (!empty($driveLink) && filter_var($driveLink, FILTER_VALIDATE_URL));
+                                if (!empty($absVal) && !$isLink) {
+                                    echo '<a href="' . htmlspecialchars($absVal) . '" download class="btn btn-green">Download</a>';
+                                }
+                                echo '</div></div>';
+                            } else {
+                                echo '<span style="color:#9CA3AF;font-style:italic;">— no supporting file uploaded —</span>';
+                            }
+                            echo '</dd>';
+
+                            // Resolution Outcome
+                            echo '<dt style="color:#6b7280;font-weight:700;">Resolution Outcome</dt>';
+                            echo '<dd style="margin:0;color:#111827;">' . ($resolution_status !== '' ? htmlspecialchars($resolution_status) : '<span style="color:#9CA3AF;font-style:italic;">— not specified —</span>') . '</dd>';
+
+                            // Follow-up required as checkbox reflecting submission (checked if value indicates yes)
+                            $followChecked = ($follow_up_raw === '1' || strtolower((string)$follow_up_raw) === 'yes');
+                            echo '<dt style="color:#6b7280;font-weight:700;">Follow-up required</dt>';
+                            echo '<dd style="margin:0;color:#111827;">';
+                            echo '<label style="display:flex;align-items:center;gap:10px;">';
+                            echo '<input type="checkbox" ' . ($followChecked ? 'checked' : '') . ' disabled style="width:18px;height:18px;" />';
+                            echo '<span>' . ($followChecked ? 'Yes' : 'No') . '</span>';
+                            echo '</label>';
+                            echo '</dd>';
+
+                            // Comments
+                            echo '<dt style="color:#6b7280;font-weight:700;">Comments (optional)</dt>';
+                            echo '<dd style="margin:0;color:#111827;">';
+                            if (!empty($clean_comments)) {
+                                $html = '';
+                                $paras = preg_split("/\n{2,}/", $clean_comments);
+                                foreach ($paras as $p) { $p = trim($p); if ($p === '') continue; $html .= '<p style="margin:0 0 8px;">' . nl2br(htmlspecialchars($p)) . '</p>'; }
+                                echo '<div style="background:#fff;border:1px solid #e5e7eb;padding:10px;border-radius:8px;color:#111827;">' . $html . '</div>';
+                            } elseif (!empty($latestSubmission['comments'] ?? null) && trim((string)$latestSubmission['comments']) !== '') {
+                                $raw = (string)$latestSubmission['comments'];
+                                $paras = preg_split("/\n{2,}/", preg_replace("/\r\n|\r/", "\n", $raw));
+                                $html = '';
+                                foreach ($paras as $p) { $p = trim($p); if ($p === '') continue; $html .= '<p style="margin:0 0 8px;">' . nl2br(htmlspecialchars($p)) . '</p>'; }
+                                echo '<div style="background:#fff;border:1px solid #e5e7eb;padding:10px;border-radius:8px;color:#111827;">' . $html . '</div>';
+                            } else {
+                                echo '<span style="color:#9CA3AF;font-style:italic;">— none —</span>';
+                            }
+                            echo '</dd>';
+
+                            echo '</dl></div></div>';
+                        }
+
                         // Render submission comments (if present) similar to view_submission.php
                         $comments = isset($latestSubmission['comments']) ? trim((string)$latestSubmission['comments']) : '';
                         if ($comments !== '') {
