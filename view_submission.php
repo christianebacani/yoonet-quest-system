@@ -109,60 +109,12 @@
             }
         }
 
-        // if not found in DB, try to locate likely upload
-        if (empty($filePath) && !empty($submission['employee_id'])) {
-            $empId = (string)$submission['employee_id'];
-            $uploadsDir = __DIR__ . '/uploads/quest_submissions/';
-            if (is_dir($uploadsDir)) {
-                $candidates = [];
-                // Only consider files that clearly belong to this employee to avoid
-                // showing another user's support file when a submission row lacks
-                // an explicit file_path. This is conservative but prevents cross-user leaks.
-                foreach (scandir($uploadsDir) as $f) {
-                    if ($f === '.' || $f === '..') continue;
-                    $low = strtolower($f);
-
-                    // Require that the filename contains the employee id as a distinct token
-                    // (prefix like "EMPID_" or contains "_EMPID_" or ends with "_EMPID.ext").
-                    $hasEmpToken = false;
-                    if ($empId !== '') {
-                        if (strpos($low, $empId . '_') === 0) $hasEmpToken = true;
-                        elseif (strpos($low, '_' . $empId . '_') !== false) $hasEmpToken = true;
-                        elseif (preg_match('/(^|_)' . preg_quote(strtolower($empId), '/') . '(\.|_|$)/', $low)) $hasEmpToken = true;
-                    }
-
-                    if (!$hasEmpToken) {
-                        // skip files that do not contain the employee id
-                        continue;
-                    }
-
-                    $score = 0;
-                    if (strpos($low, $empId . '_') === 0) $score += 10;
-                    if (strpos($low, '_support_') !== false || strpos($low, 'support_') === 0) $score += 8;
-                    if (isset($submission['quest_id']) && $submission['quest_id'] !== null && strpos($low, 'ql' . ($submission['quest_id'])) !== false) $score += 4;
-
-                    if ($score > 0) {
-                        $full = $uploadsDir . $f;
-                        if (file_exists($full)) $candidates[] = ['file' => $f, 'full' => $full, 'score' => $score, 'mtime' => filemtime($full)];
-                    }
-                }
-                if (!empty($candidates)) {
-                    usort($candidates, function($a,$b){ if ($a['score'] !== $b['score']) return $b['score'] - $a['score']; return $b['mtime'] - $a['mtime']; });
-                    $pick = $candidates[0];
-                    $filePath = 'uploads/quest_submissions/' . $pick['file'];
-                    $fsPath = $pick['full'];
-                    $docRoot = rtrim(str_replace('\\','/', $_SERVER['DOCUMENT_ROOT'] ?? ''), '/');
-                    $fsNorm = str_replace('\\','/', $fsPath);
-                    if (!empty($docRoot) && stripos($fsNorm, $docRoot) === 0) {
-                        $absUrl = substr($fsNorm, strlen($docRoot));
-                        if ($absUrl === '' || $absUrl[0] !== '/') $absUrl = '/' . ltrim($absUrl, '/');
-                    } else {
-                        $absUrl = '/' . ltrim($filePath, '/');
-                    }
-            }
-        }
+        // Auto-detection of an uploaded file in the uploads/ directory has been
+        // disabled. Showing a guessed file when the submission did not include
+        // an explicit file_path led to unrelated files appearing in the UI
+        // (e.g. QL001_support_... being shown). If you need a fallback, enable
+        // it explicitly or restore a migration that guarantees file_path is set.
     }
-}
 $scriptDir = rtrim(str_replace('\\','/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
 if (!empty($absUrl) && strpos($absUrl, 'http') !== 0 && strpos($absUrl, '/') === 0) {
     if ($scriptDir && $scriptDir !== '/' && strpos($absUrl, $scriptDir) !== 0) {
