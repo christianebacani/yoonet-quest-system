@@ -61,22 +61,131 @@ if (empty($error)) {
     }
 }
 
+// Detect client_support early so we can alter file-detection logic
+$isClientSupport = (isset($quest['display_type']) && $quest['display_type'] === 'client_support');
+
 // Helper to get absolute-ish URL for local files (relative path works under same site)
 $filePath = '';
 $driveLink = '';
 $textContent = '';
 $submissionText = '';
+$fsPath = null; // filesystem path when available (used for file_get_contents and existence checks)
 if ($submission) {
-    $filePath = $submission['file_path'] ?? '';
-    $driveLink = $submission['drive_link'] ?? '';
-    $textContent = $submission['text_content'] ?? '';
-    $submissionText = $submission['submission_text'] ?? '';
+    $filePath = '';
+    $driveLink = '';
+    $textContent = '';
+    $submissionText = '';
+    // Support different column names used across schemas for supporting files
+    if ($submission) {
+        // primary file path
+        $filePath = $submission['file_path'] ?? '';
+        // some older schemas or forms might have stored support files in alternative columns
+        if (empty($filePath)) {
+            $filePath = $submission['support_file'] ?? $submission['support_file_path'] ?? $submission['support_filepath'] ?? $submission['supportpath'] ?? $submission['supporting_file'] ?? $submission['supporting_file_path'] ?? $submission['supporting_filepath'] ?? '';
+        }
+        // also try a generic 'file' column or other common names
+        if (empty($filePath)) {
+            $filePath = $submission['file'] ?? $submission['uploaded_file'] ?? $submission['uploaded_filepath'] ?? $submission['attachment'] ?? $submission['attachment_path'] ?? $submission['attachments'] ?? $submission['support_files'] ?? $submission['submission_file'] ?? $submission['filepath'] ?? '';
+        }
+        $driveLink = $submission['drive_link'] ?? '';
+        $textContent = $submission['text_content'] ?? '';
+        $submissionText = $submission['submission_text'] ?? '';
+
+        // Normalize path separators for Windows-hosted stores
+        $filePath = is_string($filePath) ? str_replace('\\', '/', $filePath) : $filePath;
+
+        // Derive a filesystem path and an HTTP-accessible URL (absUrl).
+        // If the stored value is already a URL, keep it. Otherwise try several filesystem locations.
+        $fsPath = null;
+        $absUrl = '';
+        if (!empty($filePath)) {
+            if (filter_var($filePath, FILTER_VALIDATE_URL)) {
+                $absUrl = $filePath;
+            } else {
+                // Candidate 1: path as-is (maybe already relative to project root)
+                $cand1 = __DIR__ . '/' . ltrim($filePath, '/');
+                // Candidate 2: document root + provided path
+                $docRoot = rtrim(str_replace('\\','/', $_SERVER['DOCUMENT_ROOT'] ?? ''), '/');
+                $cand2 = ($docRoot ? $docRoot : __DIR__) . '/' . ltrim($filePath, '/');
+                // Candidate 3: directly the provided string (maybe absolute FS path)
+                $cand3 = $filePath;
+
+                // Check which candidate exists on disk
+                if (@file_exists($cand3)) {
+                    $fsPath = $cand3;
+                } elseif (@file_exists($cand1)) {
+                    $fsPath = $cand1;
+                } elseif (@file_exists($cand2)) {
+                    $fsPath = $cand2;
+                }
+
+                if ($fsPath) {
+                    // Compute an HTTP path from filesystem path when possible
+                    $fsNorm = str_replace('\\','/', $fsPath);
+                    if (!empty($docRoot) && stripos($fsNorm, $docRoot) === 0) {
+                        $absUrl = substr($fsNorm, strlen($docRoot));
+                        if ($absUrl === '' || $absUrl[0] !== '/') $absUrl = '/' . ltrim($absUrl, '/');
+                    } else {
+                        // Fallback: try to use the original stored path as a web path
+                        $absUrl = '/' . ltrim($filePath, '/');
+                    }
+                } else {
+                    // Nothing exists on disk; still expose stored path as-is so links work when it's a relative URL
+                    $absUrl = '/' . ltrim($filePath, '/');
+                }
+            }
+        }
+        // If no filePath was found in the DB but a support file may exist on disk
+        // (previous code sometimes uploaded files but didn't save file_path for client_support submissions),
+        // attempt to locate a likely candidate in uploads/quest_submissions by employee id or support marker.
+        if (empty($filePath) && !empty($submission) && isset($submission['employee_id'])) {
+            $empId = (string)$submission['employee_id'];
+            $uploadsDir = __DIR__ . '/uploads/quest_submissions/';
+            if (is_dir($uploadsDir)) {
+                $candidates = [];
+                $files = scandir($uploadsDir);
+                foreach ($files as $f) {
+                    if ($f === '.' || $f === '..') continue;
+                    $low = strtolower($f);
+                    // prefer files that include employee id or support marker
+                    $score = 0;
+                    if (strpos($low, $empId . '_') === 0) $score += 10;
+                    if (strpos($low, '_support_') !== false || strpos($low, 'support_') === 0) $score += 8;
+                    if (strpos($low, 'ql' . $submission['quest_id']) === 0) $score += 4;
+                    if ($score > 0) {
+                        $full = $uploadsDir . $f;
+                        if (file_exists($full)) {
+                            $candidates[] = ['file' => $f, 'full' => $full, 'score' => $score, 'mtime' => filemtime($full)];
+                        }
+                    }
+                }
+                if (!empty($candidates)) {
+                    usort($candidates, function($a,$b){
+                        if ($a['score'] !== $b['score']) return $b['score'] - $a['score'];
+                        return $b['mtime'] - $a['mtime'];
+                    });
+                    $pick = $candidates[0];
+                    $filePath = 'uploads/quest_submissions/' . $pick['file'];
+                    $fsPath = $pick['full'];
+                    // compute absUrl relative to doc root if possible
+                    $docRoot = rtrim(str_replace('\\','/', $_SERVER['DOCUMENT_ROOT'] ?? ''), '/');
+                    $fsNorm = str_replace('\\','/', $fsPath);
+                    if (!empty($docRoot) && stripos($fsNorm, $docRoot) === 0) {
+                        $absUrl = substr($fsNorm, strlen($docRoot));
+                        if ($absUrl === '' || $absUrl[0] !== '/') $absUrl = '/' . ltrim($absUrl, '/');
+                    } else {
+                        $absUrl = '/' . ltrim($filePath, '/');
+                    }
+                }
+            }
+        }
+    }
 }
 
-// Derive display info
 $fileName = '';
 $fileType = '';
-$absUrl = '';
+// Note: $absUrl may have been computed above from filesystem discovery; do not blindly overwrite it here.
+if (!isset($absUrl)) $absUrl = '';
 $extLower = '';
 $gviewUrl = '';
 $hasOpen = false;
@@ -94,9 +203,17 @@ if (empty($error)) {
         ];
         $fileName = '';
         foreach ($fileNameCandidates as $c) { if (!empty($c)) { $fileName = $c; break; } }
-        if (empty($fileName)) { $fileName = basename($filePath); }
-        $absUrl = $filePath; // relative URL should work
-        $extLower = strtolower(pathinfo($absUrl, PATHINFO_EXTENSION));
+        if (empty($fileName)) {
+            // Prefer deriving filename from the computed absUrl (if available), otherwise fall back to filePath
+            $nameSource = !empty($absUrl) ? $absUrl : $filePath;
+            $fileName = basename($nameSource);
+        }
+        // Prefer the previously computed web URL (from filesystem discovery) when present
+        if (empty($absUrl)) {
+            $absUrl = $filePath; // relative URL fallback
+        }
+        $extPath = parse_url($absUrl, PHP_URL_PATH) ?: $absUrl;
+        $extLower = strtolower(pathinfo($extPath, PATHINFO_EXTENSION));
         $fileType = strtoupper($extLower);
         $inlineId = 'inline-' . md5($absUrl);
         $hasOpen = true;
@@ -111,12 +228,12 @@ if (empty($error)) {
         
         $extLower = strtolower(pathinfo($path, PATHINFO_EXTENSION));
         $fileType = $extLower ? strtoupper($extLower) : 'LINK';
-    } elseif (!empty($textContent)) {
+    } elseif (!empty($textContent) && !$isClientSupport) {
         $fileName = 'Text submission';
         $fileType = 'TEXT';
         $inlineId = 'inline-' . md5($submission_id . '-text');
         $hasOpen = true;
-    } elseif (!empty($submissionText)) {
+    } elseif (!empty($submissionText) && !$isClientSupport) {
         if (filter_var($submissionText, FILTER_VALIDATE_URL)) {
             $isLink = true;
             $absUrl = $submissionText;
@@ -210,7 +327,9 @@ try {
             <div id="submissionPreview">
             <div class="card">
                 <div class="row" style="margin-bottom:8px;">
-                    <div class="file-pill">📄 <?php echo htmlspecialchars($fileName ?: 'Submission'); ?><?php if ($fileType): ?> <span style="margin-left:6px; font-weight:700; color:#111827;">• <?php echo htmlspecialchars($fileType); ?></span><?php endif; ?></div>
+                    <?php if (!($isClientSupport && strtoupper((string)$fileType) === 'TEXT')): ?>
+                        <div class="file-pill">📄 <?php echo htmlspecialchars($fileName ?: 'Submission'); ?><?php if ($fileType): ?> <span style="margin-left:6px; font-weight:700; color:#111827;">• <?php echo htmlspecialchars($fileType); ?></span><?php endif; ?></div>
+                    <?php endif; ?>
                     <div style="display:flex; gap:8px;">
                         <?php if ($hasOpen && !empty($inlineId)): ?>
                             <?php if (!empty($filePath)):
@@ -292,7 +411,27 @@ try {
                                         <div></div>
                                     </div>
                                     <div class="preview-body">
-                                        <pre style="white-space:pre-wrap; background:#111827; color:#e5e7eb; padding:12px; border-radius:8px; max-height:75vh; overflow:auto;"><?php echo htmlspecialchars(@file_get_contents($filePath)); ?></pre>
+                                        <?php
+                                            $txtPreview = '';
+                                            // Prefer filesystem read when available
+                                            if (!empty($fsPath) && @file_exists($fsPath)) {
+                                                $txtPreview = @file_get_contents($fsPath);
+                                            } else {
+                                                // Try HTTP fetch from absUrl as a fallback
+                                                if (!empty($absUrl)) {
+                                                    if (strpos($absUrl, 'http') !== 0) {
+                                                        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+                                                        $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+                                                        $url = $scheme . '://' . $host . preg_replace('#^/#','/',$absUrl);
+                                                    } else {
+                                                        $url = $absUrl;
+                                                    }
+                                                    try { $txtPreview = @file_get_contents($url); } catch (Throwable $e) { $txtPreview = ''; }
+                                                }
+                                            }
+                                        ?>
+                                        <pre style="white-space:pre-wrap; background:#111827; color:#e5e7eb; padding:12px; border-radius:8px; max-height:75vh; overflow:auto;">
+                                            <?php echo htmlspecialchars((string)$txtPreview); ?></pre>
                                     </div>
                                 </div>
                             </div>
@@ -372,67 +511,176 @@ try {
                         </div>
                     <?php endif; ?>
 
-                    <?php // Show comments if provided on the submission ?>
-                    <?php if (!empty($submission['comments'])): ?>
-                        <div style="margin-top:12px;">
-                            <div style="font-weight:600;margin-bottom:6px;">Comments</div>
-                            <div style="background:#fff;border:1px solid #e5e7eb;padding:12px;border-radius:8px;color:#111827;"><?php echo nl2br(htmlspecialchars($submission['comments'])); ?></div>
-                        </div>
-                    <?php endif; ?>
-                    
                     <?php
                         // If this quest is client_support, render all client/support specific submitted fields
                         $isClientSupport = (isset($quest['display_type']) && $quest['display_type'] === 'client_support');
-                        // Also render if there are known client fields present
-                        $hasClientFields = !empty($submission['ticket_reference'] ?? $submission['ticket_id'] ?? $submission['action_taken'] ?? $submission['time_spent'] ?? $submission['evidence_json'] ?? $submission['evidence']);
+                        // Safely detect if any client-related fields exist without triggering undefined-key notices
+                        $hasClientFields = false;
+                        $clientKeys = ['ticket_reference','ticket_id','ticket','action_taken','time_spent','time_spent_hours','time_spent_hrs','evidence_json','evidence','resolution_status','follow_up_required','follow_up','comments'];
+                        foreach ($clientKeys as $k) {
+                            if (!empty($submission[$k] ?? null)) { $hasClientFields = true; break; }
+                        }
+
                         if ($isClientSupport || $hasClientFields):
+                            // Normalize and prefer explicit submission fields, but also handle cases where
+                            // these values were embedded inside the `comments` field (JSON or key:value pairs).
                             $ticket = $submission['ticket_reference'] ?? $submission['ticket_id'] ?? $submission['ticket'] ?? '';
                             $action_taken = $submission['action_taken'] ?? $submission['text_content'] ?? $submission['text'] ?? '';
                             $time_spent = $submission['time_spent'] ?? $submission['time_spent_hours'] ?? $submission['time_spent_hrs'] ?? '';
                             $resolution_status = $submission['resolution_status'] ?? '';
-                            $follow_up = $submission['follow_up_required'] ?? $submission['follow_up'] ?? '';
-                            // Evidence: support multiple storage formats
+                            $follow_up_raw = $submission['follow_up_required'] ?? $submission['follow_up'] ?? '';
+
+                            // Use only the raw user-entered comments for the Comments field.
+                            // Do NOT extract structured values from comments; those should come
+                            // from dedicated submission columns (e.g. time_spent, ticket_reference).
+                            $clean_comments = '';
+                            if (!empty($submission['comments'] ?? null)) {
+                                $clean_comments = (string)$submission['comments'];
+                                // Normalize newlines
+                                $clean_comments = preg_replace("/\r\n|\r/", "\n", $clean_comments);
+                                // Trim trailing spaces from each line to remove accidental indentation at line ends
+                                // but preserve leading spaces the user may have intentionally added.
+                                $lines = preg_split('/\n/', $clean_comments);
+                                $lines = array_map('rtrim', $lines);
+                                // Remove leading/trailing empty lines
+                                while (count($lines) && $lines[0] === '') { array_shift($lines); }
+                                while (count($lines) && end($lines) === '') { array_pop($lines); }
+                                // Collapse consecutive empty lines to a single blank line
+                                $out = [];
+                                $prevEmpty = false;
+                                foreach ($lines as $ln) {
+                                    if ($ln === '') {
+                                        if (!$prevEmpty) { $out[] = ''; $prevEmpty = true; }
+                                    } else {
+                                        // preserve internal spacing; only collapse trailing tabs/spaces already removed
+                                        $out[] = $ln;
+                                        $prevEmpty = false;
+                                    }
+                                }
+                                $clean_comments = implode("\n", $out);
+                                $clean_comments = trim($clean_comments);
+                            }
+                            // Evidence: support multiple storage formats and be resilient to missing keys
                             $evidence_list = [];
-                            if (!empty($submission['evidence_json'])) {
+                            if (!empty($submission['evidence_json'] ?? null)) {
                                 $tmp = json_decode($submission['evidence_json'], true);
                                 if (is_array($tmp)) $evidence_list = $tmp;
-                            } elseif (!empty($submission['evidence'])) {
-                                $tmp = json_decode($submission['evidence'], true);
-                                if (is_array($tmp)) $evidence_list = $tmp; else $evidence_list = array_map('trim', explode(',', $submission['evidence']));
+                            } elseif (!empty($submission['evidence'] ?? null)) {
+                                $evraw = $submission['evidence'];
+                                $tmp = json_decode($evraw, true);
+                                if (is_array($tmp)) $evidence_list = $tmp;
+                                else $evidence_list = array_filter(array_map('trim', explode(',', $evraw)));
                             }
                     ?>
                     <div style="margin-top:12px;">
                         <div style="font-weight:700;margin-bottom:8px;">Client & Support Details</div>
-                        <div class="card" style="padding:12px;">
-                            <?php if (!empty($ticket)): ?>
-                                <div style="margin-bottom:8px;"><strong>Ticket / Reference ID:</strong> <?php echo htmlspecialchars($ticket); ?></div>
-                            <?php endif; ?>
-                            <?php if (!empty($action_taken)): ?>
-                                <div style="margin-bottom:8px;"><strong>Action Taken / Resolution:</strong>
-                                    <div style="background:#fff;border:1px solid #e5e7eb;padding:10px;border-radius:8px;color:#111827;margin-top:6px;white-space:pre-wrap;"><?php echo nl2br(htmlspecialchars($action_taken)); ?></div>
-                                </div>
-                            <?php endif; ?>
-                            <?php if ($time_spent !== ''): ?>
-                                <div style="margin-bottom:8px;"><strong>Time Spent (hours):</strong> <?php echo htmlspecialchars($time_spent); ?></div>
-                            <?php endif; ?>
-                            <?php if (!empty($evidence_list)): ?>
-                                <div style="margin-bottom:8px;"><strong>Evidence Provided:</strong>
-                                    <ul style="margin-top:6px;">
-                                        <?php foreach ($evidence_list as $ev): ?><li><?php echo htmlspecialchars($ev); ?></li><?php endforeach; ?>
-                                    </ul>
-                                </div>
-                            <?php endif; ?>
-                            <?php if (!empty($filePath)): ?>
-                                <div style="margin-bottom:8px;"><strong>Supporting file:</strong>
-                                    <div style="margin-top:6px;"><a href="<?php echo htmlspecialchars($absUrl); ?>" target="_blank" rel="noopener"><?php echo htmlspecialchars($fileName); ?></a> <?php if (!$isLink): ?>• <a href="<?php echo htmlspecialchars($absUrl); ?>" download>Download</a><?php endif; ?></div>
-                                </div>
-                            <?php endif; ?>
-                            <?php if ($resolution_status !== ''): ?>
-                                <div style="margin-bottom:8px;"><strong>Resolution Outcome:</strong> <?php echo htmlspecialchars($resolution_status); ?></div>
-                            <?php endif; ?>
-                            <?php if ($follow_up !== ''): ?>
-                                <div style="margin-bottom:8px;"><strong>Follow-up required:</strong> <?php echo ($follow_up=='1' || strtolower($follow_up)==='yes' || $follow_up===true) ? 'Yes' : 'No'; ?></div>
-                            <?php endif; ?>
+                        <div class="card" style="padding:14px;">
+                            <dl style="display:grid;grid-template-columns:200px 1fr;gap:10px 18px;align-items:start;margin:0;">
+                                <dt style="color:#6b7280;font-weight:700;">Ticket / Reference ID</dt>
+                                <dd style="margin:0;color:#111827;"><?php echo $ticket !== '' ? htmlspecialchars($ticket) : '<span style="color:#9CA3AF;font-style:italic;">— not provided —</span>'; ?></dd>
+
+                                <dt style="color:#6b7280;font-weight:700;">Action Taken / Resolution (required)</dt>
+                                <dd style="margin:0;color:#111827;"><?php if (!empty($action_taken)): ?><div style="background:#fff;border:1px solid #e5e7eb;padding:10px;border-radius:8px;color:#111827;white-space:pre-wrap;"><?php echo nl2br(htmlspecialchars($action_taken)); ?></div><?php else: ?><span style="color:#9CA3AF;font-style:italic;">— not provided —</span><?php endif; ?></dd>
+
+                                <dt style="color:#6b7280;font-weight:700;">Time Spent (hours)</dt>
+                                <dd style="margin:0;color:#111827;"><?php echo ($time_spent !== '') ? htmlspecialchars($time_spent) : '<span style="color:#9CA3AF;font-style:italic;">— not provided —</span>'; ?></dd>
+
+                                <dt style="color:#6b7280;font-weight:700;">Evidence / Attachments</dt>
+                                <dd style="margin:0;color:#111827;">
+                                    <?php if (!empty($evidence_list)): ?>
+                                        <ul style="margin:6px 0 0 0;padding-left:18px;">
+                                            <?php foreach ($evidence_list as $ev): ?>
+                                                <?php $ev_trim = trim((string)$ev); $isUrl = filter_var($ev_trim, FILTER_VALIDATE_URL); ?>
+                                                <li style="margin-bottom:6px;">
+                                                    <?php if ($isUrl): ?>
+                                                        <a href="<?php echo htmlspecialchars($ev_trim); ?>" target="_blank" rel="noopener"><?php echo htmlspecialchars($ev_trim); ?></a>
+                                                    <?php else: ?>
+                                                        <?php echo htmlspecialchars($ev_trim); ?>
+                                                    <?php endif; ?>
+                                                </li>
+                                            <?php endforeach; ?>
+                                        </ul>
+                                    <?php else: ?>
+                                        <span style="color:#9CA3AF;font-style:italic;">— none provided —</span>
+                                    <?php endif; ?>
+                                </dd>
+
+                                <dt style="color:#6b7280;font-weight:700;">Upload supporting file</dt>
+                                <dd style="margin:0;color:#111827;">
+                                    <?php if (!empty($filePath)): ?>
+                                        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+                                            <div class="file-pill" style="padding:6px 10px;"><?php echo htmlspecialchars($fileName); ?><?php if ($fileType): ?> <span style="margin-left:8px;font-weight:700;color:#111827;">• <?php echo htmlspecialchars($fileType); ?></span><?php endif; ?></div>
+                                            <div style="display:flex;gap:8px;align-items:center;">
+                                                <?php if ($hasOpen && !empty($inlineId)): ?>
+                                                    <a href="#<?php echo $inlineId; ?>" class="btn glightbox" data-type="inline">Open</a>
+                                                <?php elseif ($isLink && !empty($absUrl)): ?>
+                                                    <a href="<?php echo htmlspecialchars($absUrl); ?>" target="_blank" rel="noopener" class="btn">Open</a>
+                                                <?php endif; ?>
+
+                                                <a href="<?php echo htmlspecialchars($absUrl); ?>" target="_blank" rel="noopener" class="btn btn-gray view-newtab" data-ext="<?php echo htmlspecialchars($extLower); ?>" data-abs="<?php echo htmlspecialchars($absUrl); ?>" <?php if (!empty($gviewUrl)): ?>data-gview="<?php echo htmlspecialchars($gviewUrl); ?>"<?php endif; ?>>View in new tab</a>
+
+                                                <?php if (!$isLink): ?>
+                                                    <a href="<?php echo htmlspecialchars($absUrl); ?>" download class="btn btn-green">Download</a>
+                                                <?php endif; ?>
+                                            </div>
+                                        </div>
+                                    <?php else: ?>
+                                        <span style="color:#9CA3AF;font-style:italic;">— no supporting file uploaded —</span>
+                                    <?php endif; ?>
+                                    <?php
+                                        // Temporary debug: enable by appending ?debug_submission=1 to the URL.
+                                        $showDebug = (isset($_GET['debug_submission']) && $_GET['debug_submission'] == '1');
+                                        if ($showDebug) {
+                                            $dbgFs = $fsPath ?? '';
+                                            $dbgExists = ($dbgFs !== '' && @file_exists($dbgFs)) ? 'yes' : 'no';
+                                            echo '<div style="margin-top:8px;font-size:12px;color:#6b7280;">Debug: filePath=' . htmlspecialchars((string)$filePath) . ' • absUrl=' . htmlspecialchars((string)$absUrl) . ' • fsPath=' . htmlspecialchars((string)$dbgFs) . ' • exists=' . $dbgExists . '</div>';
+                                            echo '<details style="margin-top:6px;color:#374151;background:#fff;padding:8px;border-radius:8px;border:1px solid #E5E7EB;"><summary style="font-weight:700;">Submission columns (click to expand)</summary><div style="margin-top:8px;line-height:1.45;">';
+                                            foreach (($submission ?? []) as $k => $v) {
+                                                $val = is_scalar($v) ? (string)$v : json_encode($v);
+                                                echo '<div style="font-size:12px;color:#111827;margin-bottom:6px;"><strong>' . htmlspecialchars($k) . '</strong>: <span style="color:#6b7280;">' . htmlspecialchars($val) . '</span></div>';
+                                            }
+                                            echo '</div></details>';
+                                        }
+                                    ?>
+                                </dd>
+
+                                <dt style="color:#6b7280;font-weight:700;">Resolution Outcome</dt>
+                                <dd style="margin:0;color:#111827;"><?php echo $resolution_status !== '' ? htmlspecialchars($resolution_status) : '<span style="color:#9CA3AF;font-style:italic;">— not specified —</span>'; ?></dd>
+
+                                <dt style="color:#6b7280;font-weight:700;">Follow-up required</dt>
+                                <dd style="margin:0;color:#111827;"><?php echo ($follow_up_raw==='1' || strtolower((string)$follow_up_raw)==='yes') ? 'Yes' : 'No'; ?></dd>
+
+                                <dt style="color:#6b7280;font-weight:700;">Comments (optional)</dt>
+                                <dd style="margin:0;color:#111827;">
+                                    <?php
+                                        // Render comments with paragraph structure for readability.
+                                        function render_comment_paragraphs($raw) {
+                                            $raw = (string)$raw;
+                                            $raw = preg_replace("/\r\n|\r/", "\n", $raw);
+                                            $raw = trim($raw);
+                                            if ($raw === '') return '';
+                                            $paras = preg_split("/\n{2,}/", $raw);
+                                            $out = '';
+                                            foreach ($paras as $p) {
+                                                $p = trim($p, "\n\r\t ");
+                                                if ($p === '') continue;
+                                                $out .= '<p style="margin:0 0 8px;">' . nl2br(htmlspecialchars($p)) . '</p>';
+                                            }
+                                            return $out;
+                                        }
+
+                                        if (!empty($clean_comments)) {
+                                            $html = render_comment_paragraphs($clean_comments);
+                                            echo '<div style="background:#fff;border:1px solid #e5e7eb;padding:10px;border-radius:8px;color:#111827;">' . $html . '</div>';
+                                        } elseif (!empty($submission['comments'] ?? null) && trim((string)($submission['comments'])) !== '') {
+                                            $html = render_comment_paragraphs($submission['comments']);
+                                            echo '<div style="background:#fff;border:1px solid #e5e7eb;padding:10px;border-radius:8px;color:#111827;">' . $html . '</div>';
+                                        } else {
+                                            echo '<span style="color:#9CA3AF;font-style:italic;">— none —</span>';
+                                        }
+                                    ?>
+                                </dd>
+                            </dl>
                         </div>
                     </div>
                     <?php endif; ?>

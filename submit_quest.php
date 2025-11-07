@@ -137,13 +137,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $quest_id && $employee_id) {
         $resolution_status = trim($_POST['resolution_status'] ?? '');
         $follow_up_required = isset($_POST['follow_up_required']) ? 1 : 0;
 
-        // Merge ticket and time into comments for backward compatibility if DB lacks dedicated columns
-        if (!empty($ticket_reference) || $time_spent_hours !== null) {
-            $extra = '';
-            if ($ticket_reference !== '') $extra .= "Ticket: $ticket_reference\n";
-            if ($time_spent_hours !== null) $extra .= "Time Spent (hrs): $time_spent_hours\n";
-            if (!empty($comments)) $comments = $comments . "\n" . $extra; else $comments = $extra;
-        }
+        // NOTE: We will only merge ticket/time into comments later if the DB schema
+        // does not include dedicated columns for those fields. That check is done
+        // after inspecting the `quest_submissions` table schema to avoid duplicating
+        // structured data into the free-text comments field when dedicated columns
+        // are available.
 
         // Enforce presence of action taken
         if (empty($text)) {
@@ -290,6 +288,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $quest_id && $employee_id) {
                     error_log('Could not add file_name column to quest_submissions: ' . $altex->getMessage());
                 }
             }
+            // If this is a client_support submission and the DB does NOT have dedicated
+            // columns for ticket/time, merge those values into the comments for
+            // backward compatibility so the data is still preserved in the submission.
+            if (isset($quest['display_type']) && $quest['display_type'] === 'client_support') {
+                $hasTicketCol = in_array('ticket_reference', $questSubmissionColumns, true) || in_array('ticket_id', $questSubmissionColumns, true);
+                $hasTimeCol = in_array('time_spent_hours', $questSubmissionColumns, true) || in_array('time_spent', $questSubmissionColumns, true);
+                if (!$hasTicketCol || !$hasTimeCol) {
+                    $extra = '';
+                    if (!$hasTicketCol && !empty($ticket_reference)) $extra .= "Ticket: $ticket_reference\n";
+                    if (!$hasTimeCol && $time_spent_hours !== null) $extra .= "Time Spent (hrs): $time_spent_hours\n";
+                    if ($extra !== '') {
+                        if (!empty($comments)) $comments = $comments . "\n" . $extra; else $comments = $extra;
+                    }
+                }
+            }
         } catch (PDOException $schemaEx) {
             // If schema inspection fails, fallback to a conservative set of columns
             error_log('Unable to inspect quest_submissions schema: ' . $schemaEx->getMessage());
@@ -327,8 +340,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $quest_id && $employee_id) {
             }
         } elseif ($submission_type === 'link' && in_array('drive_link', $questSubmissionColumns, true)) {
             $insertColumns[] = 'drive_link'; $placeholders[] = '?'; $params[] = $drive_link; $hasContentColumn = true;
-        } elseif ($submission_type === 'text' && in_array('text_content', $questSubmissionColumns, true)) {
-            $insertColumns[] = 'text_content'; $placeholders[] = '?'; $params[] = $text; $hasContentColumn = true;
+        } elseif ($submission_type === 'text') {
+            // Prefer dedicated action/text columns for client_support quests. Use the
+            // first available column from this ordered list so form inputs reliably
+            // map to DB columns regardless of schema naming.
+            $textColsPriority = ['action_taken','action','text_content','text','submission_text'];
+            $chosen = null;
+            foreach ($textColsPriority as $tc) {
+                if (in_array($tc, $questSubmissionColumns, true)) { $chosen = $tc; break; }
+            }
+            if ($chosen) {
+                $insertColumns[] = $chosen; $placeholders[] = '?'; $params[] = $text; $hasContentColumn = true;
+            }
+        }
+
+        // If a support file was uploaded for client_support (or any case where $file_path is set),
+        // ensure we save it into the `file_path` column when available even if submission_type is 'text'.
+        if (!empty($file_path) && in_array('file_path', $questSubmissionColumns, true)) {
+            if (!in_array('file_path', $insertColumns, true)) {
+                $insertColumns[] = 'file_path'; $placeholders[] = '?'; $params[] = $file_path;
+            }
+            // Try to persist an original filename too
+            $origCols = ['file_name','original_name','original_filename','file_original_name','original_file_name'];
+            $storedOriginal = $original_filename ?? basename($file_path);
+            foreach ($origCols as $oc) {
+                if (in_array($oc, $questSubmissionColumns, true) && !in_array($oc, $insertColumns, true)) {
+                    $insertColumns[] = $oc; $placeholders[] = '?'; $params[] = $storedOriginal; break;
+                }
+            }
         }
 
         if (!$hasContentColumn) {
