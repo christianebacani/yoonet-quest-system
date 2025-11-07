@@ -1,116 +1,92 @@
 <?php
-require_once __DIR__ . '/includes/config.php';
-require_once __DIR__ . '/includes/functions.php';
+    require_once __DIR__ . '/includes/config.php';
+    require_once __DIR__ . '/includes/functions.php';
 
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
+    if (session_status() === PHP_SESSION_NONE) {
+        session_start();
+    }
 
-if (!is_logged_in()) {
-    header('Location: login.php');
-    exit();
-}
+    if (!is_logged_in()) {
+        header('Location: login.php');
+        exit();
+    }
 
-$submission_id = isset($_GET['submission_id']) ? (int)$_GET['submission_id'] : 0;
-$error = '';
+    $submission_id = isset($_GET['submission_id']) ? (int)$_GET['submission_id'] : 0;
+    $error = '';
+    $submission = null;
+    $quest = null;
 
-if ($submission_id <= 0) {
-    $error = 'Missing submission reference.';
-}
+    if ($submission_id <= 0) {
+        $error = 'Missing submission reference.';
+    }
 
-$submission = null;
-$quest = null;
-
-if (empty($error)) {
-    try {
-        $stmt = $pdo->prepare("SELECT qs.*, q.title AS quest_title, q.id AS quest_id FROM quest_submissions qs JOIN quests q ON qs.quest_id = q.id WHERE qs.id = ? LIMIT 1");
-        $stmt->execute([$submission_id]);
-        $submission = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
-        if (!$submission) {
-            $error = 'Submission not found.';
+    if (empty($error)) {
+        try {
+            $stmt = $pdo->prepare("SELECT qs.*, q.title AS quest_title, q.id AS quest_id FROM quest_submissions qs JOIN quests q ON qs.quest_id = q.id WHERE qs.id = ? LIMIT 1");
+            $stmt->execute([$submission_id]);
+            $submission = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+            if (!$submission) $error = 'Submission not found.';
+        } catch (PDOException $e) {
+            $error = 'Error loading submission.';
+            error_log('view_submission load submission: ' . $e->getMessage());
         }
-    } catch (PDOException $e) {
-        $error = 'Error loading submission.';
-        error_log('view_submission load submission: ' . $e->getMessage());
     }
-}
 
-// Authorization: only the submitter can view (or admin)
-if (empty($error)) {
-    $currentEmployee = $_SESSION['employee_id'] ?? null;
-    $role = $_SESSION['role'] ?? '';
-    $isAdmin = ($role === 'admin');
-    if (!$isAdmin && (!$currentEmployee || $submission['employee_id'] != $currentEmployee)) {
-        $error = 'You are not allowed to view this submission.';
+    // Authorization: only the submitter or admin
+    if (empty($error)) {
+        $currentEmployee = $_SESSION['employee_id'] ?? null;
+        $role = $_SESSION['role'] ?? '';
+        $isAdmin = ($role === 'admin');
+        if (!$isAdmin && (!$currentEmployee || $submission['employee_id'] != $currentEmployee)) {
+            $error = 'You are not allowed to view this submission.';
+        }
     }
-}
 
-if (empty($error)) {
-    $quest = [ 'id' => (int)$submission['quest_id'], 'title' => (string)$submission['quest_title'] ];
-}
-
-// Try to fetch quest display_type for specialized rendering
-if (empty($error)) {
-    try {
-        $qstmt = $pdo->prepare("SELECT display_type FROM quests WHERE id = ? LIMIT 1");
-        $qstmt->execute([(int)$submission['quest_id']]);
-        $qrow = $qstmt->fetch(PDO::FETCH_ASSOC);
-        if ($qrow) { $quest['display_type'] = $qrow['display_type'] ?? null; }
-    } catch (PDOException $e) {
-        // ignore
+    if (empty($error)) {
+        $quest = ['id' => (int)($submission['quest_id'] ?? 0), 'title' => (string)($submission['quest_title'] ?? '')];
     }
-}
 
-// Detect client_support early so we can alter file-detection logic
-$isClientSupport = (isset($quest['display_type']) && $quest['display_type'] === 'client_support');
+    // get display type if available
+    if (empty($error) && !empty($submission['quest_id'])) {
+        try {
+            $qstmt = $pdo->prepare("SELECT display_type FROM quests WHERE id = ? LIMIT 1");
+            $qstmt->execute([(int)$submission['quest_id']]);
+            $qrow = $qstmt->fetch(PDO::FETCH_ASSOC);
+            if ($qrow) $quest['display_type'] = $qrow['display_type'] ?? null;
+        } catch (PDOException $e) {
+            // ignore
+        }
+    }
 
-// Helper to get absolute-ish URL for local files (relative path works under same site)
-$filePath = '';
-$driveLink = '';
-$textContent = '';
-$submissionText = '';
-$fsPath = null; // filesystem path when available (used for file_get_contents and existence checks)
-if ($submission) {
+    $isClientSupport = (isset($quest['display_type']) && $quest['display_type'] === 'client_support');
+
+    // prepare file-related variables
     $filePath = '';
     $driveLink = '';
     $textContent = '';
     $submissionText = '';
-    // Support different column names used across schemas for supporting files
-    if ($submission) {
-        // primary file path
-        $filePath = $submission['file_path'] ?? '';
-        // some older schemas or forms might have stored support files in alternative columns
-        if (empty($filePath)) {
-            $filePath = $submission['support_file'] ?? $submission['support_file_path'] ?? $submission['support_filepath'] ?? $submission['supportpath'] ?? $submission['supporting_file'] ?? $submission['supporting_file_path'] ?? $submission['supporting_filepath'] ?? '';
-        }
-        // also try a generic 'file' column or other common names
-        if (empty($filePath)) {
-            $filePath = $submission['file'] ?? $submission['uploaded_file'] ?? $submission['uploaded_filepath'] ?? $submission['attachment'] ?? $submission['attachment_path'] ?? $submission['attachments'] ?? $submission['support_files'] ?? $submission['submission_file'] ?? $submission['filepath'] ?? '';
-        }
+    $fsPath = null;
+    $absUrl = '';
+
+    if (!empty($submission)) {
+        // try many columns for stored file path / name
+        $filePath = $submission['file_path'] ?? $submission['support_file'] ?? $submission['support_file_path'] ?? $submission['support_filepath'] ?? $submission['supportpath'] ?? $submission['supporting_file'] ?? $submission['supporting_file_path'] ?? $submission['supporting_filepath'] ?? $submission['file'] ?? $submission['uploaded_file'] ?? $submission['uploaded_filepath'] ?? $submission['attachment'] ?? $submission['attachment_path'] ?? $submission['attachments'] ?? $submission['support_files'] ?? $submission['submission_file'] ?? $submission['filepath'] ?? '';
         $driveLink = $submission['drive_link'] ?? '';
         $textContent = $submission['text_content'] ?? '';
         $submissionText = $submission['submission_text'] ?? '';
 
-        // Normalize path separators for Windows-hosted stores
-        $filePath = is_string($filePath) ? str_replace('\\', '/', $filePath) : $filePath;
+        // normalize slashes
+        $filePath = is_string($filePath) ? str_replace('\\','/', $filePath) : $filePath;
 
-        // Derive a filesystem path and an HTTP-accessible URL (absUrl).
-        // If the stored value is already a URL, keep it. Otherwise try several filesystem locations.
-        $fsPath = null;
-        $absUrl = '';
         if (!empty($filePath)) {
             if (filter_var($filePath, FILTER_VALIDATE_URL)) {
                 $absUrl = $filePath;
             } else {
-                // Candidate 1: path as-is (maybe already relative to project root)
                 $cand1 = __DIR__ . '/' . ltrim($filePath, '/');
-                // Candidate 2: document root + provided path
                 $docRoot = rtrim(str_replace('\\','/', $_SERVER['DOCUMENT_ROOT'] ?? ''), '/');
                 $cand2 = ($docRoot ? $docRoot : __DIR__) . '/' . ltrim($filePath, '/');
-                // Candidate 3: directly the provided string (maybe absolute FS path)
                 $cand3 = $filePath;
 
-                // Check which candidate exists on disk
                 if (@file_exists($cand3)) {
                     $fsPath = $cand3;
                 } elseif (@file_exists($cand1)) {
@@ -120,54 +96,42 @@ if ($submission) {
                 }
 
                 if ($fsPath) {
-                    // Compute an HTTP path from filesystem path when possible
                     $fsNorm = str_replace('\\','/', $fsPath);
                     if (!empty($docRoot) && stripos($fsNorm, $docRoot) === 0) {
                         $absUrl = substr($fsNorm, strlen($docRoot));
                         if ($absUrl === '' || $absUrl[0] !== '/') $absUrl = '/' . ltrim($absUrl, '/');
                     } else {
-                        // Fallback: try to use the original stored path as a web path
                         $absUrl = '/' . ltrim($filePath, '/');
                     }
                 } else {
-                    // Nothing exists on disk; still expose stored path as-is so links work when it's a relative URL
                     $absUrl = '/' . ltrim($filePath, '/');
                 }
             }
         }
-        // If no filePath was found in the DB but a support file may exist on disk
-        // (previous code sometimes uploaded files but didn't save file_path for client_support submissions),
-        // attempt to locate a likely candidate in uploads/quest_submissions by employee id or support marker.
-        if (empty($filePath) && !empty($submission) && isset($submission['employee_id'])) {
+
+        // if not found in DB, try to locate likely upload
+        if (empty($filePath) && !empty($submission['employee_id'])) {
             $empId = (string)$submission['employee_id'];
             $uploadsDir = __DIR__ . '/uploads/quest_submissions/';
             if (is_dir($uploadsDir)) {
                 $candidates = [];
-                $files = scandir($uploadsDir);
-                foreach ($files as $f) {
+                foreach (scandir($uploadsDir) as $f) {
                     if ($f === '.' || $f === '..') continue;
                     $low = strtolower($f);
-                    // prefer files that include employee id or support marker
                     $score = 0;
                     if (strpos($low, $empId . '_') === 0) $score += 10;
                     if (strpos($low, '_support_') !== false || strpos($low, 'support_') === 0) $score += 8;
-                    if (strpos($low, 'ql' . $submission['quest_id']) === 0) $score += 4;
+                    if (strpos($low, 'ql' . ($submission['quest_id'] ?? '')) === 0) $score += 4;
                     if ($score > 0) {
                         $full = $uploadsDir . $f;
-                        if (file_exists($full)) {
-                            $candidates[] = ['file' => $f, 'full' => $full, 'score' => $score, 'mtime' => filemtime($full)];
-                        }
+                        if (file_exists($full)) $candidates[] = ['file' => $f, 'full' => $full, 'score' => $score, 'mtime' => filemtime($full)];
                     }
                 }
                 if (!empty($candidates)) {
-                    usort($candidates, function($a,$b){
-                        if ($a['score'] !== $b['score']) return $b['score'] - $a['score'];
-                        return $b['mtime'] - $a['mtime'];
-                    });
+                    usort($candidates, function($a,$b){ if ($a['score'] !== $b['score']) return $b['score'] - $a['score']; return $b['mtime'] - $a['mtime']; });
                     $pick = $candidates[0];
                     $filePath = 'uploads/quest_submissions/' . $pick['file'];
                     $fsPath = $pick['full'];
-                    // compute absUrl relative to doc root if possible
                     $docRoot = rtrim(str_replace('\\','/', $_SERVER['DOCUMENT_ROOT'] ?? ''), '/');
                     $fsNorm = str_replace('\\','/', $fsPath);
                     if (!empty($docRoot) && stripos($fsNorm, $docRoot) === 0) {
@@ -180,13 +144,6 @@ if ($submission) {
             }
         }
     }
-}
-
-$fileName = '';
-$fileType = '';
-// Note: $absUrl may have been computed above from filesystem discovery; do not blindly overwrite it here.
-if (!isset($absUrl)) $absUrl = '';
-$extLower = '';
 $gviewUrl = '';
 $hasOpen = false;
 $inlineId = '';
@@ -200,13 +157,52 @@ if (empty($error)) {
             $submission['original_filename'] ?? null,
             $submission['file_original_name'] ?? null,
             $submission['original_file_name'] ?? null,
+            // other common columns
+            $submission['support_file'] ?? null,
+            $submission['supporting_file'] ?? null,
+            $submission['uploaded_file'] ?? null,
+            $submission['attachment'] ?? null,
+            $submission['attachment_path'] ?? null,
+            $submission['file'] ?? null,
         ];
         $fileName = '';
         foreach ($fileNameCandidates as $c) { if (!empty($c)) { $fileName = $c; break; } }
         if (empty($fileName)) {
-            // Prefer deriving filename from the computed absUrl (if available), otherwise fall back to filePath
-            $nameSource = !empty($absUrl) ? $absUrl : $filePath;
-            $fileName = basename($nameSource);
+            // Prefer deriving filename from the filesystem path ($fsPath) when available
+            if (!empty($fsPath)) {
+                $fileName = basename($fsPath);
+            } else {
+                // otherwise derive from the computed absUrl (if available), otherwise fall back to filePath
+                $nameSource = !empty($absUrl) ? $absUrl : $filePath;
+                $fileName = basename($nameSource);
+            }
+        }
+
+        // Normalize $fileName: if it's a URL or contains directory separators, reduce to basename so display matches uploaded file name
+        $fileName = (string)$fileName;
+        if (filter_var($fileName, FILTER_VALIDATE_URL)) {
+            $u = parse_url($fileName);
+            $p = $u['path'] ?? '';
+            $fileName = basename($p ?: $fileName);
+        } else {
+            // Remove any leading path components (handles windows backslashes)
+            $fileName = basename(str_replace('\\', '/', $fileName));
+        }
+        // If still empty, try fsPath or absUrl
+        if ($fileName === '') {
+            if (!empty($fsPath)) $fileName = basename($fsPath);
+            elseif (!empty($absUrl)) $fileName = basename(parse_url($absUrl, PHP_URL_PATH) ?: $absUrl);
+        }
+        // Apply display overrides for known stored filenames (helps when original filename wasn't preserved in DB)
+        $storedBase = '';
+        if (!empty($fsPath)) $storedBase = basename($fsPath);
+        elseif (!empty($absUrl)) $storedBase = basename(parse_url($absUrl, PHP_URL_PATH) ?: $absUrl);
+        elseif (!empty($filePath)) $storedBase = basename($filePath);
+        if ($storedBase !== '' && isset($displayNameOverrides[$storedBase])) {
+            $fileName = $displayNameOverrides[$storedBase];
+            $downloadName = $displayNameOverrides[$storedBase];
+        } else {
+            $downloadName = $fileName;
         }
         // Prefer the previously computed web URL (from filesystem discovery) when present
         if (empty($absUrl)) {
@@ -327,9 +323,10 @@ try {
             <div id="submissionPreview">
             <div class="card">
                 <div class="row" style="margin-bottom:8px;">
-                    <?php if (!($isClientSupport && strtoupper((string)$fileType) === 'TEXT')): ?>
+                    <?php if (!$isClientSupport): ?>
                         <div class="file-pill">📄 <?php echo htmlspecialchars($fileName ?: 'Submission'); ?><?php if ($fileType): ?> <span style="margin-left:6px; font-weight:700; color:#111827;">• <?php echo htmlspecialchars($fileType); ?></span><?php endif; ?></div>
                     <?php endif; ?>
+                    <?php if (!$isClientSupport): ?>
                     <div style="display:flex; gap:8px;">
                         <?php if ($hasOpen && !empty($inlineId)): ?>
                             <?php if (!empty($filePath)):
@@ -356,10 +353,11 @@ try {
                                View in new tab
                             </a>
                             <?php if (!$isLink && !empty($filePath)): ?>
-                                <a href="<?php echo htmlspecialchars($absUrl); ?>" download class="btn btn-green">Download</a>
+                                <a href="<?php echo htmlspecialchars($absUrl); ?>" download="<?php echo htmlspecialchars($downloadName ?? basename(parse_url($absUrl, PHP_URL_PATH) ?: $absUrl)); ?>" class="btn btn-green">Download</a>
                             <?php endif; ?>
                         <?php endif; ?>
                     </div>
+                    <?php endif; ?>
                 </div>
 
                 <?php
@@ -620,7 +618,7 @@ try {
                                                 <a href="<?php echo htmlspecialchars($absUrl); ?>" target="_blank" rel="noopener" class="btn btn-gray view-newtab" data-ext="<?php echo htmlspecialchars($extLower); ?>" data-abs="<?php echo htmlspecialchars($absUrl); ?>" <?php if (!empty($gviewUrl)): ?>data-gview="<?php echo htmlspecialchars($gviewUrl); ?>"<?php endif; ?>>View in new tab</a>
 
                                                 <?php if (!$isLink): ?>
-                                                    <a href="<?php echo htmlspecialchars($absUrl); ?>" download class="btn btn-green">Download</a>
+                                                    <a href="<?php echo htmlspecialchars($absUrl); ?>" download="<?php echo htmlspecialchars($downloadName ?? basename(parse_url($absUrl, PHP_URL_PATH) ?: $absUrl)); ?>" class="btn btn-green">Download</a>
                                                 <?php endif; ?>
                                             </div>
                                         </div>
