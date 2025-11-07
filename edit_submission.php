@@ -245,7 +245,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($submission) && is_array($su
                 if (!empty($submission['file_path'])) { $oldp = __DIR__ . '/' . $submission['file_path']; if (is_file($oldp)) { @unlink($oldp); } }
             }
             // If switching away from file, clear any previous file path so view shows the new type
-            if ($submission_type !== 'file') {
+            // NOTE: for client_support edits we may still want to store a supporting file even though
+            // submission_type is forced to 'text'. Only clear previous file_path when no new file
+            // (either quest file or support file) is being set.
+            if ($submission_type !== 'file' && empty($newFilePath) && empty($newSupportFilePath)) {
                 if (in_array('file_path', $qsCols, true)) { $updateParts[] = 'file_path = ?'; $params[] = ''; }
                 elseif (in_array('filepath', $qsCols, true)) { $updateParts[] = 'filepath = ?'; $params[] = ''; }
                 // Also clear any stored original filename/display name columns so UI doesn't still show an old filename

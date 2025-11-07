@@ -54,10 +54,59 @@ function to_web_path($p) {
     return $n;
 }
 
-$web = to_web_path($filePath);
+// Normalize file path and compute a web-accessible URL similar to view_submission.php
+$filePath = is_string($filePath) ? str_replace('\\','/', $filePath) : $filePath;
+$absUrl = '';
+if (!empty($filePath)) {
+    if (filter_var($filePath, FILTER_VALIDATE_URL)) {
+        $absUrl = $filePath;
+    } else {
+        $cand1 = __DIR__ . '/' . ltrim($filePath, '/');
+        $docRoot = rtrim(str_replace('\\','/', $_SERVER['DOCUMENT_ROOT'] ?? ''), '/');
+        $cand2 = ($docRoot ? $docRoot : __DIR__) . '/' . ltrim($filePath, '/');
+        $cand3 = $filePath;
+
+        $fsPath = null;
+        if (@file_exists($cand3)) { $fsPath = $cand3; }
+        elseif (@file_exists($cand1)) { $fsPath = $cand1; }
+        elseif (@file_exists($cand2)) { $fsPath = $cand2; }
+
+        if ($fsPath) {
+            $fsNorm = str_replace('\\','/', $fsPath);
+            if (!empty($docRoot) && stripos($fsNorm, $docRoot) === 0) {
+                $absUrl = substr($fsNorm, strlen($docRoot));
+                if ($absUrl === '' || $absUrl[0] !== '/') $absUrl = '/' . ltrim($absUrl, '/');
+            } else {
+                $absUrl = '/' . ltrim($filePath, '/');
+            }
+        } else {
+            $absUrl = '/' . ltrim($filePath, '/');
+        }
+    }
+}
+
+$web = $absUrl ?: to_web_path($filePath);
 $abs = $web ?: ($driveLink ?: $submissionText);
 $ext = strtolower(pathinfo($web ?: $abs, PATHINFO_EXTENSION));
-$fname = $web ? basename($web) : ($driveLink ? basename(parse_url($driveLink, PHP_URL_PATH) ?? '') : 'Submission');
+$fname = '';
+if (!empty($filePath)) {
+    // prefer explicit stored original filename fields if present
+    $fileNameCandidates = [
+        $submission['file_name'] ?? null,
+        $submission['support_original_name'] ?? null,
+        $submission['original_name'] ?? null,
+        $submission['original_filename'] ?? null,
+        $submission['file_original_name'] ?? null,
+        $submission['original_file_name'] ?? null,
+    ];
+    foreach ($fileNameCandidates as $c) { if (!empty($c)) { $fname = $c; break; } }
+    if ($fname === '') {
+        if (!empty($abs)) $fname = basename(parse_url($abs, PHP_URL_PATH) ?: $abs);
+        else $fname = basename($filePath);
+    }
+} else {
+    $fname = $driveLink ? basename(parse_url($driveLink, PHP_URL_PATH) ?? '') : 'Submission';
+}
 
 $badgeClass = 'badge badge-pending'; $badgeLabel = 'Pending';
 if ($status === 'under_review') { $badgeClass='badge badge-under'; $badgeLabel='Under Review'; }
