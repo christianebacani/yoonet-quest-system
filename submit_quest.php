@@ -86,6 +86,78 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $quest_id && $employee_id) {
         return $num;
     };
 
+    // Allow optional support file upload for client_support quests (stored into file_path like regular file submissions)
+    if (isset($quest['display_type']) && $quest['display_type'] === 'client_support') {
+        if (isset($_FILES['support_file']) && isset($_FILES['support_file']['error'])) {
+            $supp = $_FILES['support_file'];
+            if ($supp['error'] === UPLOAD_ERR_OK) {
+                $ext = strtolower(pathinfo($supp['name'], PATHINFO_EXTENSION));
+                if (!in_array($ext, $allowed_exts)) {
+                    $error = 'Invalid support file type.';
+                    $valid = false;
+                } elseif ($supp['size'] > $max_size) {
+                    $error = 'Support file too large (max 5MB).';
+                    $valid = false;
+                } else {
+                    $upload_dir = __DIR__ . '/uploads/quest_submissions/';
+                    if (!is_dir($upload_dir)) { mkdir($upload_dir, 0777, true); }
+                    $new_name = $employee_id . '_support_' . time() . '.' . $ext;
+                    $dest = $upload_dir . $new_name;
+                    if (move_uploaded_file($supp['tmp_name'], $dest)) {
+                        $file_path = 'uploads/quest_submissions/' . $new_name;
+                        $original_filename = $supp['name'];
+                    } else {
+                        $error = 'Failed to move support file. Check server permissions.';
+                        $valid = false;
+                    }
+                }
+            } elseif ($supp['error'] !== UPLOAD_ERR_NO_FILE) {
+                // other upload error
+                $error = 'Support file upload error (code ' . (int)$supp['error'] . ').';
+                $valid = false;
+            }
+        }
+    }
+
+    // Special handling for Client & Support Operations quests.
+    // For these quests require an "action taken" description (text submission) and allow optional evidence.
+    $ticket_reference = '';
+    $time_spent_hours = null;
+    $evidence_json = '';
+    if (isset($quest['display_type']) && $quest['display_type'] === 'client_support') {
+        // Force text submission type and collect client-specific fields
+        $submission_type = 'text';
+        $text = trim($_POST['action_taken'] ?? '');
+        $ticket_reference = trim($_POST['ticket_id'] ?? '');
+        $time_spent_hours = isset($_POST['time_spent']) && $_POST['time_spent'] !== '' ? (float)$_POST['time_spent'] : null;
+        $evidence = $_POST['evidence'] ?? [];
+        if (!empty($evidence) && is_array($evidence)) {
+            $evidence_json = json_encode(array_values($evidence));
+        }
+
+        // Merge ticket and time into comments for backward compatibility if DB lacks dedicated columns
+        if (!empty($ticket_reference) || $time_spent_hours !== null) {
+            $extra = '';
+            if ($ticket_reference !== '') $extra .= "Ticket: $ticket_reference\n";
+            if ($time_spent_hours !== null) $extra .= "Time Spent (hrs): $time_spent_hours\n";
+            if (!empty($comments)) $comments = $comments . "\n" . $extra; else $comments = $extra;
+        }
+
+        // Enforce presence of action taken
+        if (empty($text)) {
+            $error = 'Please describe the action taken to resolve the client request or complete the task.';
+            $valid = false;
+        }
+        // Require at least one evidence checkbox OR a file upload OR a ticket id OR time spent
+        $hasEvidence = !empty($evidence_json) || (!empty($_FILES['support_file'] ?? []) && (!isset($_FILES['support_file']['error']) || $_FILES['support_file']['error'] !== UPLOAD_ERR_NO_FILE)) || $ticket_reference !== '' || $time_spent_hours !== null;
+        if (!$hasEvidence) {
+            // Not strictly failing but warn — prefer at least one evidence item
+            // We'll not block submission but we add a note in comments
+            if (!empty($comments)) $comments .= "\n"; 
+            $comments .= "[No evidence attached]";
+        }
+    }
+
     if ($submission_type === 'file') {
         // if $_FILES not set or no file, check whether POST size exceeded server limits
         if (!isset($_FILES['quest_file'])) {
@@ -322,6 +394,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $quest_id && $employee_id) {
             opacity: 0; cursor: pointer; z-index: 2;
             display: block !important;
         }
+        /* Support dropzone styling to match requested design (rounded dashed purple box) */
+        #support_dropzone { position: relative; border: 2px dashed #6366f1; border-radius: 14px; padding: 22px 0; text-align: center; color: #6366f1; background: #fbfbfe; min-height: 64px; display:flex; align-items:center; justify-content:center; font-size:1.05em; }
+        #support_file { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; z-index: 2; display: block !important; }
         .quest-header { display: flex; flex-direction: column; gap: 8px; margin-bottom: 18px; }
         .quest-title { font-size: 1.5rem; font-weight: 700; color: var(--primary-color, #3730a3); }
         .quest-desc { color: #374151; font-size: 1.08em; margin-bottom: 4px; }
@@ -390,6 +465,95 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $quest_id && $employee_id) {
                 </style>
             <?php }
             if (empty($success)) { ?>
+            <?php if (isset($quest['display_type']) && $quest['display_type'] === 'client_support'): ?>
+            <!-- Modernized submission UI for Client & Support Operations quests (matches other quest types) -->
+            <form method="post" enctype="multipart/form-data" id="submissionForm">
+                <input type="hidden" name="quest_id" value="<?php echo htmlspecialchars($quest_id); ?>">
+                <div class="form-row">
+                    <label class="form-label" for="ticket_id">Ticket / Reference ID</label>
+                    <input class="form-input" type="text" id="ticket_id" name="ticket_id" value="<?php echo htmlspecialchars($quest['client_reference'] ?? ''); ?>" placeholder="Optional ticket or reference">
+                </div>
+
+                <div class="form-row">
+                    <label class="form-label" for="action_taken">Action Taken / Resolution (required)</label>
+                    <textarea class="form-textarea" id="action_taken" name="action_taken" rows="6" placeholder="Describe the steps you took, findings, and the resolution. This will be used by reviewers."><?php echo htmlspecialchars($_POST['action_taken'] ?? ''); ?></textarea>
+                    <div class="meta" style="margin-top:8px;">Tip: include key timestamps, relevant commands/log snippets or ticket links, and any customer confirmation or screenshots to speed up review.</div>
+                </div>
+
+                <div class="form-row">
+                    <label class="form-label" for="time_spent">Time Spent (hours)</label>
+                    <input class="form-input" type="number" id="time_spent" name="time_spent" step="0.25" min="0" value="<?php echo htmlspecialchars($_POST['time_spent'] ?? ''); ?>" placeholder="e.g. 1.5">
+                </div>
+
+                <div class="form-row">
+                    <label class="form-label">Evidence / Attachments</label>
+                    <div style="display:flex;flex-direction:column;gap:8px;">
+                        <label style="font-weight:600;"><input type="checkbox" name="evidence[]" value="screenshot"> Screenshot(s)</label>
+                        <label style="font-weight:600;"><input type="checkbox" name="evidence[]" value="log"> Log file / system output</label>
+                        <label style="font-weight:600;"><input type="checkbox" name="evidence[]" value="customer_confirmation"> Customer confirmation / email</label>
+                        <label style="font-weight:600;"><input type="checkbox" name="evidence[]" value="ticket_update"> Ticket / system update</label>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <label class="form-label">Upload supporting file (optional)</label>
+                    <div id="support_dropzone" class="dropzone">Drag & drop your file here or click to select
+                        <input type="file" id="support_file" name="support_file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.txt,.zip">
+                    </div>
+                    <button type="button" id="clearSupportFileBtn" class="btn btn-primary" style="margin-top:8px;display:none;">Unselect File</button>
+                    <div class="error-message" id="supportFileError" style="display:none;"></div>
+                    <div class="file-info" id="supportFileInfo" style="margin-top:8px;"></div>
+                    <div class="meta">PDF, DOC, DOCX, JPG, PNG, TXT, ZIP (Max 5MB)</div>
+                    <div class="progress-bar" id="supportProgressBar" style="display:none;"><div class="progress-bar-inner" id="supportProgressBarInner"></div></div>
+                </div>
+
+                <div class="form-row">
+                    <label class="form-label" for="resolution_status">Resolution Outcome</label>
+                    <select name="resolution_status" id="resolution_status" class="form-input">
+                        <option value="resolved">Resolved</option>
+                        <option value="escalated">Escalated</option>
+                        <option value="deferred">Deferred/Waiting</option>
+                    </select>
+                </div>
+
+                <div class="form-row">
+                    <label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" name="follow_up_required" value="1" <?php echo isset($_POST['follow_up_required']) ? 'checked' : ''; ?>> Follow-up required</label>
+                </div>
+
+                <div class="form-row">
+                    <label class="form-label" for="comments">Comments (optional)</label>
+                    <textarea class="form-textarea" id="comments" name="comments" rows="3" placeholder="Any additional notes..."><?php echo htmlspecialchars($_POST['comments'] ?? ''); ?></textarea>
+                </div>
+
+                <div style="display:flex; justify-content:flex-end; gap:8px; margin-top: 18px;">
+                    <button type="submit" name="submit_quest" class="btn btn-primary" id="submitBtn" style="cursor: pointer;">Submit Resolution</button>
+                </div>
+            </form>
+            <?php else: ?>
+            <?php if (isset($quest['quest_type']) && $quest['quest_type'] === 'custom'): ?>
+            <form method="post" enctype="multipart/form-data" id="submissionForm">
+                <input type="hidden" name="quest_id" value="<?php echo htmlspecialchars($quest_id); ?>">
+                <input type="hidden" name="submission_type" value="file">
+                <div class="form-row">
+                    <label class="form-label" for="quest_file">Upload File</label>
+                    <div id="dropzone" class="dropzone">Drag & drop your file here or click to select
+                        <input class="form-input" type="file" id="quest_file" name="quest_file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.txt,.zip">
+                    </div>
+                    <button type="button" id="clearFileBtn" class="btn btn-primary" style="margin-top:8px;display:none;">Unselect File</button>
+                    <div class="error-message" id="fileError" style="display:none;"></div>
+                    <div class="file-info" id="fileInfo" style="margin-top:8px;"></div>
+                    <div class="meta">PDF, DOC, DOCX, JPG, PNG, TXT, ZIP (Max 5MB)</div>
+                    <div class="progress-bar" id="progressBar" style="display:none;"><div class="progress-bar-inner" id="progressBarInner"></div></div>
+                </div>
+                <div class="form-row">
+                    <label class="form-label" for="comments">Comments (optional)</label>
+                    <textarea class="form-textarea" id="comments" name="comments" rows="3" placeholder="Add any comments or notes for your submission..."></textarea>
+                </div>
+                <div style="display:flex; justify-content:flex-end; gap:8px; margin-top: 18px;">
+                    <button type="submit" name="submit_quest" class="btn btn-primary" id="submitBtn" style="cursor: pointer;">Submit Quest</button>
+                </div>
+            </form>
+            <?php else: ?>
             <form method="post" enctype="multipart/form-data" id="submissionForm">
                 <input type="hidden" name="quest_id" value="<?php echo htmlspecialchars($quest_id); ?>">
                 <div class="form-row form-radio-group modern-radio-group">
@@ -424,6 +588,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $quest_id && $employee_id) {
                     <button type="submit" name="submit_quest" class="btn btn-primary" id="submitBtn" style="background: linear-gradient(90deg, #6366f1 0%, #4f46e5 100%); color: #fff; border: none; border-radius: 8px; padding: 12px 32px; font-size: 1.1em; font-weight: 600; box-shadow: 0 2px 8px #6366f133; transition: background 0.2s, box-shadow 0.2s; cursor: pointer;">Submit Quest</button>
                 </div>
             </form>
+            <?php endif; ?>
+            <?php endif; ?>
             <?php } ?>
         </div>
     </div>
@@ -533,6 +699,77 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $quest_id && $employee_id) {
                 }
             }
         }
+
+        // Support file (client_support) dropzone & validation — mirrors quest file behavior so UI matches
+        (function() {
+            const supportDropzone = document.getElementById('support_dropzone');
+            const supportFileInput = document.getElementById('support_file');
+            const supportFileInfo = document.getElementById('supportFileInfo');
+            const supportFileError = document.getElementById('supportFileError');
+            const supportProgressBar = document.getElementById('supportProgressBar');
+            const supportProgressBarInner = document.getElementById('supportProgressBarInner');
+            const clearSupportFileBtn = document.getElementById('clearSupportFileBtn');
+            if (!supportDropzone || !supportFileInput || !supportFileInfo) return;
+            const allowedTypesSupport = [
+                'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                'image/jpeg', 'image/png', 'text/plain', 'application/zip'
+            ];
+            const allowedExtsSupport = ['.pdf','.doc','.docx','.jpg','.jpeg','.png','.txt','.zip'];
+            const maxSizeSupport = 5 * 1024 * 1024;
+
+            function getFileIconSupport(ext) {
+                switch(ext) {
+                    case 'pdf': return '<i class="fas fa-file-pdf" style="color:#b91c1c;"></i>';
+                    case 'doc': case 'docx': return '<i class="fas fa-file-word" style="color:#2563eb;"></i>';
+                    case 'jpg': case 'jpeg': case 'png': return '<i class="fas fa-file-image" style="color:#059669;"></i>';
+                    case 'txt': return '<i class="fas fa-file-alt" style="color:#f59e42;"></i>';
+                    case 'zip': return '<i class="fas fa-file-archive" style="color:#6366f1;"></i>';
+                    default: return '<i class="fas fa-file" style="color:#6366f1;"></i>';
+                }
+            }
+
+            supportDropzone.addEventListener('dragover', function(e) { e.preventDefault(); supportDropzone.classList.add('dragover'); });
+            supportDropzone.addEventListener('dragleave', function(e) { e.preventDefault(); supportDropzone.classList.remove('dragover'); });
+            supportDropzone.addEventListener('drop', function(e) {
+                e.preventDefault(); supportDropzone.classList.remove('dragover');
+                if (e.dataTransfer.files && e.dataTransfer.files.length) {
+                    supportFileInput.files = e.dataTransfer.files; validateSupportFiles();
+                }
+            });
+            supportFileInput.addEventListener('change', function() { validateSupportFiles(); if (supportFileInput.files.length) { clearSupportFileBtn.style.display = 'inline-block'; } else { clearSupportFileBtn.style.display = 'none'; } });
+            if (clearSupportFileBtn) {
+                clearSupportFileBtn.addEventListener('click', function() { supportFileInput.value = ''; supportFileInfo.textContent = ''; supportFileError.style.display = 'none'; clearSupportFileBtn.style.display = 'none'; });
+            }
+
+            function validateSupportFiles() {
+                supportFileError.style.display = 'none'; supportFileInfo.innerHTML = '';
+                if (!supportFileInput.files.length) { clearSupportFileBtn.style.display = 'none'; return; }
+                let errors = [];
+                for (let i = 0; i < supportFileInput.files.length; i++) {
+                    const f = supportFileInput.files[i];
+                    const ext = f.name.substring(f.name.lastIndexOf('.')+1).toLowerCase();
+                    if (!allowedTypesSupport.includes(f.type) && !allowedExtsSupport.includes('.'+ext)) {
+                        errors.push(`${f.name}: Unsupported file type.`);
+                    } else if (f.size > maxSizeSupport) {
+                        errors.push(`${f.name}: File too large (max 5MB).`);
+                    } else {
+                        let cls = '';
+                        if (ext === 'pdf') cls = 'file-type-pdf';
+                        else if (ext === 'doc' || ext === 'docx') cls = 'file-type-doc';
+                        else if (ext === 'jpg' || ext === 'jpeg' || ext === 'png') cls = 'file-type-jpg';
+                        else if (ext === 'txt') cls = 'file-type-txt';
+                        else if (ext === 'zip') cls = 'file-type-zip';
+                        supportFileInfo.innerHTML += `<span class="${cls}" style="margin-right:10px;">${getFileIconSupport(ext)} ${f.name}</span>`;
+                    }
+                }
+                if (errors.length) {
+                    supportFileError.innerHTML = errors.join('<br>'); supportFileError.style.display = 'block'; supportFileInput.value = ''; supportFileInfo.innerHTML = ''; clearSupportFileBtn.style.display = 'none';
+                } else {
+                    supportFileError.style.display = 'none'; clearSupportFileBtn.style.display = 'inline-block';
+                }
+            }
+        })();
+
         // Optional: fake progress bar on submit for realism
         const form = document.getElementById('submissionForm');
         if (form && progressBar && progressBarInner && fileInput) {
