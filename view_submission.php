@@ -596,9 +596,9 @@ try {
                             }
                     ?>
                     <div style="margin-top:12px;">
-                        <div style="font-weight:700;margin-bottom:8px;">Client & Support Details</div>
+                        <div class="cs-section-title">Client & Support Details</div>
                         <div class="card" style="padding:14px;">
-                            <dl style="display:grid;grid-template-columns:200px 1fr;gap:10px 18px;align-items:start;margin:0;">
+                            <dl class="cs-dl">
                                 <dt style="color:#6b7280;font-weight:700;">Ticket / Reference ID</dt>
                                 <dd style="margin:0;color:#111827;"><?php echo $ticket !== '' ? htmlspecialchars($ticket) : '<span style="color:#9CA3AF;font-style:italic;">— not provided —</span>'; ?></dd>
 
@@ -611,18 +611,19 @@ try {
                                 <dt style="color:#6b7280;font-weight:700;">Evidence / Attachments</dt>
                                 <dd style="margin:0;color:#111827;">
                                     <?php if (!empty($evidence_list)): ?>
-                                        <ul style="margin:6px 0 0 0;padding-left:18px;">
+                                        <div style="display:flex;flex-direction:column;gap:8px;">
                                             <?php foreach ($evidence_list as $ev): ?>
-                                                <?php $ev_trim = trim((string)$ev); $isUrl = filter_var($ev_trim, FILTER_VALIDATE_URL); ?>
-                                                <li style="margin-bottom:6px;">
+                                                <?php $ev_trim = trim((string)$ev); if ($ev_trim === '') continue; $isUrl = filter_var($ev_trim, FILTER_VALIDATE_URL); ?>
+                                                <label class="evidence-item">
+                                                    <input type="checkbox" checked disabled />
                                                     <?php if ($isUrl): ?>
-                                                        <a href="<?php echo htmlspecialchars($ev_trim); ?>" target="_blank" rel="noopener"><?php echo htmlspecialchars($ev_trim); ?></a>
+                                                        <a href="<?php echo htmlspecialchars($ev_trim); ?>" target="_blank" rel="noopener" style="color:#111827;text-decoration:underline;"><?php echo htmlspecialchars($ev_trim); ?></a>
                                                     <?php else: ?>
-                                                        <?php echo htmlspecialchars($ev_trim); ?>
+                                                        <span style="color:#111827;"><?php echo htmlspecialchars($ev_trim); ?></span>
                                                     <?php endif; ?>
-                                                </li>
+                                                </label>
                                             <?php endforeach; ?>
-                                        </ul>
+                                        </div>
                                     <?php else: ?>
                                         <span style="color:#9CA3AF;font-style:italic;">— none provided —</span>
                                     <?php endif; ?>
@@ -637,6 +638,8 @@ try {
                                                 <?php if ($hasOpen && !empty($inlineId)): ?>
                                                     <?php $extForOpen = strtolower(pathinfo($absUrl, PATHINFO_EXTENSION)); $officeOpen = ($extForOpen === 'docx'); ?>
                                                     <a href="#<?php echo $inlineId; ?>" class="btn glightbox<?php echo $officeOpen ? ' office-open' : ''; ?>" data-type="inline"<?php if ($officeOpen): ?> data-file="<?php echo htmlspecialchars($absUrl); ?>" data-inline="#<?php echo $inlineId; ?>"<?php endif; ?>>Open</a>
+                                                    <a href="<?php echo htmlspecialchars($absUrl); ?>" target="_blank" rel="noopener" class="btn btn-gray view-newtab" data-ext="<?php echo htmlspecialchars(pathinfo($absUrl, PATHINFO_EXTENSION)); ?>" data-abs="<?php echo htmlspecialchars($absUrl); ?>">View in new tab</a>
+                                                    <a href="<?php echo htmlspecialchars($absUrl); ?>" download class="btn btn-green">Download</a>
                                                 <?php elseif ($isLink && !empty($absUrl)): ?>
                                                     <a href="<?php echo htmlspecialchars($absUrl); ?>" target="_blank" rel="noopener" class="btn">Open</a>
                                                 <?php endif; ?>
@@ -666,7 +669,16 @@ try {
                                 <dd style="margin:0;color:#111827;"><?php echo $resolution_status !== '' ? htmlspecialchars($resolution_status) : '<span style="color:#9CA3AF;font-style:italic;">— not specified —</span>'; ?></dd>
 
                                 <dt style="color:#6b7280;font-weight:700;">Follow-up required</dt>
-                                <dd style="margin:0;color:#111827;"><?php echo ($follow_up_raw==='1' || strtolower((string)$follow_up_raw)==='yes') ? 'Yes' : 'No'; ?></dd>
+                                <dd style="margin:0;color:#111827;">
+                                    <?php
+                                        // Normalize common truthy values: numeric 1, '1', 'yes', 'true', 'on'
+                                        $fval = $follow_up_raw ?? '';
+                                        $fstr = is_bool($fval) ? ($fval ? '1' : '0') : trim((string)$fval);
+                                        $fstr_l = strtolower($fstr);
+                                        $follow_yes = in_array($fstr_l, ['1','yes','true','on','y'], true);
+                                        echo $follow_yes ? 'Yes' : 'No';
+                                    ?>
+                                </dd>
 
                                 <dt style="color:#6b7280;font-weight:700;">Comments (optional)</dt>
                                 <dd style="margin:0;color:#111827;">

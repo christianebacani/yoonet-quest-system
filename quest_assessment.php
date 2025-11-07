@@ -679,6 +679,10 @@ if (isset($_GET['success'])) {
                     </div>
 
                     <?php
+                        // Detect client_support quests early so we can suppress the top file preview
+                        $isClientSupport = (isset($quest['display_type']) && $quest['display_type'] === 'client_support');
+
+                        if (!$isClientSupport) {
                         $rendered = false;
                         // Helper: normalize absolute disk paths to web paths
                         $toWeb = function($p) {
@@ -869,8 +873,9 @@ if (isset($_GET['success'])) {
                             echo '<div class="preview-block">No preview available. Check attachments or links in the submission record.</div>';
                         }
 
+                        }
+
                         // If this quest is client_support, render client/support specific submitted fields
-                        $isClientSupport = (isset($quest['display_type']) && $quest['display_type'] === 'client_support');
                         // Safely detect if any client-related fields exist without triggering undefined-key notices
                         $hasClientFields = false;
                         $clientKeys = ['ticket_reference','ticket_id','ticket','action_taken','time_spent','time_spent_hours','time_spent_hrs','evidence_json','evidence','resolution_status','follow_up_required','follow_up','comments'];
@@ -972,35 +977,94 @@ if (isset($_GET['success'])) {
                             echo '<dt style="color:#6b7280;font-weight:700;">Upload supporting file</dt>';
                             echo '<dd style="margin:0;color:#111827;">';
                             if (!empty($filePath)) {
-                                // compute friendly names using available variables from preview logic
-                                $absVal = isset($abs) ? $abs : '';
-                                $displayFileName = '';
-                                if ($absVal !== '') {
-                                    $displayFileName = basename(parse_url($absVal, PHP_URL_PATH) ?: $absVal);
-                                } elseif (!empty($latestSubmission['file_name'])) {
-                                    $displayFileName = basename($latestSubmission['file_name']);
+                                // Compute an absolute URL to the file (best-effort). If the top preview logic ran earlier
+                                // the variables $abs and $inlineId may already exist; otherwise compute them here.
+                                $absVal = '';
+                                // If filePath is already a URL, use it
+                                if (preg_match('~^https?://~i', $filePath)) {
+                                    $absVal = $filePath;
                                 } else {
-                                    $displayFileName = basename($filePath);
+                                    // Try to resolve relative paths against SCRIPT_NAME and DOCUMENT_ROOT
+                                    $rel = ltrim((string)$filePath, '/');
+                                    $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+                                    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+                                    $base = rtrim(dirname($_SERVER['SCRIPT_NAME'] ?? ''), '/\\');
+                                    $prefix = trim($base, '/');
+                                    $path = $prefix !== '' ? ($prefix . '/' . $rel) : $rel;
+                                    $absVal = $scheme . '://' . $host . '/' . $path;
                                 }
-                                $displayFileType = '';
-                                if ($absVal !== '') $displayFileType = strtolower(pathinfo($absVal, PATHINFO_EXTENSION));
-                                elseif (!empty($latestSubmission['file_name'])) $displayFileType = strtolower(pathinfo($latestSubmission['file_name'], PATHINFO_EXTENSION));
-                                else $displayFileType = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
 
+                                // Friendly filename and extension
+                                $displayFileName = basename(parse_url($absVal, PHP_URL_PATH) ?: $filePath);
+                                $displayFileType = strtolower(pathinfo($displayFileName, PATHINFO_EXTENSION));
+                                $ext = $displayFileType;
+                                $inlineIdLocal = 'inline-' . md5($absVal);
+
+                                // Offer Open / View in new tab / Download controls. Also render an inline preview block
                                 echo '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">';
                                 echo '<div class="file-pill" style="padding:6px 10px;">' . htmlspecialchars($displayFileName) . ($displayFileType ? ' <span style="margin-left:8px;font-weight:700;color:#111827;">• ' . htmlspecialchars(strtoupper($displayFileType)) . '</span>' : '') . '</div>';
                                 echo '<div style="display:flex;gap:8px;align-items:center;">';
-                                if (!empty($inlineId) && $absVal !== '') {
-                                    $extForOpen = strtolower(pathinfo($absVal, PATHINFO_EXTENSION));
-                                    $officeOpen = ($extForOpen === 'docx');
-                                    echo '<a href="#' . $inlineId . '" class="btn glightbox' . ($officeOpen ? ' office-open' : '') . '" data-type="inline"' . ($officeOpen ? ' data-file="' . htmlspecialchars($absVal) . '" data-inline="#' . $inlineId . '"' : '') . '>Open</a>';
-                                } elseif (!empty($absVal)) {
-                                    echo '<a href="' . htmlspecialchars($absVal) . '" target="_blank" rel="noopener" class="btn btn-gray view-newtab" data-ext="' . htmlspecialchars($displayFileType) . '" data-abs="' . htmlspecialchars($absVal) . '">View in new tab</a>';
+
+                                // Determine which Open behavior to provide
+                                if (in_array($ext, ['jpg','jpeg','png','gif','webp'])) {
+                                    echo '<a class="btn btn-primary btn-sm glightbox" href="#' . $inlineIdLocal . '" data-type="inline">Open</a>';
+                                    echo '<a class="btn btn-secondary btn-sm view-newtab" href="' . htmlspecialchars($absVal) . '" data-abs="' . htmlspecialchars($absVal) . '" data-ext="' . htmlspecialchars($ext) . '" target="_blank" rel="noopener">View in new tab</a>';
+                                    echo '<a class="btn btn-outline-primary btn-sm" href="' . htmlspecialchars($absVal) . '" download>Download</a>';
+
+                                    // Inline image preview
+                                    echo '<div class="glightbox-inline" id="' . $inlineIdLocal . '">'
+                                        . '<div class="preview-container">'
+                                            . '<div class="preview-header"><div class="preview-title"><span class="badge-file badge-img">IMG</span><span>' . htmlspecialchars($displayFileName) . '</span></div></div>'
+                                            . '<div class="preview-body"><img style="max-width:100%;max-height:75vh;height:auto;display:block;margin:0 auto;background:#fff;" src="' . htmlspecialchars($absVal) . '" alt="' . htmlspecialchars($displayFileName) . '"/></div>'
+                                        . '</div>'
+                                    . '</div>';
+
+                                } elseif ($ext === 'pdf') {
+                                    echo '<a class="btn btn-primary btn-sm glightbox" href="#' . $inlineIdLocal . '" data-type="inline">Open</a>';
+                                    echo '<a class="btn btn-secondary btn-sm view-newtab" href="' . htmlspecialchars($absVal) . '" data-abs="' . htmlspecialchars($absVal) . '" data-ext="' . htmlspecialchars($ext) . '" target="_blank" rel="noopener">View in new tab</a>';
+                                    echo '<a class="btn btn-outline-primary btn-sm" href="' . htmlspecialchars($absVal) . '" download>Download</a>';
+
+                                    echo '<div class="glightbox-inline" id="' . $inlineIdLocal . '">'
+                                        . '<div class="preview-container">'
+                                            . '<div class="preview-header"><div class="preview-title"><span class="badge-file badge-pdf">PDF</span><span>' . htmlspecialchars($displayFileName) . '</span></div></div>'
+                                            . '<div class="preview-body"><iframe src="' . htmlspecialchars($absVal) . '"></iframe></div>'
+                                        . '</div>'
+                                    . '</div>';
+
+                                } elseif (in_array($ext, ['txt','md','csv'])) {
+                                    echo '<a class="btn btn-primary btn-sm glightbox" href="#' . $inlineIdLocal . '" data-type="inline">Open</a>';
+                                    echo '<a class="btn btn-secondary btn-sm view-newtab" href="' . htmlspecialchars($absVal) . '" data-abs="' . htmlspecialchars($absVal) . '" data-ext="' . htmlspecialchars($ext) . '" target="_blank" rel="noopener">View in new tab</a>';
+                                    echo '<a class="btn btn-outline-primary btn-sm" href="' . htmlspecialchars($absVal) . '" download>Download</a>';
+
+                                    $content = '';
+                                    // Try to read text content server-side when possible
+                                    try { $content = @file_get_contents($filePath) ?: @file_get_contents($absVal); } catch (Throwable $e) { $content = ''; }
+                                    $safeContent = htmlspecialchars((string)$content);
+                                    echo '<div class="glightbox-inline" id="' . $inlineIdLocal . '">'
+                                        . '<div class="preview-container">'
+                                            . '<div class="preview-header"><div class="preview-title"><span class="badge-file badge-text">TEXT</span><span>' . htmlspecialchars($displayFileName) . '</span></div></div>'
+                                            . '<div class="preview-body"><div class="docx-view"><div class="docx-html">' . $safeContent . '</div></div></div>'
+                                        . '</div>'
+                                    . '</div>';
+
+                                } else {
+                                    // Office and other types — offer Open (docx inline if possible), View, Download
+                                    $gview = 'https://docs.google.com/gview?embedded=1&url=' . rawurlencode($absVal);
+                                    $officeOpen = ($ext === 'docx');
+                                    echo ($officeOpen ? '<a class="btn btn-primary btn-sm glightbox office-open" href="#' . $inlineIdLocal . '" data-type="inline" data-file="' . htmlspecialchars($absVal) . '" data-inline="#' . $inlineIdLocal . '">Open</a>' : '<a class="btn btn-primary btn-sm glightbox" href="#' . $inlineIdLocal . '" data-type="inline">Open</a>');
+                                    echo '<a class="btn btn-secondary btn-sm view-newtab" href="' . htmlspecialchars($absVal) . '" data-abs="' . htmlspecialchars($absVal) . '" data-gview="' . htmlspecialchars($gview) . '" data-ext="' . htmlspecialchars($ext) . '" target="_blank" rel="noopener">View in new tab</a>';
+                                    echo '<a class="btn btn-outline-primary btn-sm" href="' . htmlspecialchars($absVal) . '" download>Download</a>';
+
+                                    echo '<div class="glightbox-inline" id="' . $inlineIdLocal . '">'
+                                        . '<div class="preview-container">'
+                                            . '<div class="preview-header"><div class="preview-title"><span class="badge-file ' . (in_array($ext, ['xls','xlsx']) ? 'badge-other' : (in_array($ext, ['ppt','pptx']) ? 'badge-other' : 'badge-docx')) . '">' . htmlspecialchars(strtoupper($ext ?: 'FILE')) . '</span><span>' . htmlspecialchars($displayFileName) . '</span></div></div>'
+                                            . '<div class="preview-body" style="min-height:70vh; background:#fff;">'
+                                                . ($officeOpen ? '<div class="docx-view"><div class="docx-html">Loading preview…</div></div>' : ('<iframe src="' . htmlspecialchars($gview) . '" height="640"></iframe>'))
+                                            . '</div>'
+                                        . '</div>'
+                                    . '</div>';
                                 }
-                                $isLink = (!empty($driveLink) && filter_var($driveLink, FILTER_VALIDATE_URL));
-                                if (!empty($absVal) && !$isLink) {
-                                    echo '<a href="' . htmlspecialchars($absVal) . '" download class="btn btn-green">Download</a>';
-                                }
+
                                 echo '</div></div>';
                             } else {
                                 echo '<span style="color:#9CA3AF;font-style:italic;">— no supporting file uploaded —</span>';
@@ -1011,15 +1075,13 @@ if (isset($_GET['success'])) {
                             echo '<dt style="color:#6b7280;font-weight:700;">Resolution Outcome</dt>';
                             echo '<dd style="margin:0;color:#111827;">' . ($resolution_status !== '' ? htmlspecialchars($resolution_status) : '<span style="color:#9CA3AF;font-style:italic;">— not specified —</span>') . '</dd>';
 
-                            // Follow-up required as checkbox reflecting submission (checked if value indicates yes)
-                            $followChecked = ($follow_up_raw === '1' || strtolower((string)$follow_up_raw) === 'yes');
+                            // Follow-up required: render as a simple Yes/No string (no checkbox)
+                            $fval = $follow_up_raw ?? '';
+                            $fstr = is_bool($fval) ? ($fval ? '1' : '0') : trim((string)$fval);
+                            $fstr_l = strtolower($fstr);
+                            $followChecked = in_array($fstr_l, ['1','yes','true','on','y'], true);
                             echo '<dt style="color:#6b7280;font-weight:700;">Follow-up required</dt>';
-                            echo '<dd style="margin:0;color:#111827;">';
-                            echo '<label style="display:flex;align-items:center;gap:10px;">';
-                            echo '<input type="checkbox" ' . ($followChecked ? 'checked' : '') . ' disabled style="width:18px;height:18px;" />';
-                            echo '<span>' . ($followChecked ? 'Yes' : 'No') . '</span>';
-                            echo '</label>';
-                            echo '</dd>';
+                            echo '<dd style="margin:0;color:#111827;">' . ($followChecked ? 'Yes' : 'No') . '</dd>';
 
                             // Comments
                             echo '<dt style="color:#6b7280;font-weight:700;">Comments (optional)</dt>';
@@ -1043,14 +1105,7 @@ if (isset($_GET['success'])) {
                             echo '</dl></div></div>';
                         }
 
-                        // Render submission comments (if present) similar to view_submission.php
-                        $comments = isset($latestSubmission['comments']) ? trim((string)$latestSubmission['comments']) : '';
-                        if ($comments !== '') {
-                            echo '<div class="card" style="margin-top:12px;">'
-                                . '<h3>Submission Comments</h3>'
-                                . '<div class="submission-comments" style="white-space:pre-wrap;color:#374151;">' . nl2br(htmlspecialchars($comments)) . '</div>'
-                                . '</div>';
-                        }
+                        
                     ?>
                 </div>
                 </div>

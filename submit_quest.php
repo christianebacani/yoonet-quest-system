@@ -439,7 +439,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $quest_id && $employee_id) {
             if (in_array('resolution_status', $questSubmissionColumns, true)) { $insertColumns[] = 'resolution_status'; $placeholders[] = '?'; $params[] = $resolution_status ?? ''; }
 
             // follow_up_required
-            if (in_array('follow_up_required', $questSubmissionColumns, true)) { $insertColumns[] = 'follow_up_required'; $placeholders[] = '?'; $params[] = $follow_up_required ?? 0; }
+            if (in_array('follow_up_required', $questSubmissionColumns, true)) {
+                $insertColumns[] = 'follow_up_required'; $placeholders[] = '?'; $params[] = $follow_up_required ?? 0;
+            } else {
+                // Try to add the column to persist follow-up flags for client_support submissions.
+                try {
+                    $pdo->exec("ALTER TABLE quest_submissions ADD COLUMN follow_up_required TINYINT(1) NOT NULL DEFAULT 0");
+                    // refresh in-memory column list so subsequent logic can see it
+                    $questSubmissionColumns[] = 'follow_up_required';
+                    $insertColumns[] = 'follow_up_required'; $placeholders[] = '?'; $params[] = $follow_up_required ?? 0;
+                } catch (PDOException $ax) {
+                    // Best-effort: if we cannot alter the table, skip storing follow-up but do not block submission
+                    error_log('Could not add follow_up_required column: ' . $ax->getMessage());
+                }
+            }
         }
 
         // status

@@ -400,6 +400,39 @@ body {
     border-radius: 4px;
 }
 
+/* Client & Support specific UI helpers */
+.cs-section-title {
+    font-weight: 700;
+    margin-bottom: 8px;
+    color: #111827;
+}
+.cs-dl {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: 10px 18px;
+    align-items: start;
+    margin: 0;
+}
+.evidence-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 8px;
+    border-radius: 8px;
+    background: #f8fafc;
+    border: 1px solid #e5e7eb;
+}
+/* Client & Support submission styles (migrated from inline styles) */
+.cs-section-title { font-weight:700; margin-bottom:8px; font-size:1rem; color:#111827; }
+.cs-dl { display:grid; grid-template-columns:200px 1fr; gap:10px 18px; align-items:start; margin:0; }
+.cs-dl dt { color:#6b7280; font-weight:700; }
+.cs-dl dd { margin:0; color:#111827; }
+.evidence-item { display:flex; align-items:center; gap:10px; padding:6px 8px; border-radius:8px; background:#f8fafc; border:1px solid #e5e7eb; }
+.evidence-item input[type="checkbox"] { width:16px; height:16px; }
+.file-pill { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:9999px; background:#EEF2FF; color:#3730A3; border:1px solid #C7D2FE; font-weight:600; font-size:0.95rem; }
+.btn-gray { display:inline-block; padding:8px 12px; border-radius:8px; text-decoration:none; background:#F3F4F6; color:#111827; border:1px solid #D1D5DB; }
+.btn-green { display:inline-block; padding:8px 12px; border-radius:8px; text-decoration:none; background:#10B981; color:#fff; }
+
 .alert.alert-success {
     background-color: #e8f5e9;
     border-left: 4px solid #4caf50;
