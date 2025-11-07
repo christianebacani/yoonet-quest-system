@@ -516,15 +516,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // Prepare to insert new quest skills. Support both existing skill IDs and
                 // custom skills submitted from the create-style component (custom_skill_names / custom_skill_categories).
                 if (!empty($quest_skills)) {
-                    $insertStmt = $pdo->prepare("INSERT INTO quest_skills (quest_id, skill_id, tier_level) VALUES (?, ?, ?)");
+                    // Detect base_points column to persist per-quest base points when schema supports it
+                    try {
+                        $colStmt = $pdo->prepare("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'quest_skills'");
+                        $colStmt->execute();
+                        $cols = $colStmt->fetchAll(PDO::FETCH_COLUMN);
+                        $has_base_points = in_array('base_points', $cols, true);
+                    } catch (PDOException $e) {
+                        $has_base_points = false;
+                    }
+
+                    // Base points mapping
+                    $tierToBase = [1 => 25, 2 => 40, 3 => 55, 4 => 70, 5 => 85];
+
+                    if ($has_base_points) {
+                        $insertStmt = $pdo->prepare("INSERT INTO quest_skills (quest_id, skill_id, tier_level, base_points) VALUES (?, ?, ?, ?)");
+                    } else {
+                        $insertStmt = $pdo->prepare("INSERT INTO quest_skills (quest_id, skill_id, tier_level) VALUES (?, ?, ?)");
+                    }
 
                     foreach ($quest_skills as $skill) {
                         $skillVal = $skill['skill_id'];
-                        $tier = isset($skill['tier']) ? $skill['tier'] : 2;
+                        $tier = isset($skill['tier']) ? intval($skill['tier']) : 2;
 
                         // If skillVal is numeric, treat as existing skill id
                         if (is_numeric($skillVal)) {
-                            $insertStmt->execute([$quest_id, intval($skillVal), $tier]);
+                            if ($has_base_points) {
+                                $bp = $tierToBase[$tier] ?? $tierToBase[2];
+                                $insertStmt->execute([$quest_id, intval($skillVal), $tier, $bp]);
+                            } else {
+                                $insertStmt->execute([$quest_id, intval($skillVal), $tier]);
+                            }
                             continue;
                         }
 

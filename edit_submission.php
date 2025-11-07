@@ -184,6 +184,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($submission) && is_array($su
             if ($submission_type !== 'file') {
                 if (in_array('file_path', $qsCols, true)) { $updateParts[] = 'file_path = ?'; $params[] = ''; }
                 elseif (in_array('filepath', $qsCols, true)) { $updateParts[] = 'filepath = ?'; $params[] = ''; }
+                // Also clear any stored original filename/display name columns so UI doesn't still show an old filename
+                foreach (['file_name','original_name','original_filename','file_original_name','original_file_name'] as $oc) {
+                    if (in_array($oc, $qsCols, true)) { $updateParts[] = $oc . ' = ?'; $params[] = ''; }
+                }
             }
             // Drive/link
             if ($submission_type === 'link') {
