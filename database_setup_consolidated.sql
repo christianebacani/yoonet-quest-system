@@ -401,7 +401,12 @@ ADD COLUMN IF NOT EXISTS `drive_link` text CHARACTER SET utf8mb4 COLLATE utf8mb4
 ADD COLUMN IF NOT EXISTS `comments` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
 ADD COLUMN IF NOT EXISTS `additional_xp` int(11) DEFAULT 0,
 ADD COLUMN IF NOT EXISTS `grade` enum('A','B','C','D','F') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-ADD COLUMN IF NOT EXISTS `text_content` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL;
+ADD COLUMN IF NOT EXISTS `text_content` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+ADD COLUMN IF NOT EXISTS `ticket_reference` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+ADD COLUMN IF NOT EXISTS `time_spent_hours` decimal(8,2) DEFAULT NULL,
+ADD COLUMN IF NOT EXISTS `evidence_json` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+ADD COLUMN IF NOT EXISTS `resolution_status` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+ADD COLUMN IF NOT EXISTS `follow_up_required` tinyint(1) DEFAULT 0;
 
 -- Update submission_type enum to include 'text' if not already present
 ALTER TABLE `quest_submissions`
