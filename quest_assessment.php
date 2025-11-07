@@ -661,6 +661,15 @@ if (isset($_GET['success'])) {
                         if (!$rendered) {
                             echo '<div class="preview-block">No preview available. Check attachments or links in the submission record.</div>';
                         }
+
+                        // Render submission comments (if present) similar to view_submission.php
+                        $comments = isset($latestSubmission['comments']) ? trim((string)$latestSubmission['comments']) : '';
+                        if ($comments !== '') {
+                            echo '<div class="card" style="margin-top:12px;">'
+                                . '<h3>Submission Comments</h3>'
+                                . '<div class="submission-comments" style="white-space:pre-wrap;color:#374151;">' . nl2br(htmlspecialchars($comments)) . '</div>'
+                                . '</div>';
+                        }
                     ?>
                 </div>
                 </div>

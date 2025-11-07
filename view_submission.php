@@ -323,16 +323,9 @@ try {
                         <?php endif; ?>
                     <?php endif; ?>
 
-                    <?php // Render external link if present (drive link or submissionText URL)
-                    if (!empty($driveLink) && filter_var($driveLink, FILTER_VALIDATE_URL)): ?>
-                        <div class="preview-block">
-                            <div>External Link:</div>
-                            <div class="btn-group" style="margin-top:8px;">
-                                <a class="btn btn-primary btn-sm" href="<?= htmlspecialchars($driveLink) ?>" target="_blank" rel="noopener">Open Link</a>
-                            </div>
-                            <div style="margin-top:6px;color:#374151;word-break:break-all;"><?= htmlspecialchars($driveLink) ?></div>
-                        </div>
-                    <?php endif; ?>
+                    <?php // Removed explicit external link panel for drive/link submissions per UX request.
+                    // Links remain accessible via the 'View in new tab' button when appropriate.
+                    ?>
 
                     <?php // Render inline text if present
                     if (!empty($textContent)): ?>
@@ -364,6 +357,14 @@ try {
                                     <pre style="white-space:pre-wrap; background:#111827; color:#e5e7eb; padding:12px; border-radius:8px; max-height:75vh; overflow:auto;"><?php echo htmlspecialchars($submissionText); ?></pre>
                                 </div>
                             </div>
+                        </div>
+                    <?php endif; ?>
+
+                    <?php // Show comments if provided on the submission ?>
+                    <?php if (!empty($submission['comments'])): ?>
+                        <div style="margin-top:12px;">
+                            <div style="font-weight:600;margin-bottom:6px;">Comments</div>
+                            <div style="background:#fff;border:1px solid #e5e7eb;padding:12px;border-radius:8px;color:#111827;"><?php echo nl2br(htmlspecialchars($submission['comments'])); ?></div>
                         </div>
                     <?php endif; ?>
             </div>
