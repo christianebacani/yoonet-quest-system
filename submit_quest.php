@@ -622,13 +622,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $quest_id && $employee_id) {
 
                 <div class="form-row">
                     <label class="form-label">Upload supporting file (optional)</label>
-                    <div id="support_dropzone" class="dropzone">Drag & drop your file here or click to select
+                    <div id="support_dropzone" class="dropzone" style="text-align:center;">
+                        Drag & drop your file here or click to select
                         <input type="file" id="support_file" name="support_file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.txt,.zip">
                     </div>
+                    <div class="meta" style="margin-top:8px; text-align:center; font-size:0.95em; color:#6b7280;">PDF, DOC, DOCX, JPG, PNG, TXT, ZIP (Max 5MB)</div>
                     <button type="button" id="clearSupportFileBtn" class="btn btn-primary" style="margin-top:8px;display:none;">Unselect File</button>
                     <div class="error-message" id="supportFileError" style="display:none;"></div>
-                    <div class="file-info" id="supportFileInfo" style="margin-top:8px;"></div>
-                    <div class="meta">PDF, DOC, DOCX, JPG, PNG, TXT, ZIP (Max 5MB)</div>
+                    <div class="file-info" id="supportFileInfo" style="margin-top:8px;text-align:center;"></div>
                     <div class="progress-bar" id="supportProgressBar" style="display:none;"><div class="progress-bar-inner" id="supportProgressBarInner"></div></div>
                 </div>
 

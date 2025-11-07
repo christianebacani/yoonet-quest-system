@@ -84,10 +84,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($submission) && is_array($su
     if (!empty($submission['employee_id']) && $employee_id && ((string)$submission['employee_id'] !== (string)$employee_id)) {
         $error = 'You do not have permission to edit this submission.';
     } else {
-        $submission_type = $_POST['submission_type'] ?? '';
-        $commentsPost = trim($_POST['comments'] ?? '');
-        $drive_link = trim($_POST['drive_link'] ?? '');
-        $text_content = trim($_POST['text_content'] ?? ($_POST['text'] ?? ''));
+    $submission_type = $_POST['submission_type'] ?? '';
+    $commentsPost = trim($_POST['comments'] ?? '');
+    $drive_link = trim($_POST['drive_link'] ?? '');
+    $text_content = trim($_POST['text_content'] ?? ($_POST['text'] ?? ''));
+    // client_support specific fields (will be set only when applicable)
+    $ticket_reference = '';
+    $time_spent_hours = null;
+    $evidence_json = '';
+    $resolution_status = '';
+    $follow_up_required = 0;
+    $newSupportFilePath = '';
         $allowed_exts = ['pdf','doc','docx','jpg','jpeg','png','txt','zip'];
         $max_size = 5 * 1024 * 1024;
         $valid = true;
@@ -98,6 +105,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($submission) && is_array($su
         if (in_array($st, ['approved','rejected','graded','final'], true)) {
             $error = 'This submission cannot be edited because it has already been finalized.';
             $valid = false;
+        }
+
+        // If this quest is a Client & Support Operation, collect its custom inputs
+        if ($valid && isset($quest['display_type']) && $quest['display_type'] === 'client_support') {
+            // force text submission type for client_support edits
+            $submission_type = 'text';
+            $ticket_reference = trim($_POST['ticket_id'] ?? ($_POST['ticket_reference'] ?? ''));
+            $text_content = trim($_POST['action_taken'] ?? $text_content);
+            $time_spent_hours = isset($_POST['time_spent']) && $_POST['time_spent'] !== '' ? (float)$_POST['time_spent'] : null;
+            $evidence = $_POST['evidence'] ?? [];
+            if (!empty($evidence) && is_array($evidence)) { $evidence_json = json_encode(array_values($evidence)); }
+            $resolution_status = trim($_POST['resolution_status'] ?? '');
+            $follow_up_required = isset($_POST['follow_up_required']) ? 1 : 0;
+
+            // Validate required action_taken
+            if (empty($text_content)) {
+                $error = 'Please describe the action taken to resolve the client request or complete the task.';
+                $valid = false;
+            }
+
+            // Support file upload handling (optional)
+            if ($valid && isset($_FILES['support_file']) && isset($_FILES['support_file']['error'])) {
+                $supp = $_FILES['support_file'];
+                if ($supp['error'] === UPLOAD_ERR_OK) {
+                    $ext = strtolower(pathinfo($supp['name'], PATHINFO_EXTENSION));
+                    if (!in_array($ext, ['pdf','doc','docx','jpg','jpeg','png','txt','zip'], true)) {
+                        $error = 'Invalid support file type.'; $valid = false;
+                    } elseif ($supp['size'] > $max_size) {
+                        $error = 'Support file too large (max 5MB).'; $valid = false;
+                    } else {
+                        $upload_dir = __DIR__ . '/uploads/quest_submissions/';
+                        if (!is_dir($upload_dir)) { mkdir($upload_dir, 0777, true); }
+                        $new_name = ($employee_id ?: 'u') . '_support_' . time() . '.' . $ext;
+                        $dest = $upload_dir . $new_name;
+                        if (move_uploaded_file($supp['tmp_name'], $dest)) {
+                            $newSupportFilePath = 'uploads/quest_submissions/' . $new_name;
+                            $supportOriginalName = $supp['name'];
+                        } else {
+                            $error = 'Failed to move support file. Check server permissions.'; $valid = false;
+                        }
+                    }
+                } elseif ($supp['error'] !== UPLOAD_ERR_NO_FILE) {
+                    $error = 'Support file upload error (code ' . (int)$supp['error'] . ').'; $valid = false;
+                }
+            }
         }
 
         // File handling if file chosen
@@ -155,8 +207,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($submission) && is_array($su
 
         // Build UPDATE using $qsCols (columns inspected earlier)
         if ($valid) {
-            $updateParts = [];
             $params = [];
+            $updateParts = [];
 
             if (in_array('submission_type', $qsCols, true)) { $updateParts[] = 'submission_type = ?'; $params[] = $submission_type; }
             // File path (try common variants)
@@ -168,6 +220,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($submission) && is_array($su
                 $origName = $_FILES['quest_file']['name'] ?? basename($newFilePath);
                 foreach ($origCols as $oc) {
                     if (in_array($oc, $qsCols, true)) { $updateParts[] = $oc . ' = ?'; $params[] = $origName; break; }
+                }
+            }
+            // If a support file was uploaded for client_support edits, persist it too
+            if (!empty($newSupportFilePath)) {
+                // prefer same set of columns as general file handling
+                if (in_array('file_path', $qsCols, true)) { $updateParts[] = 'file_path = ?'; $params[] = $newSupportFilePath; }
+                elseif (in_array('support_file', $qsCols, true)) { $updateParts[] = 'support_file = ?'; $params[] = $newSupportFilePath; }
+                elseif (in_array('supporting_file', $qsCols, true)) { $updateParts[] = 'supporting_file = ?'; $params[] = $newSupportFilePath; }
+                // store original uploaded name into any available original filename column
+                $supportOrig = $supportOriginalName ?? basename($newSupportFilePath);
+                foreach (['file_name','support_original_name','original_name','original_filename'] as $oc) {
+                    if (in_array($oc, $qsCols, true)) { $updateParts[] = $oc . ' = ?'; $params[] = $supportOrig; break; }
                 }
             }
             // If user requested to remove the file without uploading a new one, clear file_path and original name
@@ -203,6 +267,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($submission) && is_array($su
             if ($submission_type === 'text') {
                 if (in_array('text_content', $qsCols, true)) { $updateParts[] = 'text_content = ?'; $params[] = $text_content; }
                 elseif (in_array('submission_text', $qsCols, true)) { $updateParts[] = 'submission_text = ?'; $params[] = $text_content; }
+            }
+            // Client & Support specific fields (ensure these are saved for client_support quests)
+            if (isset($quest['display_type']) && $quest['display_type'] === 'client_support') {
+                // Ticket / reference
+                if (in_array('ticket_reference', $qsCols, true)) { $updateParts[] = 'ticket_reference = ?'; $params[] = $ticket_reference; }
+                elseif (in_array('ticket_id', $qsCols, true)) { $updateParts[] = 'ticket_id = ?'; $params[] = $ticket_reference; }
+                elseif (in_array('ticket', $qsCols, true)) { $updateParts[] = 'ticket = ?'; $params[] = $ticket_reference; }
+
+                // Action taken - prefer explicit column name if present
+                if (in_array('action_taken', $qsCols, true)) { $updateParts[] = 'action_taken = ?'; $params[] = $text_content; }
+                // time spent (hours)
+                foreach (['time_spent_hours','time_spent','time_spent_hrs'] as $tc) {
+                    if (in_array($tc, $qsCols, true)) { $updateParts[] = $tc . ' = ?'; $params[] = ($time_spent_hours === null ? '' : $time_spent_hours); break; }
+                }
+                // Evidence (JSON or list)
+                if (in_array('evidence_json', $qsCols, true)) { $updateParts[] = 'evidence_json = ?'; $params[] = $evidence_json; }
+                elseif (in_array('evidence', $qsCols, true)) { $updateParts[] = 'evidence = ?'; $params[] = $evidence_json; }
+                elseif (in_array('evidence_list', $qsCols, true)) { $updateParts[] = 'evidence_list = ?'; $params[] = $evidence_json; }
+
+                // Resolution outcome
+                if (in_array('resolution_status', $qsCols, true)) { $updateParts[] = 'resolution_status = ?'; $params[] = $resolution_status; }
+                // Follow-up required
+                if (in_array('follow_up_required', $qsCols, true)) { $updateParts[] = 'follow_up_required = ?'; $params[] = $follow_up_required; }
+                elseif (in_array('follow_up', $qsCols, true)) { $updateParts[] = 'follow_up = ?'; $params[] = $follow_up_required; }
             }
             // If switching away from text, clear any previous text fields
             if ($submission_type !== 'text') {
@@ -269,6 +357,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($submission) && is_array($su
             opacity: 0; cursor: pointer; z-index: 2;
             display: block !important;
         }
+        /* Support dropzone input should also be invisible and cover the drop area
+           This prevents the native centered "Choose file" button from appearing
+           while keeping the input clickable across the whole dropzone. */
+        #support_dropzone { position: relative; }
+        #support_file {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            opacity: 0; cursor: pointer; z-index: 2;
+            display: block !important;
+        }
         .quest-header { display: flex; flex-direction: column; gap: 8px; margin-bottom: 18px; }
         .quest-title { font-size: 1.5rem; font-weight: 700; color: var(--primary-color, #3730a3); }
         .quest-desc { color: #374151; font-size: 1.08em; margin-bottom: 4px; }
@@ -310,55 +408,118 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($submission) && is_array($su
             </div>
             <?php if (!empty($error)) { ?>
                 <div class="toast toast-error" id="toastMsg"><?php echo htmlspecialchars($error); ?></div>
-            <?php } elseif (!empty($success)) { ?>
-                <div class="success-overlay" id="successOverlay">
-                    <div class="success-card modern-success-card">
-                        <div class="success-icon" aria-label="Success" style="background:#22c55e1a; border-radius:50%; width:64px; height:64px; display:flex; align-items:center; justify-content:center; margin:0 auto 18px auto;">
-                            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 10.8 17 4 11.2"></polyline></svg>
-                        </div>
-                        <div class="success-title" style="font-size:1.5rem;font-weight:700;color:#22c55e;margin-bottom:10px;">Submission Updated</div>
-                        <div class="success-message" style="color:#374151;font-size:1.08em;margin-bottom:18px;">Your quest submission has been updated and is now awaiting review.<br>You can view your submission from your quest list.</div>
-                        <a href="my_quests.php" class="btn btn-primary" style="margin-top:8px; background: linear-gradient(90deg, #6366f1 0%, #4f46e5 100%); color: #fff; border: none; border-radius: 8px; padding: 12px 32px; font-size: 1.1em; font-weight: 600; box-shadow: 0 2px 8px #6366f133; transition: background 0.2s, box-shadow 0.2s;">Back to My Quests</a>
+            <?php }
+            if (!empty($success)) { ?>
+                <div id="successOverlay" style="background:transparent;padding:12px 0;margin-bottom:12px;">
+                    <div style="background:#ECFDF5;border:1px solid #BBF7D0;color:#065F46;padding:12px 16px;border-radius:10px;display:flex;align-items:center;gap:12px;">
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#16A34A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:0 0 auto;"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        <div style="flex:1;"><strong style="display:block;color:#065F46;">Submission Updated</strong><span style="display:block;color:#065F46;opacity:0.9;">Your quest submission has been updated and is now awaiting review.</span></div>
+                        <a href="my_quests.php" class="btn btn-primary" style="background: linear-gradient(90deg, #6366f1 0%, #4f46e5 100%); color: #fff; border: none; border-radius: 8px; padding: 8px 14px; font-weight:600;">Back to My Quests</a>
                     </div>
                 </div>
-                <style>
-                .success-overlay {
-                    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-                    background: rgba(60,64,90,0.10); z-index: 99999; display: flex; align-items: center; justify-content: center;
-                }
-                .modern-success-card {
-                    background: #fff; border-radius: 20px; box-shadow: 0 8px 32px #22c55e22;
-                    padding: 40px 32px 32px 32px; text-align: center; min-width: 320px; max-width: 90vw;
-                    border: none;
-                }
-                @media (max-width: 600px) {
-                    .modern-success-card { padding: 24px 4vw 18px 4vw; min-width: 0; }
-                }
-                </style>
                 <script>
                 // Notify other windows/tabs that a submission was updated so they can refresh
                 (function(){
+                    try { localStorage.setItem('yqs_submission_updated', JSON.stringify({ submission_id: <?php echo (int)$submission_id; ?>, ts: Date.now() })); } catch(e){}
                     try {
-                        // set a localStorage flag (other tabs can listen)
-                        try { localStorage.setItem('yqs_submission_updated', JSON.stringify({ submission_id: <?php echo (int)$submission_id; ?>, ts: Date.now() })); } catch(e){}
+                        if (window.BroadcastChannel) {
+                            var bc = new BroadcastChannel('yqs_updates'); bc.postMessage({type:'submission_updated', id:<?php echo (int)$submission_id; ?>});
+                        }
                     } catch(e){}
-                    // try to refresh opener or parent window if present
-                    document.addEventListener('DOMContentLoaded', function(){
-                        try {
-                            if (window.opener && !window.opener.closed) {
-                                window.opener.location.reload();
-                            } else if (window.parent && window.parent !== window) {
-                                try { window.parent.location.reload(); } catch(e) {}
-                            }
-                        } catch(e){}
-                    });
                 })();
                 </script>
-            <?php }
-            if (empty($success)) { ?>
+            <?php } ?>
             <form method="post" enctype="multipart/form-data" id="submissionForm">
                 <input type="hidden" name="quest_id" value="<?php echo htmlspecialchars($submission['quest_id'] ?? ''); ?>">
                 <input type="hidden" name="submission_id" value="<?php echo htmlspecialchars($submission_id); ?>">
+                <?php if (isset($quest['display_type']) && $quest['display_type'] === 'client_support'): ?>
+                <?php
+                    // Prepare prefill values from $submission
+                    $pref_ticket = htmlspecialchars($submission['ticket_reference'] ?? $submission['ticket_id'] ?? '');
+                    $pref_action = htmlspecialchars($submission['action_taken'] ?? $submission['text_content'] ?? $submission['submission_text'] ?? '');
+                    $pref_time = htmlspecialchars($submission['time_spent_hours'] ?? $submission['time_spent'] ?? '');
+                    // load evidence list if stored as JSON in a few possible columns
+                    $evidenceList = [];
+                    foreach (['evidence','evidence_json','evidence_list'] as $ec) {
+                        if (!empty($submission[$ec])) {
+                            $decoded = json_decode($submission[$ec], true);
+                            if (is_array($decoded)) { $evidenceList = $decoded; break; }
+                        }
+                    }
+                    $pref_resolution = htmlspecialchars($submission['resolution_status'] ?? 'resolved');
+                    $pref_followup = !empty($submission['follow_up_required']) && (int)$submission['follow_up_required'] === 1 ? true : false;
+                    // support file path candidates
+                    $supportPath = $submission['support_file'] ?? $submission['supporting_file'] ?? $submission['file_path'] ?? '';
+                    $supportDisplay = '';
+                    if (!empty($submission['support_original_name'])) { $supportDisplay = $submission['support_original_name']; }
+                    else {
+                        $cands = [$submission['file_name'] ?? null, $submission['original_name'] ?? null, $submission['original_filename'] ?? null];
+                        foreach ($cands as $c) { if (!empty($c)) { $supportDisplay = $c; break; } }
+                        if (empty($supportDisplay) && !empty($supportPath)) { $supportDisplay = basename($supportPath); }
+                    }
+                ?>
+                <div class="form-row">
+                    <label class="form-label" for="ticket_id">Ticket / Reference ID</label>
+                    <input class="form-input" type="text" id="ticket_id" name="ticket_id" value="<?php echo $pref_ticket; ?>" placeholder="Optional ticket or reference">
+                </div>
+
+                <div class="form-row">
+                    <label class="form-label" for="action_taken">Action Taken / Resolution (required)</label>
+                    <textarea class="form-textarea" id="action_taken" name="action_taken" rows="6" placeholder="Describe the steps you took, findings, and the resolution. This will be used by reviewers."><?php echo $pref_action; ?></textarea>
+                    <div class="meta" style="margin-top:8px;">Tip: include key timestamps, relevant commands/log snippets or ticket links, and any customer confirmation or screenshots to speed up review.</div>
+                </div>
+
+                <div class="form-row">
+                    <label class="form-label" for="time_spent">Time Spent (hours)</label>
+                    <input class="form-input" type="number" id="time_spent" name="time_spent" step="0.25" min="0" value="<?php echo $pref_time; ?>" placeholder="e.g. 1.5">
+                </div>
+
+                <div class="form-row">
+                    <label class="form-label">Evidence / Attachments</label>
+                    <div style="display:flex;flex-direction:column;gap:8px;">
+                        <label style="font-weight:600;"><input type="checkbox" name="evidence[]" value="screenshot" <?php echo in_array('screenshot', $evidenceList, true) ? 'checked' : ''; ?>> Screenshot(s)</label>
+                        <label style="font-weight:600;"><input type="checkbox" name="evidence[]" value="log" <?php echo in_array('log', $evidenceList, true) ? 'checked' : ''; ?>> Log file / system output</label>
+                        <label style="font-weight:600;"><input type="checkbox" name="evidence[]" value="customer_confirmation" <?php echo in_array('customer_confirmation', $evidenceList, true) ? 'checked' : ''; ?>> Customer confirmation / email</label>
+                        <label style="font-weight:600;"><input type="checkbox" name="evidence[]" value="ticket_update" <?php echo in_array('ticket_update', $evidenceList, true) ? 'checked' : ''; ?>> Ticket / system update</label>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <label class="form-label">Upload supporting file (optional)</label>
+                    <div id="support_dropzone" class="dropzone" style="text-align:center;">
+                        Drag & drop your file here or click to select
+                        <input type="file" id="support_file" name="support_file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.txt,.zip">
+                    </div>
+                    <div class="meta" style="margin-top:8px; text-align:center; font-size:0.95em; color:#6b7280;">PDF, DOC, DOCX, JPG, PNG, TXT, ZIP (Max 5MB)</div>
+                    <button type="button" id="clearSupportFileBtn" class="btn btn-primary" style="margin-top:8px;<?php echo !empty($supportPath) ? 'display:inline-block;' : 'display:none;'; ?>">Unselect File</button>
+                    <div class="error-message" id="supportFileError" style="display:none;"></div>
+                    <div class="file-info" id="supportFileInfo" style="margin-top:8px;text-align:center;"><?php echo htmlspecialchars($supportDisplay); ?></div>
+                    <div class="progress-bar" id="supportProgressBar" style="display:none;"><div class="progress-bar-inner" id="supportProgressBarInner"></div></div>
+                </div>
+
+                <div class="form-row">
+                    <label class="form-label" for="resolution_status">Resolution Outcome</label>
+                    <select name="resolution_status" id="resolution_status" class="form-input">
+                        <option value="resolved" <?php echo $pref_resolution === 'resolved' ? 'selected' : ''; ?>>Resolved</option>
+                        <option value="escalated" <?php echo $pref_resolution === 'escalated' ? 'selected' : ''; ?>>Escalated</option>
+                        <option value="deferred" <?php echo $pref_resolution === 'deferred' ? 'selected' : ''; ?>>Deferred/Waiting</option>
+                    </select>
+                </div>
+
+                <div class="form-row">
+                    <label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" name="follow_up_required" value="1" <?php echo $pref_followup ? 'checked' : ''; ?>> Follow-up required</label>
+                </div>
+
+                <div class="form-row">
+                    <label class="form-label" for="comments">Comments (optional)</label>
+                    <textarea class="form-textarea" id="comments" name="comments" rows="3" placeholder="Any additional notes..."><?php echo htmlspecialchars($submission['comments'] ?? ''); ?></textarea>
+                </div>
+
+                <div style="display:flex; justify-content:flex-end; gap:8px; margin-top: 18px;">
+                    <button type="submit" name="submit_quest" class="btn btn-primary" id="submitBtn" style="cursor: pointer;">Save Changes</button>
+                </div>
+                <?php else: ?>
+                <!-- fallback to existing generic UI -->
                 <div class="form-row form-radio-group modern-radio-group">
                     <label class="modern-radio"><input type="radio" name="submission_type" value="file" <?php echo $curType==='file'?'checked':''; ?> onclick="toggleSections('file')"><span>File</span></label>
                     <label class="modern-radio"><input type="radio" name="submission_type" value="link" <?php echo $curType==='link'?'checked':''; ?> onclick="toggleSections('link')"><span>Link/Google Drive</span></label>
@@ -406,8 +567,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($submission) && is_array($su
                 <div style="display:flex; justify-content:flex-end; gap:8px; margin-top: 18px;">
                     <button type="submit" name="submit_quest" class="btn btn-primary" id="submitBtn" style="background: linear-gradient(90deg, #6366f1 0%, #4f46e5 100%); color: #fff; border: none; border-radius: 8px; padding: 12px 32px; font-size: 1.1em; font-weight: 600; box-shadow: 0 2px 8px #6366f133; transition: background 0.2s, box-shadow 0.2s; cursor: pointer;">Save Changes</button>
                 </div>
+                <?php endif; ?>
             </form>
-            <?php } ?>
         </div>
     </div>
     <script>
@@ -522,6 +683,75 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($submission) && is_array($su
                 }
             }
         }
+        // Support file (client_support) dropzone & validation — mirrors quest file behavior so UI matches
+        (function() {
+            const supportDropzone = document.getElementById('support_dropzone');
+            const supportFileInput = document.getElementById('support_file');
+            const supportFileInfo = document.getElementById('supportFileInfo');
+            const supportFileError = document.getElementById('supportFileError');
+            const supportProgressBar = document.getElementById('supportProgressBar');
+            const supportProgressBarInner = document.getElementById('supportProgressBarInner');
+            const clearSupportFileBtn = document.getElementById('clearSupportFileBtn');
+            if (!supportDropzone || !supportFileInput || !supportFileInfo) return;
+            const allowedTypesSupport = [
+                'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                'image/jpeg', 'image/png', 'text/plain', 'application/zip'
+            ];
+            const allowedExtsSupport = ['.pdf','.doc','.docx','.jpg','.jpeg','.png','.txt','.zip'];
+            const maxSizeSupport = 5 * 1024 * 1024;
+
+            function getFileIconSupport(ext) {
+                switch(ext) {
+                    case 'pdf': return '<i class="fas fa-file-pdf" style="color:#b91c1c;"></i>';
+                    case 'doc': case 'docx': return '<i class="fas fa-file-word" style="color:#2563eb;"></i>';
+                    case 'jpg': case 'jpeg': case 'png': return '<i class="fas fa-file-image" style="color:#059669;"></i>';
+                    case 'txt': return '<i class="fas fa-file-alt" style="color:#f59e42;"></i>';
+                    case 'zip': return '<i class="fas fa-file-archive" style="color:#6366f1;"></i>';
+                    default: return '<i class="fas fa-file" style="color:#6366f1;"></i>';
+                }
+            }
+
+            supportDropzone.addEventListener('dragover', function(e) { e.preventDefault(); supportDropzone.classList.add('dragover'); });
+            supportDropzone.addEventListener('dragleave', function(e) { e.preventDefault(); supportDropzone.classList.remove('dragover'); });
+            supportDropzone.addEventListener('drop', function(e) {
+                e.preventDefault(); supportDropzone.classList.remove('dragover');
+                if (e.dataTransfer.files && e.dataTransfer.files.length) {
+                    supportFileInput.files = e.dataTransfer.files; validateSupportFiles();
+                }
+            });
+            supportFileInput.addEventListener('change', function() { validateSupportFiles(); if (supportFileInput.files.length) { clearSupportFileBtn.style.display = 'inline-block'; } else { clearSupportFileBtn.style.display = 'none'; } });
+            if (clearSupportFileBtn) {
+                clearSupportFileBtn.addEventListener('click', function() { supportFileInput.value = ''; supportFileInfo.textContent = ''; supportFileError.style.display = 'none'; clearSupportFileBtn.style.display = 'none'; });
+            }
+
+            function validateSupportFiles() {
+                supportFileError.style.display = 'none'; supportFileInfo.innerHTML = '';
+                if (!supportFileInput.files.length) { clearSupportFileBtn.style.display = 'none'; return; }
+                let errors = [];
+                for (let i = 0; i < supportFileInput.files.length; i++) {
+                    const f = supportFileInput.files[i];
+                    const ext = f.name.substring(f.name.lastIndexOf('.')+1).toLowerCase();
+                    if (!allowedTypesSupport.includes(f.type) && !allowedExtsSupport.includes('.'+ext)) {
+                        errors.push(`${f.name}: Unsupported file type.`);
+                    } else if (f.size > maxSizeSupport) {
+                        errors.push(`${f.name}: File too large (max 5MB).`);
+                    } else {
+                        let cls = '';
+                        if (ext === 'pdf') cls = 'file-type-pdf';
+                        else if (ext === 'doc' || ext === 'docx') cls = 'file-type-doc';
+                        else if (ext === 'jpg' || ext === 'jpeg' || ext === 'png') cls = 'file-type-jpg';
+                        else if (ext === 'txt') cls = 'file-type-txt';
+                        else if (ext === 'zip') cls = 'file-type-zip';
+                        supportFileInfo.innerHTML += `<span class="${cls}" style="margin-right:10px;">${getFileIconSupport(ext)} ${f.name}</span>`;
+                    }
+                }
+                if (errors.length) {
+                    supportFileError.innerHTML = errors.join('<br>'); supportFileError.style.display = 'block'; supportFileInput.value = ''; supportFileInfo.innerHTML = ''; clearSupportFileBtn.style.display = 'none';
+                } else {
+                    supportFileError.style.display = 'none'; clearSupportFileBtn.style.display = 'inline-block';
+                }
+            }
+        })();
         // Optional: fake progress bar on submit for realism
         const form = document.getElementById('submissionForm');
         if (form && progressBar && progressBarInner && fileInput) {

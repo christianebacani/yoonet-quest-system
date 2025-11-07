@@ -12,7 +12,8 @@ if ($submission_id <= 0) {
 }
 
 try {
-    $stmt = $pdo->prepare("SELECT qs.*, q.title AS quest_title, q.id AS quest_id FROM quest_submissions qs LEFT JOIN quests q ON qs.quest_id = q.id WHERE qs.id = ? LIMIT 1");
+    // Include display_type so we can render client_support specific fields when present
+    $stmt = $pdo->prepare("SELECT qs.*, q.title AS quest_title, q.id AS quest_id, q.display_type AS display_type FROM quest_submissions qs LEFT JOIN quests q ON qs.quest_id = q.id WHERE qs.id = ? LIMIT 1");
     $stmt->execute([$submission_id]);
     $submission = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
     if (!$submission) {
@@ -32,7 +33,10 @@ $quest_title = htmlspecialchars($submission['quest_title'] ?? 'Submission');
 $status = strtolower(trim($submission['status'] ?? 'pending'));
 $submittedAt = $submission['submitted_at'] ?? null;
 $when = $submittedAt ? date('M d, Y g:i A', strtotime($submittedAt)) : 'Unknown time';
-$filePath = $submission['file_path'] ?? '';
+$filePath = '';
+// Try a broad set of candidate columns (match view_submission.php logic) so updates stored
+// into alternative columns (support_file, supporting_file, etc.) are picked up by the AJAX refresh.
+$filePath = $submission['file_path'] ?? $submission['support_file'] ?? $submission['support_file_path'] ?? $submission['support_filepath'] ?? $submission['supportpath'] ?? $submission['supporting_file'] ?? $submission['supporting_file_path'] ?? $submission['supporting_filepath'] ?? $submission['file'] ?? $submission['uploaded_file'] ?? $submission['uploaded_filepath'] ?? $submission['attachment'] ?? $submission['attachment_path'] ?? $submission['attachments'] ?? $submission['support_files'] ?? $submission['submission_file'] ?? $submission['filepath'] ?? '';
 $driveLink = $submission['drive_link'] ?? '';
 $textContent = $submission['text_content'] ?? '';
 $submissionText = $submission['submission_text'] ?? '';
@@ -167,6 +171,75 @@ elseif ($status === 'rejected') { $badgeClass='badge badge-rejected'; $badgeLabe
         } else {
             echo '<div class="preview-block"><div class="preview-text">'.htmlspecialchars($submissionText).'</div></div>';
         }
+        $renderedAny = true;
+    }
+
+    // If this quest is client_support, render client/support specific fields so
+    // the AJAX-refreshed card shows updated ticket, action_taken, time_spent, evidence, resolution and follow-up.
+    $isClientSupport = (isset($submission['display_type']) && $submission['display_type'] === 'client_support');
+    if ($isClientSupport) {
+        // Normalize values from common column names
+        $ticket = $submission['ticket_reference'] ?? $submission['ticket_id'] ?? $submission['ticket'] ?? '';
+        $action_taken = $submission['action_taken'] ?? $submission['text_content'] ?? $submission['text'] ?? '';
+        $time_spent = $submission['time_spent'] ?? $submission['time_spent_hours'] ?? $submission['time_spent_hrs'] ?? '';
+        $resolution_status = $submission['resolution_status'] ?? '';
+        $follow_up_raw = $submission['follow_up_required'] ?? $submission['follow_up'] ?? '';
+
+        // Evidence handling (JSON or comma list)
+        $evidence_list = [];
+        if (!empty($submission['evidence_json'] ?? null)) {
+            $tmp = json_decode($submission['evidence_json'], true);
+            if (is_array($tmp)) $evidence_list = $tmp;
+        } elseif (!empty($submission['evidence'] ?? null)) {
+            $evraw = $submission['evidence'];
+            $tmp = json_decode($evraw, true);
+            if (is_array($tmp)) $evidence_list = $tmp;
+            else $evidence_list = array_filter(array_map('trim', explode(',', $evraw)));
+        }
+
+        echo '<div class="preview-block" style="margin-top:12px;">';
+        echo '<div style="font-weight:700;color:#6b7280;margin-bottom:6px;">Client & Support Details</div>';
+        echo '<div class="card" style="padding:12px;">';
+        echo '<div style="margin-bottom:8px;"><strong>Ticket / Reference ID</strong><div>' . (!empty($ticket) ? htmlspecialchars($ticket) : '<span style="color:#9CA3AF;font-style:italic;">— not provided —</span>') . '</div></div>';
+        echo '<div style="margin-bottom:8px;"><strong>Action Taken / Resolution</strong><div>' . (!empty($action_taken) ? '<div style="background:#fff;border:1px solid #e5e7eb;padding:10px;border-radius:8px;color:#111827;white-space:pre-wrap;">' . nl2br(htmlspecialchars($action_taken)) . '</div>' : '<span style="color:#9CA3AF;font-style:italic;">— not provided —</span>') . '</div></div>';
+        echo '<div style="margin-bottom:8px;"><strong>Time Spent (hours)</strong><div>' . ($time_spent !== '' ? htmlspecialchars($time_spent) : '<span style="color:#9CA3AF;font-style:italic;">— not provided —</span>') . '</div></div>';
+        echo '<div style="margin-bottom:8px;"><strong>Evidence / Attachments</strong><div>';
+        if (!empty($evidence_list)) {
+            echo '<div style="display:flex;flex-direction:column;gap:8px;">';
+            foreach ($evidence_list as $ev) {
+                $ev_trim = trim((string)$ev);
+                if ($ev_trim === '') continue;
+                $isUrl = filter_var($ev_trim, FILTER_VALIDATE_URL);
+                if ($isUrl) echo '<a href="' . htmlspecialchars($ev_trim) . '" target="_blank" rel="noopener">' . htmlspecialchars($ev_trim) . '</a>';
+                else echo '<div>' . htmlspecialchars($ev_trim) . '</div>';
+            }
+            echo '</div>';
+        } else {
+            echo '<span style="color:#9CA3AF;font-style:italic;">— none provided —</span>';
+        }
+        echo '</div></div>';
+
+        // Supporting file display (reuse computed $web/$abs when possible)
+        echo '<div style="margin-bottom:8px;"><strong>Upload supporting file</strong><div>';
+        if (!empty($filePath)) {
+            $fname = basename($filePath);
+            echo '<div class="file-pill" style="display:inline-flex;padding:6px 10px;margin-bottom:8px;">' . htmlspecialchars($fname) . '</div>';
+        } else {
+            echo '<span style="color:#9CA3AF;font-style:italic;">— no supporting file uploaded —</span>';
+        }
+        echo '</div></div>';
+
+        echo '<div style="margin-bottom:8px;"><strong>Resolution Outcome</strong><div>' . (!empty($resolution_status) ? htmlspecialchars($resolution_status) : '<span style="color:#9CA3AF;font-style:italic;">— not specified —</span>') . '</div></div>';
+        $fval = $follow_up_raw ?? '';
+        $fstr = is_bool($fval) ? ($fval ? '1' : '0') : trim((string)$fval);
+        $fstr_l = strtolower($fstr);
+        $follow_yes = in_array($fstr_l, ['1','yes','true','on','y'], true);
+        echo '<div style="margin-bottom:8px;"><strong>Follow-up required</strong><div>' . ($follow_yes ? 'Yes' : 'No') . '</div></div>';
+
+        echo '<div style="margin-bottom:8px;"><strong>Comments</strong><div>' . (!empty($submission['comments'] ?? null) ? '<div style="background:#fff;border:1px solid #e5e7eb;padding:10px;border-radius:8px;color:#111827;white-space:pre-wrap;">' . nl2br(htmlspecialchars($submission['comments'])) . '</div>' : '<span style="color:#9CA3AF;font-style:italic;">— none —</span>') . '</div></div>';
+
+        echo '</div>'; // .card
+        echo '</div>'; // preview-block
         $renderedAny = true;
     }
 
