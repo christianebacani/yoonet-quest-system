@@ -610,6 +610,29 @@ if (isset($_GET['success'])) {
     .mh-ppt   { --mh-bg:#FFEDD5; --mh-text:#9A3412; --mh-border:#FDBA74; }
     .mh-office{ --mh-bg:#EDE9FE; --mh-text:#5B21B6; --mh-border:#C4B5FD; }
     </style>
+    <style>
+        /* Reward pulse animation used on successful grading */
+        @keyframes rewardPulse {
+            0% { transform: scale(1); opacity: 1; }
+            30% { transform: scale(1.03); opacity: 1; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        .pulse-animate { animation: rewardPulse 900ms cubic-bezier(.2,.9,.2,1); box-shadow: 0 10px 30px rgba(99,102,241,0.18); }
+
+        /* Simple confetti particle */
+        .confetti-piece {
+            position: absolute;
+            width: 10px;
+            height: 14px;
+            opacity: 0.95;
+            will-change: transform, opacity;
+            border-radius: 2px;
+        }
+        @keyframes confettiFall {
+            0% { transform: translateY(-10vh) rotate(0deg); opacity: 1; }
+            100% { transform: translateY(110vh) rotate(720deg); opacity: 0.6; }
+        }
+    </style>
 </head>
 <body>
     <div class="assessment-container">
@@ -871,10 +894,11 @@ if (isset($_GET['success'])) {
             <?php endif; ?>
             
             <?php if ($success): ?>
-                <div class="alert alert-success">
+                <div id="successMessage" class="alert alert-success" role="status" aria-live="polite">
                     <i class="fas fa-check-circle"></i>
-                    <?= htmlspecialchars($success) ?>
+                    <span><?= htmlspecialchars($success) ?></span>
                 </div>
+                <div id="confettiContainer" aria-hidden="true" style="position:fixed;top:0;left:0;right:0;bottom:0;pointer-events:none;z-index:9999;"></div>
             <?php endif; ?>
             
             <div class="section-title">SKILL ASSESSMENT:</div>
@@ -1226,6 +1250,74 @@ if (isset($_GET['success'])) {
                 });
             }
         } catch(e) { console.error('BroadcastChannel not available', e); }
+    </script>
+    <script>
+        // Reward animation + sound for successful grading
+        (function(){
+            function playRewardSound() {
+                try {
+                    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                    const now = ctx.currentTime;
+                    // short arpeggio: three notes (A4, C#5, E5) ascending
+                    const freqs = [440, 554.37, 659.25];
+                    freqs.forEach((f, i) => {
+                        const o = ctx.createOscillator();
+                        const g = ctx.createGain();
+                        o.type = 'sine';
+                        o.frequency.value = f;
+                        g.gain.value = 0;
+                        o.connect(g);
+                        g.connect(ctx.destination);
+                        const t0 = now + i * 0.06;
+                        const dur = 0.28;
+                        g.gain.setValueAtTime(0, t0);
+                        g.gain.linearRampToValueAtTime(0.12, t0 + 0.01);
+                        g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+                        o.start(t0);
+                        o.stop(t0 + dur + 0.02);
+                    });
+                } catch (e) {
+                    console.warn('Audio API unavailable', e);
+                }
+            }
+
+            function burstConfetti(container) {
+                if (!container) return;
+                const colors = ['#FFD166','#06D6A0','#118AB2','#EF476F','#A78BFA'];
+                const count = 18;
+                const w = window.innerWidth;
+                for (let i = 0; i < count; i++) {
+                    const el = document.createElement('div');
+                    el.className = 'confetti-piece';
+                    el.style.background = colors[i % colors.length];
+                    // randomize horizontal start
+                    const left = Math.random() * (w * 0.9) + (w * 0.05);
+                    el.style.left = left + 'px';
+                    el.style.top = '-10vh';
+                    el.style.transform = 'translateY(-10vh) rotate(' + (Math.random()*360) + 'deg)';
+                    const delay = Math.random() * 0.2;
+                    const duration = 1.6 + Math.random() * 0.8;
+                    el.style.animation = 'confettiFall ' + duration + 's cubic-bezier(.2,.8,.2,1) ' + delay + 's both';
+                    container.appendChild(el);
+                    // remove after animation
+                    setTimeout(() => { try { container.removeChild(el); } catch(e){} }, (delay + duration) * 1000 + 400);
+                }
+            }
+
+            document.addEventListener('DOMContentLoaded', function(){
+                const successEl = document.getElementById('successMessage');
+                if (!successEl) return; // nothing to animate
+                // Add pulse class for subtle pop
+                successEl.classList.add('pulse-animate');
+                // Play reward sound
+                playRewardSound();
+                // Confetti burst
+                const confRoot = document.getElementById('confettiContainer');
+                if (confRoot) {
+                    burstConfetti(confRoot);
+                }
+            });
+        })();
     </script>
 </body>
 </html>
