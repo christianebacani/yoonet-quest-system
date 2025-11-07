@@ -139,7 +139,7 @@ $past_quests = [];
         .btn { display:inline-block; padding: 8px 12px; border-radius: 6px; background:#4F46E5; color:#fff; text-decoration:none; border:none; font-weight:600; transition:background 0.2s; }
         .btn:hover { background:#3737b8; color:#fff; }
         .empty { text-align:center; color:#6B7280; padding:40px; }
-        .oq-table { width:100%; border-collapse: collapse; background:#fff; border-radius:8px; overflow:hidden; }
+    .oq-table { width:100%; border-collapse: collapse; background:#fff; border-radius:8px; overflow:hidden; table-layout: fixed; }
         .oq-table th, .oq-table td { border-bottom: 1px solid #eee; padding: 10px; text-align:left; }
         .oq-table th { background: #f9fafb; font-size: 14px; font-weight: 600; color: #374151; }
         .oq-table tr:last-child td { border-bottom: none; }
@@ -179,7 +179,7 @@ $past_quests = [];
                     <?php foreach ($available_quests as $q): ?>
                         <tr>
                             <td>
-                                <span class="badge badge-quest"><?php echo htmlspecialchars($q['title'] ?? 'Untitled'); ?></span>
+                                <span class="badge badge-quest" title="<?php echo htmlspecialchars($q['title'] ?? 'Untitled'); ?>"><?php echo htmlspecialchars($q['title'] ?? 'Untitled'); ?></span>
                             </td>
                             <td style="color:#334155;"><?php echo htmlspecialchars($q['description'] ?? '—'); ?></td>
                             <td>
@@ -321,24 +321,40 @@ document.addEventListener('DOMContentLoaded', function() {
     .oq-table tr:last-child td { border-bottom: none; }
     .badge { display: inline-block; padding: 4px 12px; border-radius: 9999px; font-size: 0.98em; font-weight: 600; letter-spacing: 0.01em; }
     /* Ensure long quest titles wrap nicely inside the pill and don't break layout */
+    /* Quest badge: single-line, truncated with ellipsis, full title visible on hover via title attr */
     .badge-quest {
         background: #e0e7ff;
         color: #3730a3;
         border: 1px solid #6366f1;
-        display: -webkit-box; /* enable line-clamp */
-        -webkit-box-orient: vertical;
-        -webkit-line-clamp: 2; /* show up to 2 lines */
-        max-width: 42ch; /* reasonable width for titles */
-        white-space: normal; /* allow wrapping */
+        display: inline-block;
+        max-width: 100%;
+        white-space: nowrap; /* single line */
         overflow: hidden;
         text-overflow: ellipsis;
         line-height: 1.2;
-        padding: 8px 12px; /* compact padding for multi-line */
+        padding: 8px 16px;
         border-radius: 9999px;
         vertical-align: middle;
         box-sizing: border-box;
     }
-    .badge-due { background: #fef3c7; color: #92400e; border: 1px solid #f59e0b; }
+    .badge-due { 
+        background: #fef3c7; 
+        color: #92400e; 
+        border: 1px solid #f59e0b;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 72px;
+        padding: 8px 12px;
+        white-space: nowrap;
+        border-radius: 28px;
+        font-weight: 700;
+    }
+    /* control column widths so layout is stable */
+    .oq-table td:nth-child(1), .oq-table th:nth-child(1) { width: 42%; }
+    .oq-table td:nth-child(2), .oq-table th:nth-child(2) { width: 36%; }
+    .oq-table td:nth-child(3), .oq-table th:nth-child(3) { width: 12%; }
+    .oq-table td:nth-child(4), .oq-table th:nth-child(4) { width: 10%; }
         @media (max-width: 600px) {
             .container { padding: 0 2vw; }
             .card { padding: 10px; }
