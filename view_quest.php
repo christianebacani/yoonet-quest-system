@@ -164,10 +164,23 @@ if (isset($display_type) && strtolower(trim((string)$display_type)) === 'custom'
     <?php endif; ?>
 
     <?php
-    // If this is a client_support quest OR a custom quest viewed by its creator,
-    // render the full create/edit style form UI in read-only mode so the creator
-    // can view the quest exactly as it was created.
-    if (isset($quest['display_type']) && ($quest['display_type'] === 'client_support' || ($quest['display_type'] === 'custom' && $is_creator))) {
+    // If this is a client_support quest OR a custom quest viewed by its creator (or
+    // requested by an assigned submitter via as_creator_view=1), render the full
+    // create/edit style form UI in read-only mode so the quest appears as it was
+    // created. For submitters the assignment section will be hidden by the form UI.
+    $as_creator_view = isset($_GET['as_creator_view']) && (string)$_GET['as_creator_view'] === '1';
+    // Determine if current user is assigned to this quest
+    $is_assigned = false;
+    if (!empty($assigned_users) && $employee_id) {
+        foreach ($assigned_users as $au) {
+            if (isset($au['employee_id']) && (string)$au['employee_id'] === (string)$employee_id) { $is_assigned = true; break; }
+        }
+    }
+
+    if (isset($quest['display_type']) && (
+            $quest['display_type'] === 'client_support' ||
+            ($quest['display_type'] === 'custom' && ($is_creator || ($as_creator_view && $is_assigned)))
+        )) {
         // Prepare variables expected by the form include so it renders identical UI.
         $mode = 'view';
         // Populate basic form variables from $quest so the form fields show saved values

@@ -254,7 +254,12 @@ if (isset($_GET['debug'])) {
 
                                 } else {
                                     // Pending: show View Quest Details + Submit
-                                    echo '<a class="action-btn action-secondary" href="view_quest.php?id=' . (int)$q['quest_id'] . '&from=my_quests" role="button">View Quest Details</a>';
+                                    // If this is a Custom quest, request the creator-style view for submitters
+                                    if (isset($q['display_type']) && strtolower(trim((string)$q['display_type'])) === 'custom') {
+                                        echo '<a class="action-btn action-secondary" href="view_quest.php?id=' . (int)$q['quest_id'] . '&from=my_quests&as_creator_view=1" role="button">View Quest Details</a>';
+                                    } else {
+                                        echo '<a class="action-btn action-secondary" href="view_quest.php?id=' . (int)$q['quest_id'] . '&from=my_quests" role="button">View Quest Details</a>';
+                                    }
                                     echo '<a class="action-btn action-primary" href="submit_quest.php?quest_id=' . (int)$q['quest_id'] . '" role="button">Submit</a>';
                                 }
 

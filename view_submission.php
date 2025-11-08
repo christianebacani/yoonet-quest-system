@@ -496,7 +496,12 @@ try {
                             if (!empty($submission[$k] ?? null)) { $hasClientFields = true; break; }
                         }
 
-                        if ($isClientSupport || $hasClientFields):
+                        // Only render the Client & Support layout when the quest is explicitly
+                        // marked as client_support. Previously we also inferred client layout
+                        // when certain submission keys existed; that caused Custom quests to
+                        // render with the wrong structure. Use display_type as the source
+                        // of truth to decide layout.
+                        if ($isClientSupport):
                             // Normalize and prefer explicit submission fields, but also handle cases where
                             // these values were embedded inside the `comments` field (JSON or key:value pairs).
                             $ticket = $submission['ticket_reference'] ?? $submission['ticket_id'] ?? $submission['ticket'] ?? '';

@@ -960,14 +960,10 @@ if (isset($_GET['success'])) {
                         }
 
                         // If this quest is client_support, render client/support specific submitted fields
-                        // Safely detect if any client-related fields exist without triggering undefined-key notices
-                        $hasClientFields = false;
-                        $clientKeys = ['ticket_reference','ticket_id','ticket','action_taken','time_spent','time_spent_hours','time_spent_hrs','evidence_json','evidence','resolution_status','follow_up_required','follow_up','comments'];
-                        foreach ($clientKeys as $k) {
-                            if (!empty($latestSubmission[$k] ?? null)) { $hasClientFields = true; break; }
-                        }
-
-                        if ($isClientSupport || $hasClientFields) {
+                        // Render Client & Support details only when the quest's display_type explicitly
+                        // indicates 'client_support'. Previously the UI fell back to checking submission
+                        // field presence which caused incorrect layouts for 'custom' quests.
+                        if ($isClientSupport) {
                             $ticket = $latestSubmission['ticket_reference'] ?? $latestSubmission['ticket_id'] ?? $latestSubmission['ticket'] ?? '';
                             $action_taken = $latestSubmission['action_taken'] ?? $latestSubmission['text_content'] ?? $latestSubmission['text'] ?? '';
                             $time_spent = $latestSubmission['time_spent'] ?? $latestSubmission['time_spent_hours'] ?? $latestSubmission['time_spent_hrs'] ?? '';
