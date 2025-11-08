@@ -2406,8 +2406,8 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
                     </a>
                 <?php endif; ?>
             </div>
-    </main>
 </div>
+<script src="assets/js/script_fixed.js"></script>
 <script>
 // Hamburger/mobile menu toggle
 document.addEventListener('DOMContentLoaded', function() {

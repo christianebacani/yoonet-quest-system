@@ -244,7 +244,7 @@ $past_quests = [];
             </div>
         <?php endif; ?>
     </div>
-<script src="assets/js/script.js"></script>
+<script src="assets/js/script_fixed.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     function showQuestMessage(msg, success) {
@@ -285,6 +285,12 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(r => r.json())
         .then(data => {
             if (data.success) {
+                // Play a distinct audio cue for accept vs decline
+                try {
+                    if (action === 'accept' && typeof playAcceptSound === 'function') playAcceptSound();
+                    else if (action === 'decline' && typeof playDeclineSound === 'function') playDeclineSound();
+                } catch (e) { /* ignore audio errors */ }
+
                 // Remove the quest row
                 const row = btns.closest('tr');
                 if (row) row.remove();
