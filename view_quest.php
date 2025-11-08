@@ -111,6 +111,19 @@ if (isset($_GET['from']) && $_GET['from'] === 'my_quests') {
     $back_link = 'my_quests.php';
 }
 ?>
+<?php
+// Determine if this quest should be treated as a Custom-style quest for display rules.
+$is_custom = false;
+if (isset($quest['display_type']) && strtolower(trim((string)$quest['display_type'])) === 'custom') {
+    $is_custom = true;
+} elseif (isset($quest['quest_type']) && strtolower(trim((string)$quest['quest_type'])) === 'custom') {
+    $is_custom = true;
+}
+// Also consider a pre-populated $display_type variable if present
+if (isset($display_type) && strtolower(trim((string)$display_type)) === 'custom') {
+    $is_custom = true;
+}
+?>
 <!doctype html>
 <html lang="en">
 <head>
@@ -137,7 +150,7 @@ if (isset($_GET['from']) && $_GET['from'] === 'my_quests') {
 </head>
 <body>
 <div class="container">
-    <?php if (!isset($quest['display_type']) || $quest['display_type'] !== 'client_support'): ?>
+    <?php if (!isset($quest['display_type']) || ($quest['display_type'] !== 'client_support' && $quest['display_type'] !== 'custom')): ?>
         <a href="<?php echo htmlspecialchars($back_link); ?>" class="btn btn-ghost">← Back</a>
         <h1><?php echo htmlspecialchars($quest['title']); ?></h1>
         <div class="meta">Status: <?php echo htmlspecialchars($quest['status']); ?> | Due: <?php echo !empty($quest['due_date']) ? htmlspecialchars($quest['due_date']) : '—'; ?></div>
@@ -150,14 +163,17 @@ if (isset($_GET['from']) && $_GET['from'] === 'my_quests') {
         <a href="<?php echo htmlspecialchars($back_link); ?>" class="btn btn-ghost">← Back</a>
     <?php endif; ?>
 
-    <?php if (isset($quest['display_type']) && $quest['display_type'] === 'client_support'): ?>
-        <?php
+    <?php
+    // If this is a client_support quest OR a custom quest viewed by its creator,
+    // render the full create/edit style form UI in read-only mode so the creator
+    // can view the quest exactly as it was created.
+    if (isset($quest['display_type']) && ($quest['display_type'] === 'client_support' || ($quest['display_type'] === 'custom' && $is_creator))) {
         // Prepare variables expected by the form include so it renders identical UI.
         $mode = 'view';
         // Populate basic form variables from $quest so the form fields show saved values
         $title = $quest['title'] ?? '';
         $description = $quest['description'] ?? '';
-        $display_type = $quest['display_type'] ?? 'client_support';
+        $display_type = $quest['display_type'] ?? 'custom';
         $quest_assignment_type = $quest['quest_assignment_type'] ?? 'optional';
         $client_name = $quest['client_name'] ?? '';
         $client_reference = $quest['client_reference'] ?? '';
@@ -195,10 +211,10 @@ if (isset($_GET['from']) && $_GET['from'] === 'my_quests') {
 
         // Include the full create-style form UI but rendered in view mode (read-only via JS)
         include __DIR__ . '/includes/quest_form_ui.php';
-        ?>
-    <?php endif; ?>
+    }
+    ?>
 
-    <?php if (!isset($quest['display_type']) || $quest['display_type'] !== 'client_support'): ?>
+    <?php if (!$is_custom && (!isset($quest['display_type']) || $quest['display_type'] !== 'client_support')): ?>
         <div class="card" style="margin-top:12px;">
             <h3>Attachments (creator uploaded)</h3>
             <?php if (empty($attachments)): ?>
