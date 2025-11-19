@@ -79,7 +79,7 @@ function send_welcome_email($to_email, $to_name, $employee_id, $password) {
                 
                 <p>You can now access the Quest System and start participating in quests, earning points, and tracking your progress.</p>
                 
-                <a href='http://localhost/yoonet-quest-system/login.php' class='button'>Login to Your Account</a>
+                <a href='https://yoonet-quest-system.lovestoblog.com/login.php' class='button'>Login to Your Account</a>
                 
                 <p>If you have any questions or need assistance, please contact your system administrator.</p>
                 
@@ -99,7 +99,7 @@ function send_welcome_email($to_email, $to_name, $employee_id, $password) {
     $text_body .= "Email: " . $to_email . "\n";
     $text_body .= "Temporary Password: " . $password . "\n\n";
     $text_body .= "Please change your password after your first login.\n\n";
-    $text_body .= "Login at: http://localhost/yoonet-quest-system/login.php\n\n";
+    $text_body .= "Login at: https://yoonet-quest-system.lovestoblog.com/login.php\n\n";
     $text_body .= "Best regards,\nYooNet Quest System Team";
     
     // Email headers

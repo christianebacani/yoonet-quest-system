@@ -1466,7 +1466,7 @@ IMPORTANT: For security reasons, please change your password after your first lo
 
 You can now access the Quest System and start participating in quests, earning points, and tracking your progress.
 
-Login at: http://localhost/yoonet-quest-system/login.php
+Login at: https://yoonet-quest-system.lovestoblog.com/login.php
 
 If you have any questions or need assistance, please contact your system administrator.
 
