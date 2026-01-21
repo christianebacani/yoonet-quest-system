@@ -231,80 +231,138 @@ window.onunload = function() { void (0); }
     </div>
   </section>
 
-  <!-- Quest Cards -->
-  <section class="py-16 bg-white">
+  <!-- Roles Section -->
+  <section class="py-20 bg-gradient-to-b from-gray-50 to-white">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-      <div class="text-center mb-12" data-aos="fade-up">
-        <h2 class="text-3xl font-bold text-gray-900 mb-4">Your Career Adventure Awaits</h2>
-        <p class="text-lg text-gray-600">Choose your path and start completing quests tailored to your goals</p>
+      <div class="text-center mb-16" data-aos="fade-up">
+        <h2 class="text-4xl md:text-5xl font-bold text-gray-900 mb-4">Two Roles, One Unified System</h2>
+        <p class="text-xl text-gray-600 max-w-2xl mx-auto leading-relaxed">Whether you create quests or complete them, we've got you covered</p>
       </div>
-      <div class="grid md:grid-cols-3 gap-8">
-        <div class="quest-card rounded-xl p-6 text-white" data-aos="fade-up" data-aos-delay="100">
-          <div class="flex items-center mb-4">
-            <span class="text-2xl mr-3">💻</span>
-            <h3 class="text-xl font-semibold">Tech Mastery</h3>
+      <div class="grid md:grid-cols-2 gap-8 max-w-5xl mx-auto">
+        <!-- Quest Leads Card -->
+        <div class="bg-white rounded-2xl p-8 shadow-xl hover:shadow-2xl transition-all duration-300 border border-gray-100" data-aos="fade-up" data-aos-delay="100" role="article" aria-label="Quest Leads role information">
+          <div class="flex items-center mb-6">
+            <div class="w-14 h-14 rounded-full bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center mr-4 shadow-lg">
+              <span class="text-3xl" role="img" aria-label="Quest Lead icon">👔</span>
+            </div>
+            <h3 class="text-2xl font-bold text-gray-900">Quest Leads</h3>
           </div>
-          <p class="mb-4 text-blue-100">Master new programming languages and frameworks</p>
-          <div class="flex items-center justify-between">
-            <span class="text-sm bg-white bg-opacity-20 px-3 py-1 rounded-full">12 Quests</span>
-            <span class="text-yellow-300 font-semibold">⭐ 2,450 XP</span>
-          </div>
+          <p class="text-gray-600 mb-6 leading-relaxed text-base">Create and assign quests to your team members, review submissions, and provide meaningful feedback on completed work.</p>
+          <ul class="space-y-3" role="list">
+            <li class="flex items-start text-gray-700">
+              <svg class="w-5 h-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+              </svg>
+              <span>Create mandatory or optional quests</span>
+            </li>
+            <li class="flex items-start text-gray-700">
+              <svg class="w-5 h-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+              </svg>
+              <span>Assign tasks to Skill Associates</span>
+            </li>
+            <li class="flex items-start text-gray-700">
+              <svg class="w-5 h-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+              </svg>
+              <span>Review and grade submissions</span>
+            </li>
+            <li class="flex items-start text-gray-700">
+              <svg class="w-5 h-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+              </svg>
+              <span>Manage team accounts</span>
+            </li>
+          </ul>
         </div>
-        <div class="quest-card rounded-xl p-6 text-white" data-aos="fade-up" data-aos-delay="200">
-          <div class="flex items-center mb-4">
-            <span class="text-2xl mr-3">👥</span>
-            <h3 class="text-xl font-semibold">Leadership Path</h3>
+        
+        <!-- Skill Associates Card -->
+        <div class="bg-white rounded-2xl p-8 shadow-xl hover:shadow-2xl transition-all duration-300 border border-gray-100" data-aos="fade-up" data-aos-delay="200" role="article" aria-label="Skill Associates role information">
+          <div class="flex items-center mb-6">
+            <div class="w-14 h-14 rounded-full bg-gradient-to-br from-blue-500 to-cyan-600 flex items-center justify-center mr-4 shadow-lg">
+              <span class="text-3xl" role="img" aria-label="Skill Associate icon">🎯</span>
+            </div>
+            <h3 class="text-2xl font-bold text-gray-900">Skill Associates</h3>
           </div>
-          <p class="mb-4 text-blue-100">Develop management and team leadership skills</p>
-          <div class="flex items-center justify-between">
-            <span class="text-sm bg-white bg-opacity-20 px-3 py-1 rounded-full">8 Quests</span>
-            <span class="text-yellow-300 font-semibold">⭐ 1,800 XP</span>
-          </div>
-        </div>
-        <div class="quest-card rounded-xl p-6 text-white" data-aos="fade-up" data-aos-delay="300">
-          <div class="flex items-center mb-4">
-            <span class="text-2xl mr-3">📈</span>
-            <h3 class="text-xl font-semibold">Business Growth</h3>
-          </div>
-          <p class="mb-4 text-blue-100">Learn strategy, analytics, and market expansion</p>
-          <div class="flex items-center justify-between">
-            <span class="text-sm bg-white bg-opacity-20 px-3 py-1 rounded-full">15 Quests</span>
-            <span class="text-yellow-300 font-semibold">⭐ 3,200 XP</span>
-          </div>
+          <p class="text-gray-600 mb-6 leading-relaxed text-base">Accept assigned quests, submit your work, track your progress, and build your skills through task completion.</p>
+          <ul class="space-y-3" role="list">
+            <li class="flex items-start text-gray-700">
+              <svg class="w-5 h-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+              </svg>
+              <span>View assigned quests</span>
+            </li>
+            <li class="flex items-start text-gray-700">
+              <svg class="w-5 h-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+              </svg>
+              <span>Accept optional assignments</span>
+            </li>
+            <li class="flex items-start text-gray-700">
+              <svg class="w-5 h-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+              </svg>
+              <span>Submit completed work</span>
+            </li>
+            <li class="flex items-start text-gray-700">
+              <svg class="w-5 h-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+              </svg>
+              <span>Track your achievements</span>
+            </li>
+          </ul>
         </div>
       </div>
     </div>
   </section>
 
   <!-- How It Works -->
-  <section id="how-it-works" class="py-16 bg-white">
+  <section id="how-it-works" class="py-20 bg-white">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-      <div class="text-center mb-12" data-aos="fade-up">
-        <h2 class="text-3xl font-bold text-gray-900 mb-4">How It Works</h2>
-        <p class="text-lg text-gray-600">Start your career quest in three simple steps</p>
+      <div class="text-center mb-16" data-aos="fade-up">
+        <h2 class="text-4xl md:text-5xl font-bold text-gray-900 mb-4">How It Works</h2>
+        <p class="text-xl text-gray-600 max-w-2xl mx-auto leading-relaxed">Simple quest assignment and completion workflow in three steps</p>
       </div>
-      <div class="grid md:grid-cols-3 gap-8">
-        <div class="text-center" data-aos="fade-up" data-aos-delay="100">
-          <div class="bg-blue-100 w-20 h-20 rounded-full mx-auto mb-6 flex items-center justify-center floating delay-1">
-            <span class="text-3xl font-bold text-blue-600">1</span>
+      <div class="grid md:grid-cols-3 gap-10 max-w-6xl mx-auto">
+        <!-- Step 1 -->
+        <div class="text-center" data-aos="fade-up" data-aos-delay="100" role="article" aria-label="Step 1: Create Tasks">
+          <div class="relative mb-8">
+            <div class="bg-gradient-to-br from-blue-500 to-blue-600 w-24 h-24 rounded-full mx-auto flex items-center justify-center shadow-lg floating delay-1">
+              <span class="text-4xl font-bold text-white">1</span>
+            </div>
           </div>
-          <h3 class="text-xl font-semibold mb-4">Choose Your Quest</h3>
-          <p class="text-gray-600">Select from hundreds of career-focused quests across different industries and skill levels</p>
+          <h3 class="text-2xl font-bold text-gray-900 mb-4">Quest Leads Create Tasks</h3>
+          <p class="text-gray-600 leading-relaxed text-base px-4">Quest Leads design quests and assign them as mandatory or optional tasks to specific team members.</p>
         </div>
-        <div class="text-center" data-aos="fade-up" data-aos-delay="200">
-          <div class="bg-green-100 w-20 h-20 rounded-full mx-auto mb-6 flex items-center justify-center floating delay-2">
-            <span class="text-3xl font-bold text-green-600">2</span>
+        
+        <!-- Step 2 -->
+        <div class="text-center" data-aos="fade-up" data-aos-delay="200" role="article" aria-label="Step 2: Complete Work">
+          <div class="relative mb-8">
+            <div class="bg-gradient-to-br from-green-500 to-green-600 w-24 h-24 rounded-full mx-auto flex items-center justify-center shadow-lg floating delay-2">
+              <span class="text-4xl font-bold text-white">2</span>
+            </div>
           </div>
-          <h3 class="text-xl font-semibold mb-4">Complete Challenges</h3>
-          <p class="text-gray-600">Engage with interactive content, projects, and real-world scenarios to build skills</p>
+          <h3 class="text-2xl font-bold text-gray-900 mb-4">Skill Associates Complete</h3>
+          <p class="text-gray-600 leading-relaxed text-base px-4">Skill Associates accept assignments, work on tasks, and submit their completed work for review.</p>
         </div>
-        <div class="text-center" data-aos="fade-up" data-aos-delay="300">
-          <div class="bg-yellow-100 w-20 h-20 rounded-full mx-auto mb-6 flex items-center justify-center floating delay-3">
-            <span class="text-3xl font-bold text-yellow-600">3</span>
+        
+        <!-- Step 3 -->
+        <div class="text-center" data-aos="fade-up" data-aos-delay="300" role="article" aria-label="Step 3: Review and Track">
+          <div class="relative mb-8">
+            <div class="bg-gradient-to-br from-yellow-500 to-orange-600 w-24 h-24 rounded-full mx-auto flex items-center justify-center shadow-lg floating delay-3">
+              <span class="text-4xl font-bold text-white">3</span>
+            </div>
           </div>
-          <h3 class="text-xl font-semibold mb-4">Level Up & Advance</h3>
-          <p class="text-gray-600">Earn rewards, unlock new opportunities, and accelerate your career growth</p>
+          <h3 class="text-2xl font-bold text-gray-900 mb-4">Review & Track Progress</h3>
+          <p class="text-gray-600 leading-relaxed text-base px-4">Quest Leads review submissions and provide grades with feedback while everyone tracks their achievements.</p>
         </div>
+      </div>
+      
+      <!-- Visual Connector (Optional Enhancement) -->
+      <div class="hidden md:block mt-16 text-center">
+        <svg class="mx-auto" width="400" height="2" viewBox="0 0 400 2" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <line x1="0" y1="1" x2="400" y2="1" stroke="#E5E7EB" stroke-width="2" stroke-dasharray="8 8"/>
+        </svg>
       </div>
     </div>
   </section>
