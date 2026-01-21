@@ -208,6 +208,32 @@ function validate_password_strength($password) {
     return $errors;
 }
 
+/**
+ * Validate password meets security requirements
+ * Used for Quest Lead when creating new accounts
+ * Requires minimum 8 characters and at least 3 of: uppercase, lowercase, numbers, special characters
+ */
+function validate_password_alphanumeric_special($password) {
+    // Check minimum length
+    if (strlen($password) < 8) {
+        return 'Password must be at least 8 characters long';
+    }
+    
+    // Count character types
+    $hasUppercase = preg_match('/[A-Z]/', $password);
+    $hasLowercase = preg_match('/[a-z]/', $password);
+    $hasNumber = preg_match('/[0-9]/', $password);
+    $hasSpecial = preg_match('/[^a-zA-Z0-9\s]/', $password);
+    
+    $typeCount = $hasUppercase + $hasLowercase + $hasNumber + $hasSpecial;
+    
+    if ($typeCount < 3) {
+        return 'Password must contain at least 3 of the following: uppercase letters, lowercase letters, numbers, special characters';
+    }
+    
+    return true; // Valid
+}
+
 function sanitize_user_input($data) {
     if (is_array($data)) {
         return array_map('sanitize_user_input', $data);

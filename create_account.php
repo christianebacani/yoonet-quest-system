@@ -117,9 +117,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         elseif (preg_match('/\s/', $new_password)) {
             $error = 'Password must not contain whitespace.';
         }
-        // Password strength validation
-        elseif (!empty($password_errors = validate_password_strength($new_password))) {
-            $error = 'Password requirements not met: ' . implode(', ', $password_errors);
+        // Password must be alphanumeric with exactly one special character
+        elseif (($password_error = validate_password_alphanumeric_special($new_password)) !== true) {
+            $error = $password_error;
         }
         // Password confirmation
         elseif ($new_password !== $confirm_password) {
@@ -991,7 +991,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <div class="form-group">
                 <label for="password" class="form-label">Password</label>
                 <div class="password-field">
-                    <input type="password" name="password" id="password" class="form-input" required minlength="6">
+                    <input type="password" name="password" id="password" class="form-input" required placeholder="Min 8 chars, 3 of: A-Z, a-z, 0-9, symbols" title="Password must be at least 8 characters and contain at least 3 of: uppercase, lowercase, numbers, special characters">
                     <button type="button" class="password-toggle" onclick="togglePassword('password')" aria-label="Toggle password visibility">
                         <i class="fas fa-eye" id="password-icon"></i>
                     </button>
@@ -1007,7 +1007,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <div class="form-group">
                 <label for="confirm_password" class="form-label">Confirm Password</label>
                 <div class="password-field">
-                    <input type="password" name="confirm_password" id="confirm_password" class="form-input" required minlength="6">
+                    <input type="password" name="confirm_password" id="confirm_password" class="form-input" required placeholder="Re-enter password">
                     <button type="button" class="password-toggle" onclick="togglePassword('confirm_password')" aria-label="Toggle confirm password visibility">
                         <i class="fas fa-eye" id="confirm_password-icon"></i>
                     </button>
@@ -1163,44 +1163,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             let text = '';
             let requirements = [];
             
-            // Check each requirement
-            if (password.length >= 8) {
-                strength++;
-            } else {
-                requirements.push('8+ characters');
-            }
-            
-            if (password.match(/[a-z]/)) {
-                strength++;
-            } else {
-                requirements.push('lowercase letter');
-            }
-            
-            if (password.match(/[A-Z]/)) {
-                strength++;
-            } else {
-                requirements.push('uppercase letter');
-            }
-            
-            if (password.match(/[0-9]/)) {
-                strength++;
-            } else {
-                requirements.push('number');
-            }
-            
-            if (password.match(/[^a-zA-Z0-9]/)) {
-                strength++;
-            } else {
-                requirements.push('special character');
-            }
-            
-            // Check for common passwords
-            const commonPasswords = ['password', '123456', '12345678', 'qwerty', 'abc123', 'password123', 'admin', 'letmein', 'welcome', 'monkey'];
-            if (commonPasswords.includes(password.toLowerCase())) {
-                strength = Math.max(0, strength - 2);
-                requirements.push('avoid common passwords');
-            }
-            
             const fill = document.getElementById('strength-fill');
             const textEl = document.getElementById('strength-text');
             const whitespaceEl = document.getElementById('password-whitespace');
@@ -1217,30 +1179,57 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (whitespaceEl) {
                 if (/\s/.test(password)) {
                     whitespaceEl.style.display = 'block';
+                    fill.style.width = '25%';
+                    fill.className = 'strength-fill strength-weak';
+                    textEl.textContent = 'Password must not contain spaces';
+                    return;
                 } else {
                     whitespaceEl.style.display = 'none';
                 }
             }
             
-            // Update display based on strength
-            if (strength <= 2) {
+            // Check minimum length
+            if (password.length < 8) {
                 fill.style.width = '25%';
                 fill.className = 'strength-fill strength-weak';
-                text = 'Weak - Missing: ' + requirements.join(', ');
-            } else if (strength === 3) {
-                fill.style.width = '50%';
-                fill.className = 'strength-fill strength-medium';
-                text = 'Fair - Missing: ' + requirements.join(', ');
-            } else if (strength === 4) {
-                fill.style.width = '75%';
-                fill.className = 'strength-fill strength-medium';
-                text = 'Good - Missing: ' + requirements.join(', ');
-            } else if (strength === 5) {
-                fill.style.width = '100%';
-                fill.className = 'strength-fill strength-strong';
-                text = 'Strong password';
+                text = 'At least 8 characters required';
+                textEl.textContent = text;
+                return;
             }
             
+            // Count character types
+            let typeCount = 0;
+            const hasUppercase = /[A-Z]/.test(password);
+            const hasLowercase = /[a-z]/.test(password);
+            const hasNumber = /[0-9]/.test(password);
+            const hasSpecial = /[^a-zA-Z0-9\s]/.test(password);
+            
+            if (hasUppercase) typeCount++;
+            if (hasLowercase) typeCount++;
+            if (hasNumber) typeCount++;
+            if (hasSpecial) typeCount++;
+            
+            // Set strength based on character types
+            if (typeCount < 3) {
+                fill.style.width = '50%';
+                fill.className = 'strength-fill strength-medium';
+                text = 'Weak - Need 3 of: uppercase, lowercase, numbers, symbols';
+                textEl.textContent = text;
+                return;
+            }
+            
+            if (typeCount === 3) {
+                fill.style.width = '75%';
+                fill.className = 'strength-fill strength-good';
+                text = 'Good - Contains 3 character types';
+                textEl.textContent = text;
+                return;
+            }
+            
+            // All 4 types
+            fill.style.width = '100%';
+            fill.className = 'strength-fill strength-strong';
+            text = 'Strong - Contains all character types';
             textEl.textContent = text;
         }
 
@@ -1357,18 +1346,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 
                 // Password strength validation
                 if (password) {
+                    // Minimum length
                     if (password.length < 8) validationErrors.push('Password must be at least 8 characters long');
-                    if (!/[a-z]/.test(password)) validationErrors.push('Password must contain at least one lowercase letter');
-                    if (!/[A-Z]/.test(password)) validationErrors.push('Password must contain at least one uppercase letter');
-                    if (!/[0-9]/.test(password)) validationErrors.push('Password must contain at least one number');
-                    if (!/[^a-zA-Z0-9]/.test(password)) validationErrors.push('Password must contain at least one special character');
+                    
                     // Disallow whitespace in password
                     if (/\s/.test(password)) validationErrors.push('Password must not contain whitespace');
                     
-                    // Check for common passwords
-                    const commonPasswords = ['password', '123456', '12345678', 'qwerty', 'abc123', 'password123', 'admin', 'letmein', 'welcome', 'monkey'];
-                    if (commonPasswords.includes(password.toLowerCase())) {
-                        validationErrors.push('Password is too common, please choose a more secure password');
+                    // Count character types (at least 3 of 4)
+                    let typeCount = 0;
+                    if (/[A-Z]/.test(password)) typeCount++;
+                    if (/[a-z]/.test(password)) typeCount++;
+                    if (/[0-9]/.test(password)) typeCount++;
+                    if (/[^a-zA-Z0-9\s]/.test(password)) typeCount++;
+                    
+                    if (typeCount < 3) {
+                        validationErrors.push('Password must contain at least 3 of: uppercase, lowercase, numbers, special characters');
                     }
                 }
                 
@@ -1466,7 +1458,7 @@ IMPORTANT: For security reasons, please change your password after your first lo
 
 You can now access the Quest System and start participating in quests, earning points, and tracking your progress.
 
-Login at: https://yoonet-quest-system.lovestoblog.com/login.php
+Login at: https://yoonet-quest-system.infinityfreeapp.com
 
 If you have any questions or need assistance, please contact your system administrator.
 
