@@ -957,7 +957,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <div id="job_position_suggestions" class="autocomplete-suggestions" aria-hidden="true"></div>
             </div>
             <div class="form-group custom-select" style="position:relative;">
-                <label for="availability" class="form-label">Availability</label>
+                <label for="availability" class="form-label">Employee Type</label>
                 <select name="availability" id="availability" class="form-select" required>
                     <option value="">Select Availability</option>
                     <option value="full_time" <?php if (isset($_POST['availability']) && $_POST['availability']==='full_time') echo 'selected'; ?>>Full Time (30+ hrs/week)</option>

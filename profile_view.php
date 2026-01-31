@@ -378,7 +378,7 @@ $profile_photo = $profile['profile_photo'] ?? '';
                     <div class="pref-value pref-badge"><?= htmlspecialchars($job_positions[$profile_job_position] ?? $profile_job_position ?: '—') ?></div>
                 </div>
                 <div class="pref-item">
-                    <div class="pref-label">Availability</div>
+                    <div class="pref-label">Employee Type</div>
                     <div class="pref-value">
                         <?= format_availability($profile_availability) ?>
                     </div>
