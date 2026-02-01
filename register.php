@@ -17,10 +17,9 @@ unset($_SESSION['reg_error']);
 $form_data = $_SESSION['form_data'] ?? [];
 unset($_SESSION['form_data']);
 
-// Define available roles
+// Define available roles - All new accounts are Customer Service Associates
 $roles = [
-    'skill_associate' => 'Skill Associate',
-    'quest_lead' => 'Quest Lead'
+    'skill_associate' => 'Customer Service Associate'
 ];
 ?>
 <!DOCTYPE html>
@@ -112,15 +111,10 @@ window.onunload = function() { void (0); }
             
             <div class="form-group">
                 <label for="role">Role</label>
-                <select id="role" name="role" required>
-                    <option value="" disabled selected>Select your role</option>
-                    <?php foreach ($roles as $value => $label): ?>
-                        <option value="<?php echo htmlspecialchars($value); ?>"
-                            <?php if (isset($form_data['role']) && $form_data['role'] === $value) echo 'selected'; ?>>
-                            <?php echo htmlspecialchars($label); ?>
-                        </option>
-                    <?php endforeach; ?>
-                </select>
+                <input type="text" id="role" name="role" value="Customer Service Associate" readonly 
+                       style="background-color: #f5f5f5; cursor: not-allowed;">
+                <input type="hidden" name="role" value="skill_associate">
+                <p style="font-size: 0.85rem; color: #6b7280; margin-top: 4px;">All new accounts start as Customer Service Associates</p>
             </div>
             
             <button type="submit" name="register" class="btn-login">Register</button>
