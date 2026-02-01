@@ -116,6 +116,24 @@ try {
 // Active skills count (for potential lightweight summaries)
 $active_skills_count = count(array_filter($user_skills, fn($s) => ($s['status'] ?? '') === 'ACTIVE'));
 
+// Calculate overall career stage metrics
+$total_skill_points = 0;
+$skill_count = count($user_skills);
+$skill_levels = [];
+
+foreach ($user_skills as $skill) {
+    $total_skill_points += (int)($skill['total_points'] ?? 0);
+    $skill_levels[] = (int)($skill['current_level'] ?? 1);
+}
+
+// Calculate average level across all skills
+$average_level = $skill_count > 0 ? round(array_sum($skill_levels) / $skill_count, 1) : 1;
+$overall_stage = calculateStageFromLevel((int)$average_level);
+
+// Find highest skill level achieved
+$highest_level = $skill_count > 0 ? max($skill_levels) : 1;
+$highest_stage = calculateStageFromLevel($highest_level);
+
 function calculateLevelFromPoints($points) {
     global $PROFILE_THRESHOLDS;
     if (!is_array($PROFILE_THRESHOLDS) || empty($PROFILE_THRESHOLDS)) {
@@ -227,6 +245,142 @@ $profile_photo = $profile['profile_photo'] ?? '';
     .profile-name { font-size:1.5rem; color: var(--dark-color); margin:0; }
     .profile-bio { color: #6b7280; margin-top:8px; }
     .profile-actions { margin-top:12px; display:flex; gap:10px; flex-wrap:wrap; }
+    
+    /* Overall Career Stage Display - Matches dashboard UI */
+    .career-stage-banner { 
+        background: #fff;
+        border-radius: 12px;
+        padding: 20px;
+        margin-top: 18px;
+        margin-bottom: 20px;
+        border: 1px solid #e5e7eb;
+        box-shadow: 0 6px 22px rgba(18, 20, 56, 0.06);
+        position: relative;
+        overflow: hidden;
+    }
+    .career-stage-banner::before {
+        content: '';
+        position: absolute;
+        top: -50%;
+        right: -5%;
+        width: 200px;
+        height: 200px;
+        background: linear-gradient(135deg, rgba(99,102,241,0.05), rgba(16,185,129,0.03));
+        border-radius: 50%;
+        z-index: 0;
+    }
+    .career-stage-content { position: relative; z-index: 1; }
+    .career-stage-title { 
+        font-size: 0.9rem; 
+        text-transform: uppercase; 
+        letter-spacing: 1px; 
+        color: #6b7280;
+        margin-bottom: 12px;
+        font-weight: 600;
+        margin-top: 2px;
+    }
+    .career-stage-main { 
+        display: flex; 
+        align-items: flex-start; 
+        justify-content: space-between; 
+        flex-wrap: wrap;
+        gap: 24px;
+    }
+    .career-stage-left { flex: 1; min-width: 250px; }
+    .career-stage-name { 
+        font-size: 2rem; 
+        font-weight: 800; 
+        margin: 0; 
+        line-height: 1.2;
+        color: #111827;
+    }
+    .career-stage-subtitle { 
+        font-size: 0.95rem; 
+        color: #6b7280;
+        margin-top: 6px;
+        font-weight: 500;
+        line-height: 1.5;
+    }
+    .career-stats { 
+        display: flex; 
+        gap: 32px; 
+        margin-top: 18px;
+        flex-wrap: wrap;
+    }
+    .career-stat-item { 
+        display: flex; 
+        flex-direction: column;
+        gap: 2px;
+    }
+    .career-stat-value { 
+        font-size: 1.75rem; 
+        font-weight: 700; 
+        line-height: 1;
+        color: #111827;
+    }
+    .career-stat-label { 
+        font-size: 0.75rem; 
+        color: #6b7280;
+        margin-top: 4px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        font-weight: 500;
+    }
+    .career-stage-badge { 
+        background: linear-gradient(135deg, #eef2ff, #e0e7ff);
+        border: 2px solid #c7d2fe;
+        border-radius: 12px;
+        padding: 16px 20px;
+        text-align: center;
+        min-width: 120px;
+    }
+    .career-stage-badge-label { 
+        font-size: 0.7rem; 
+        color: #6366f1;
+        margin-bottom: 6px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        font-weight: 600;
+    }
+    .career-stage-badge-value { 
+        font-size: 1.6rem; 
+        font-weight: 700;
+        color: #3730a3;
+    }
+    
+    /* Stage color accent bars */
+    .stage-learning .career-stage-name::after,
+    .stage-applying .career-stage-name::after,
+    .stage-mastering .career-stage-name::after,
+    .stage-innovating .career-stage-name::after {
+        content: '';
+        display: block;
+        width: 60px;
+        height: 4px;
+        border-radius: 2px;
+        margin-top: 8px;
+    }
+    .stage-learning .career-stage-name::after { background: linear-gradient(90deg, #3b82f6, #60a5fa); }
+    .stage-applying .career-stage-name::after { background: linear-gradient(90deg, #10b981, #34d399); }
+    .stage-mastering .career-stage-name::after { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+    .stage-innovating .career-stage-name::after { background: linear-gradient(90deg, #8b5cf6, #a78bfa); }
+    
+    /* Stage color for badge accent */
+    .stage-learning .career-stage-badge { background: linear-gradient(135deg, #dbeafe, #bfdbfe); border-color: #93c5fd; }
+    .stage-learning .career-stage-badge-label { color: #2563eb; }
+    .stage-learning .career-stage-badge-value { color: #1e40af; }
+    
+    .stage-applying .career-stage-badge { background: linear-gradient(135deg, #d1fae5, #a7f3d0); border-color: #6ee7b7; }
+    .stage-applying .career-stage-badge-label { color: #059669; }
+    .stage-applying .career-stage-badge-value { color: #047857; }
+    
+    .stage-mastering .career-stage-badge { background: linear-gradient(135deg, #fef3c7, #fde68a); border-color: #fcd34d; }
+    .stage-mastering .career-stage-badge-label { color: #d97706; }
+    .stage-mastering .career-stage-badge-value { color: #b45309; }
+    
+    .stage-innovating .career-stage-badge { background: linear-gradient(135deg, #f3e8ff, #e9d5ff); border-color: #d8b4fe; }
+    .stage-innovating .career-stage-badge-label { color: #7c3aed; }
+    .stage-innovating .career-stage-badge-value { color: #6d28d9; }
 
     .profile-body { display:grid; grid-template-columns: 1fr; gap:20px; margin-top:18px; }
 
@@ -369,6 +523,49 @@ $profile_photo = $profile['profile_photo'] ?? '';
                 </div>
             </div>
         </div>
+
+        <?php if (!empty($user_skills)): ?>
+        <!-- Overall Career Stage Banner -->
+        <div class="career-stage-banner stage-<?= strtolower($overall_stage) ?>">
+            <div class="career-stage-content">
+                <div class="career-stage-title">Overall Career Stage</div>
+                <div class="career-stage-main">
+                    <div class="career-stage-left">
+                        <h2 class="career-stage-name"><?= htmlspecialchars($overall_stage) ?></h2>
+                        <p class="career-stage-subtitle">
+                            <?php 
+                            $stage_desc = [
+                                'Learning' => 'Building foundational skills and knowledge',
+                                'Applying' => 'Applying skills independently with confidence',
+                                'Mastering' => 'Mastering advanced skills and mentoring others',
+                                'Innovating' => 'Leading innovation and strategic initiatives'
+                            ];
+                            echo htmlspecialchars($stage_desc[$overall_stage] ?? 'Progressing through career development');
+                            ?>
+                        </p>
+                        <div class="career-stats">
+                            <div class="career-stat-item">
+                                <div class="career-stat-value"><?= number_format($total_skill_points) ?></div>
+                                <div class="career-stat-label">Total XP</div>
+                            </div>
+                            <div class="career-stat-item">
+                                <div class="career-stat-value"><?= $skill_count ?></div>
+                                <div class="career-stat-label">Skills</div>
+                            </div>
+                            <div class="career-stat-item">
+                                <div class="career-stat-value"><?= $active_skills_count ?></div>
+                                <div class="career-stat-label">Active</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="career-stage-badge">
+                        <div class="career-stage-badge-label">Average Level</div>
+                        <div class="career-stage-badge-value"><?= number_format($average_level, 1) ?></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <?php endif; ?>
 
         <div class="profile-body">
             <div class="prefs-box">
