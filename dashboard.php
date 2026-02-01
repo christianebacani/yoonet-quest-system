@@ -129,6 +129,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_theme_settings
 }
 
 $full_name = $_SESSION['full_name'] ?? 'User';
+$first_name_only = 'User'; // Default fallback
+
 // Get both employee_id and user_id
 $employee_id = $_SESSION['employee_id'] ?? null;
 $user_id = null;
@@ -142,11 +144,27 @@ if (!$employee_id) {
 }
 
 try {
-    $stmt = $pdo->prepare("SELECT id, role FROM users WHERE employee_id = ?");
+    $stmt = $pdo->prepare("SELECT id, role, first_name, last_name FROM users WHERE employee_id = ?");
     $stmt->execute([$employee_id]);
     $user = $stmt->fetch();
     if ($user && isset($user['id'])) {
         $user_id = $user['id'];
+        
+        // Extract first name properly
+        if (!empty($user['first_name'])) {
+            $first_name_only = trim($user['first_name']);
+        } elseif (!empty($full_name)) {
+            // Fallback: parse from full_name if first_name column is empty
+            // Check if format is "Last, First" or "First Last"
+            if (strpos($full_name, ',') !== false) {
+                // Format is "Last, First"
+                $parts = explode(',', $full_name);
+                $first_name_only = isset($parts[1]) ? trim(explode(' ', trim($parts[1]))[0]) : trim($parts[0]);
+            } else {
+                // Format is "First Last" - take first word
+                $first_name_only = trim(explode(' ', $full_name)[0]);
+            }
+        }
         
         // Refresh role in session if it has changed in database
         if (isset($user['role']) && $user['role'] !== $_SESSION['role']) {
@@ -2234,7 +2252,7 @@ function generatePagination($total_pages, $current_page, $section = '', $total_i
             </div>
 
             <div class="flex items-center gap-4 mt-3 sm:mt-0">
-                <span class="hidden sm:block">Welcome, <?php echo htmlspecialchars($full_name); ?></span>
+                <span class="hidden sm:block">Welcome, <?php echo htmlspecialchars($first_name_only); ?></span>
                 <?php if ($is_giver): ?>
                     <a href="create_quest.php" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center transition-colors interactive-button">
                         <svg class="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -127,12 +127,21 @@ foreach ($user_skills as $skill) {
 }
 
 // Calculate average level across all skills
-$average_level = $skill_count > 0 ? round(array_sum($skill_levels) / $skill_count, 1) : 1;
-$overall_stage = calculateStageFromLevel((int)$average_level);
+if ($skill_count > 0) {
+    // For users with skills, calculate precise average with decimals
+    $average_level = round(array_sum($skill_levels) / $skill_count, 1);
+} else {
+    // For users with no skills, show 0.0 to differentiate from Level 1
+    $average_level = 0.0;
+}
+$overall_stage = $skill_count > 0 ? calculateStageFromLevel((int)$average_level) : 'Learning';
 
 // Find highest skill level achieved
 $highest_level = $skill_count > 0 ? max($skill_levels) : 1;
 $highest_stage = calculateStageFromLevel($highest_level);
+
+// Check if user is new (no skills yet)
+$is_new_user = ($skill_count === 0);
 
 function calculateLevelFromPoints($points) {
     global $PROFILE_THRESHOLDS;
@@ -524,8 +533,7 @@ $profile_photo = $profile['profile_photo'] ?? '';
             </div>
         </div>
 
-        <?php if (!empty($user_skills)): ?>
-        <!-- Overall Career Stage Banner -->
+        <!-- Overall Career Stage Banner - Always show, even for new users -->
         <div class="career-stage-banner stage-<?= strtolower($overall_stage) ?>">
             <div class="career-stage-content">
                 <div class="career-stage-title">Overall Career Stage</div>
@@ -534,13 +542,18 @@ $profile_photo = $profile['profile_photo'] ?? '';
                         <h2 class="career-stage-name"><?= htmlspecialchars($overall_stage) ?></h2>
                         <p class="career-stage-subtitle">
                             <?php 
-                            $stage_desc = [
-                                'Learning' => 'Building foundational skills and knowledge',
-                                'Applying' => 'Applying skills independently with confidence',
-                                'Mastering' => 'Mastering advanced skills and mentoring others',
-                                'Innovating' => 'Leading innovation and strategic initiatives'
-                            ];
-                            echo htmlspecialchars($stage_desc[$overall_stage] ?? 'Progressing through career development');
+                            if ($is_new_user) {
+                                // Encouraging message for new users
+                                echo "Start your journey by completing your first quest!";
+                            } else {
+                                $stage_desc = [
+                                    'Learning' => 'Building foundational skills and knowledge',
+                                    'Applying' => 'Applying skills independently with confidence',
+                                    'Mastering' => 'Mastering advanced skills and mentoring others',
+                                    'Innovating' => 'Leading innovation and strategic initiatives'
+                                ];
+                                echo htmlspecialchars($stage_desc[$overall_stage] ?? 'Progressing through career development');
+                            }
                             ?>
                         </p>
                         <div class="career-stats">
@@ -565,7 +578,6 @@ $profile_photo = $profile['profile_photo'] ?? '';
                 </div>
             </div>
         </div>
-        <?php endif; ?>
 
         <div class="profile-body">
             <div class="prefs-box">
