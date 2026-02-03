@@ -150,9 +150,10 @@ try {
     if ($user && isset($user['id'])) {
         $user_id = $user['id'];
         
-        // Extract first name properly
+        // Extract first name properly (only the first word) and apply title case
         if (!empty($user['first_name'])) {
-            $first_name_only = trim($user['first_name']);
+            $first_name_only = trim(explode(' ', trim($user['first_name']))[0]);
+            $first_name_only = mb_convert_case($first_name_only, MB_CASE_TITLE, "UTF-8");
         } elseif (!empty($full_name)) {
             // Fallback: parse from full_name if first_name column is empty
             // Check if format is "Last, First" or "First Last"
@@ -164,6 +165,7 @@ try {
                 // Format is "First Last" - take first word
                 $first_name_only = trim(explode(' ', $full_name)[0]);
             }
+            $first_name_only = mb_convert_case($first_name_only, MB_CASE_TITLE, "UTF-8");
         }
         
         // Refresh role in session if it has changed in database
