@@ -15,8 +15,9 @@ if (is_logged_in()) {
 $error = $_SESSION['login_error'] ?? '';
 unset($_SESSION['login_error']);
 
-$success = $_SESSION['reg_success'] ?? '';
+$success = $_SESSION['reg_success'] ?? $_SESSION['setup_success'] ?? '';
 unset($_SESSION['reg_success']);
+unset($_SESSION['setup_success']);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -49,7 +50,6 @@ window.onunload = function() { void (0); }
         <?php if ($error): ?>
             <div class="alert alert-error">
                 <?php echo htmlspecialchars($error); ?>
-                <p class="error-help">Don't have an account? <a href="register.php">Register here</a></p>
             </div>
         <?php endif; ?>
         
@@ -73,9 +73,6 @@ window.onunload = function() { void (0); }
             <button type="submit" name="login" class="btn-login">Login</button>
         </form>
         
-        <div class="login-footer">
-            <p>New to Yoonet Quest? <a href="register.php">Register here</a></p>
-        </div>
     </div>
 </body>
 </html>

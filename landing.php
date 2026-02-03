@@ -402,7 +402,7 @@ window.onunload = function() { void (0); }
         <div>
           <h4 class="font-semibold mb-4">Company</h4>
           <ul class="space-y-2 text-gray-400">
-            <li><a href="https://www.yoonet.io/our-company" target="_blank" rel="noopener noreferrer" class="hover:text-white transition-colors">About</a></li>
+            <li><a href="https://www.yoonet.io/how-we-work" target="_blank" rel="noopener noreferrer" class="hover:text-white transition-colors">About</a></li>
             <li><a href="https://www.yoonet.io/ph" target="_blank" rel="noopener noreferrer" class="hover:text-white transition-colors">Careers</a></li>
             <li><a href="https://www.yoonet.io/get-in-touch" target="_blank" rel="noopener noreferrer" class="hover:text-white transition-colors">Contact</a></li>
           </ul>
@@ -410,7 +410,7 @@ window.onunload = function() { void (0); }
         <div>
           <h4 class="font-semibold mb-4">Support</h4>
           <ul class="space-y-2 text-gray-400">
-            <li><a href="https://www.facebook.com/yoonet.io" target="_blank" rel="noopener noreferrer" class="hover:text-white transition-colors">Community</a></li>
+            <li><a href="https://www.facebook.com/yoonetphilippines" target="_blank" rel="noopener noreferrer" class="hover:text-white transition-colors">Community</a></li>
           </ul>
         </div>
       </div>

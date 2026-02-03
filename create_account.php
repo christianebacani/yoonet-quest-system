@@ -211,14 +211,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             } catch (PDOException $e) {
                 $pdo->rollBack();
-                // Temporary: Show actual error for debugging
+                // Log the actual error for debugging
                 error_log("Database error in account creation: " . $e->getMessage());
                 
+                // Provide user-friendly error messages based on error code
                 if ($e->getCode() == 23000) { // Duplicate entry error
-                    $error = 'Employee ID or email already exists. Please use different values.';
+                    // Check which field caused the duplicate
+                    if (strpos($e->getMessage(), 'email') !== false) {
+                        $error = 'This email address is already in use. Please use a different email address.';
+                    } elseif (strpos($e->getMessage(), 'employee_id') !== false) {
+                        $error = 'This Employee ID already exists. Please use a different Employee ID.';
+                    } else {
+                        $error = 'This information already exists in the system. Please use different values.';
+                    }
                 } else {
-                    // Temporarily show the actual error for debugging
-                    $error = 'Database error: ' . $e->getMessage() . ' (Code: ' . $e->getCode() . ')';
+                    $error = 'Database error: Unable to create account. Please try again later.';
                 }
             }
         }
