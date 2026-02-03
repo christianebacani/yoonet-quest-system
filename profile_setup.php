@@ -188,18 +188,13 @@ if ($step === null) {
 // If view mode is requested, also load quest interests and availability
 // view handled in separate profile_view.php
 
-// Job positions mapping (value => label)
+// Job positions mapping (Customer Service Career Progression)
 $job_positions = [
-    'software_developer' => 'Software Developer',
-    'web_developer' => 'Web Developer',
-    'ui_ux_designer' => 'UI/UX Designer',
-    'project_manager' => 'Project Manager',
-    'data_analyst' => 'Data Analyst',
-    'qa_engineer' => 'QA Engineer',
-    'devops_engineer' => 'DevOps Engineer',
-    'product_manager' => 'Product Manager',
-    'business_analyst' => 'Business Analyst',
-    'designer' => 'Designer'
+    'junior_customer_service_associate' => 'Junior Customer Service Associate',
+    'mid_level_customer_service_associate' => 'Mid-level Customer Service Associate',
+    'senior_customer_service_associate' => 'Senior Customer Service Associate',
+    'customer_service_team_lead' => 'Customer Service Team Lead',
+    'customer_service_manager' => 'Customer Service Manager'
 ];
 
 ?>

@@ -13,19 +13,14 @@ $leaderboard = [];
 $selected_job = $_GET['job_position'] ?? '';
 $selected_skill = $_GET['skill_name'] ?? '';
 
-// Fetch all job positions (static list for now, can be dynamic)
+// Fetch all job positions (Customer Service Career Progression)
 $job_positions = [
     '' => 'All Jobs',
-    'software_developer' => 'Software Developer',
-    'web_developer' => 'Web Developer',
-    'ui_ux_designer' => 'UI/UX Designer',
-    'project_manager' => 'Project Manager',
-    'data_analyst' => 'Data Analyst',
-    'qa_engineer' => 'QA Engineer',
-    'devops_engineer' => 'DevOps Engineer',
-    'product_manager' => 'Product Manager',
-    'business_analyst' => 'Business Analyst',
-    'designer' => 'Designer'
+    'junior_customer_service_associate' => 'Junior Customer Service Associate',
+    'mid_level_customer_service_associate' => 'Mid-level Customer Service Associate',
+    'senior_customer_service_associate' => 'Senior Customer Service Associate',
+    'customer_service_team_lead' => 'Customer Service Team Lead',
+    'customer_service_manager' => 'Customer Service Manager'
 ];
 
 // Fetch all skills from user_earned_skills (distinct skill_name)
@@ -289,18 +284,13 @@ window.onunload = function() { void (0); }
                                         </div>
                                     </td>
 <?php
-// Job badge color map
+// Job badge color map (Customer Service Career Progression)
 $job_colors = [
-    'software_developer' => 'bg-blue-100 text-blue-800 border-blue-300',
-    'web_developer' => 'bg-cyan-100 text-cyan-800 border-cyan-300',
-    'ui_ux_designer' => 'bg-pink-100 text-pink-800 border-pink-300',
-    'project_manager' => 'bg-yellow-100 text-yellow-800 border-yellow-300',
-    'data_analyst' => 'bg-green-100 text-green-800 border-green-300',
-    'qa_engineer' => 'bg-purple-100 text-purple-800 border-purple-300',
-    'devops_engineer' => 'bg-gray-100 text-gray-800 border-gray-300',
-    'product_manager' => 'bg-orange-100 text-orange-800 border-orange-300',
-    'business_analyst' => 'bg-teal-100 text-teal-800 border-teal-300',
-    'designer' => 'bg-fuchsia-100 text-fuchsia-800 border-fuchsia-300',
+    'junior_customer_service_associate' => 'bg-green-100 text-green-800 border-green-300',
+    'mid_level_customer_service_associate' => 'bg-blue-100 text-blue-800 border-blue-300',
+    'senior_customer_service_associate' => 'bg-purple-100 text-purple-800 border-purple-300',
+    'customer_service_team_lead' => 'bg-orange-100 text-orange-800 border-orange-300',
+    'customer_service_manager' => 'bg-red-100 text-red-800 border-red-300',
     '' => 'bg-slate-100 text-slate-600 border-slate-300',
 ];
 $job_key = $user['job_position'] ?? '';

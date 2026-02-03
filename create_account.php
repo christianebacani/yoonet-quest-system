@@ -44,7 +44,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $new_last_name = preg_replace('/\s+/', ' ', trim($_POST['last_name'] ?? ''));
     $new_first_name = preg_replace('/\s+/', ' ', trim($_POST['first_name'] ?? ''));
     $new_middle_name = preg_replace('/\s+/', ' ', trim($_POST['middle_name'] ?? ''));
-    $new_job_position = preg_replace('/\s+/', ' ', trim($_POST['job_position'] ?? ''));
+    // Default job position to 'junior_customer_service_associate'
+    $new_job_position = sanitize_user_input($_POST['job_position'] ?? 'junior_customer_service_associate');
     // Availability now uses a status dropdown (e.g. full_time, part_time, casual, project_based)
     $new_availability = sanitize_user_input($_POST['availability'] ?? '');
     // Build canonical full_name as: "Surname, Firstname, MI." (middle initial with period)
@@ -950,11 +951,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <input type="text" name="middle_name" id="middle_name" class="form-input" required value="<?php if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($error) || (isset($error) && strpos($error, 'Middle Name') === false)) echo htmlspecialchars($_POST['middle_name'] ?? ''); ?>">
             </div>
             <!-- Removed separate Gmail field; use single Email field below -->
-            <div class="form-group autocomplete-group" style="position:relative;">
+            <div class="form-group custom-select" style="position:relative;">
                 <label for="job_position" class="form-label">Job Position</label>
-                <!-- Custom styled autocomplete to match site UI and remove browser arrow -->
-                <input type="text" name="job_position" id="job_position" class="form-input" autocomplete="off" required value="<?php echo htmlspecialchars($_POST['job_position'] ?? ''); ?>">
-                <div id="job_position_suggestions" class="autocomplete-suggestions" aria-hidden="true"></div>
+                <select name="job_position" id="job_position" class="form-select" required>
+                    <option value="">Select Job Position</option>
+                    <option value="junior_customer_service_associate" <?php if (!isset($_POST['job_position']) || (isset($_POST['job_position']) && $_POST['job_position']==='junior_customer_service_associate')) echo 'selected'; ?>>Junior Customer Service Associate</option>
+                    <option value="mid_level_customer_service_associate" <?php if (isset($_POST['job_position']) && $_POST['job_position']==='mid_level_customer_service_associate') echo 'selected'; ?>>Mid-level Customer Service Associate</option>
+                    <option value="senior_customer_service_associate" <?php if (isset($_POST['job_position']) && $_POST['job_position']==='senior_customer_service_associate') echo 'selected'; ?>>Senior Customer Service Associate</option>
+                    <option value="customer_service_team_lead" <?php if (isset($_POST['job_position']) && $_POST['job_position']==='customer_service_team_lead') echo 'selected'; ?>>Customer Service Team Lead</option>
+                    <option value="customer_service_manager" <?php if (isset($_POST['job_position']) && $_POST['job_position']==='customer_service_manager') echo 'selected'; ?>>Customer Service Manager</option>
+                </select>
             </div>
             <div class="form-group custom-select" style="position:relative;">
                 <label for="availability" class="form-label">Employee Type</label>

@@ -213,16 +213,11 @@ function getProgressToNextLevel($level, $current_points) {
 $skill_categories = [];
 
 $job_positions = [
-    'software_developer' => 'Software Developer',
-    'web_developer' => 'Web Developer',
-    'ui_ux_designer' => 'UI/UX Designer',
-    'project_manager' => 'Project Manager',
-    'data_analyst' => 'Data Analyst',
-    'qa_engineer' => 'QA Engineer',
-    'devops_engineer' => 'DevOps Engineer',
-    'product_manager' => 'Product Manager',
-    'business_analyst' => 'Business Analyst',
-    'designer' => 'Designer'
+    'junior_customer_service_associate' => 'Junior Customer Service Associate',
+    'mid_level_customer_service_associate' => 'Mid-level Customer Service Associate',
+    'senior_customer_service_associate' => 'Senior Customer Service Associate',
+    'customer_service_team_lead' => 'Customer Service Team Lead',
+    'customer_service_manager' => 'Customer Service Manager'
 ];
 
 $profile_quest_interests = $profile['quest_interests'] ? explode(',', $profile['quest_interests']) : [];
