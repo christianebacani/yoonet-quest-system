@@ -196,7 +196,17 @@ window.onunload = function() { void (0); }
         <div class="hidden md:block">
           <div class="ml-10 flex items-center space-x-4">
             <span class="text-gray-600 px-3 py-2 text-sm font-medium">
-              Welcome, <?php echo htmlspecialchars($_SESSION['full_name'] ?? 'User'); ?>
+              Welcome, <?php 
+                $full_name = $_SESSION['full_name'] ?? 'User';
+                // Extract first name from "Lastname, Firstname, MI." format
+                if (strpos($full_name, ',') !== false) {
+                  $parts = explode(',', $full_name);
+                  $first_name = trim(explode(',', $parts[1] ?? '')[0]);
+                  echo htmlspecialchars($first_name ?: $full_name);
+                } else {
+                  echo htmlspecialchars($full_name);
+                }
+              ?>
             </span>
             <a href="#how-it-works" class="text-gray-600 hover:text-blue-600 px-3 py-2 text-sm font-medium transition-colors">How It Works</a>
             <form action="includes/logout.php" method="POST" class="inline">
