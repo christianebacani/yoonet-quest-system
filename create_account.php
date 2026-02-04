@@ -994,7 +994,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <label for="availability" class="form-label">Employee Type</label>
                 <div class="select-input-wrapper">
                     <select name="availability" id="availability" class="form-select" required>
-                        <option value="">Select Availability</option>
+                        <option value="">Select Employee Type</option>
                         <option value="full_time" <?php if (isset($_POST['availability']) && $_POST['availability']==='full_time') echo 'selected'; ?>>Full Time (30+ hrs/week)</option>
                         <option value="part_time" <?php if (isset($_POST['availability']) && $_POST['availability']==='part_time') echo 'selected'; ?>>Part Time (8–29 hrs/week)</option>
                         <option value="project_based" <?php if (isset($_POST['availability']) && $_POST['availability']==='project_based') echo 'selected'; ?>>Project Based (varies)</option>
