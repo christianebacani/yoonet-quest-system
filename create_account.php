@@ -45,7 +45,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $new_first_name = preg_replace('/\s+/', ' ', trim($_POST['first_name'] ?? ''));
     $new_middle_name = preg_replace('/\s+/', ' ', trim($_POST['middle_name'] ?? ''));
     // Default job position to 'junior_customer_service_associate'
-    $new_job_position = sanitize_user_input($_POST['job_position'] ?? 'junior_customer_service_associate');
+    $raw_job_position = trim($_POST['job_position'] ?? 'junior_customer_service_associate');
+    $new_job_position = sanitize_user_input($raw_job_position);
     // Availability now uses a status dropdown (e.g. full_time, part_time, casual, project_based)
     $new_availability = sanitize_user_input($_POST['availability'] ?? '');
     // Build canonical full_name as: "Surname, Firstname, MI." (middle initial with period)
@@ -92,8 +93,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         elseif (!filter_var($new_email, FILTER_VALIDATE_EMAIL)) {
             $error = 'Please enter a valid email address.';
         }
-        elseif (!preg_match('/^[A-Za-z0-9 .\-]+$/', $new_job_position)) {
-            $error = 'Job Position must only contain letters, numbers, spaces, dots, and hyphens.';
+        elseif (!preg_match('/^[A-Za-z0-9 .\-&,\/()|_]+$/', $raw_job_position)) {
+            $error = 'Job Position contains invalid characters. Allowed: letters, numbers, spaces, dots, hyphens, underscores, &, /, comma, (), and |. ';
         }
         // Availability must be one of the allowed statuses
         elseif (!in_array($new_availability, ['full_time','part_time','casual','project_based'])) {
@@ -186,12 +187,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 if ($has_gender_column) {
                     $sql = 'INSERT INTO users (employee_id, full_name, email, password, role, gender, created_at, last_name, first_name, middle_name, job_position, ' . $availability_col_name . ') VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
-                    $params = [$new_employee_id, $new_name, $new_email, $hashed_password, $new_role, $new_gender, $created_at, $new_last_name, $new_first_name, $new_middle_name, $new_job_position, $new_availability];
+                    $params = [$new_employee_id, $new_name, $new_email, $hashed_password, $new_role, $new_gender, $created_at, $new_last_name, $new_first_name, $new_middle_name, $raw_job_position, $new_availability];
                     $stmt = $pdo->prepare($sql);
                     $success = $stmt->execute($params);
                 } else {
                     $sql = 'INSERT INTO users (employee_id, full_name, email, password, role, created_at, last_name, first_name, middle_name, job_position, ' . $availability_col_name . ') VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
-                    $params = [$new_employee_id, $new_name, $new_email, $hashed_password, $new_role, $created_at, $new_last_name, $new_first_name, $new_middle_name, $new_job_position, $new_availability];
+                    $params = [$new_employee_id, $new_name, $new_email, $hashed_password, $new_role, $created_at, $new_last_name, $new_first_name, $new_middle_name, $raw_job_position, $new_availability];
                     $stmt = $pdo->prepare($sql);
                     $success = $stmt->execute($params);
                 }
