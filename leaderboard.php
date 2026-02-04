@@ -269,30 +269,75 @@ window.onunload = function() { void (0); }
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap">
                                         <?php 
-                                            // Format name: Last Name, Full First Name, Middle Initial.
-                                            // Requirements: All capitalized (Title Case) except Middle Initial (All Caps)
-                                            $l_name = ucwords(strtolower($user['last_name'] ?? ''));
-                                            $f_name = ucwords(strtolower($user['first_name'] ?? ''));
+                                            // Format name: Last Name, First Name Middle Initial
+                                            // Standardized to: "Last Name, First Name M."
+                                            
+                                            // Helper to capitalize names correctly including hyphens
+                                            $fix_case = function($str) {
+                                                if (empty($str)) return '';
+                                                // ucwords with delimiters including hyphen
+                                                return ucwords(strtolower($str), " \t\r\n\f\v-");
+                                            };
+
+                                            $l_name = $fix_case(trim($user['last_name'] ?? ''));
+                                            $f_name = $fix_case(trim($user['first_name'] ?? ''));
                                             $m_name = trim($user['middle_name'] ?? '');
                                             $m_initial = '';
                                             if (!empty($m_name)) {
                                                 $m_initial = strtoupper(substr($m_name, 0, 1)) . '.';
                                             }
 
-                                            // Construct formatted name logic with fallbacks
                                             $display_name = '';
                                             $avatar_initial = '?';
 
                                             if (!empty($l_name) && !empty($f_name)) {
+                                                // We have structured data
                                                 $display_name = $l_name . ', ' . $f_name;
                                                 if ($m_initial) {
-                                                    $display_name .= ', ' . $m_initial;
+                                                    $display_name .= ' ' . $m_initial;
                                                 }
                                                 $avatar_initial = strtoupper(substr($l_name, 0, 1));
                                             } elseif (!empty($user['full_name'])) {
-                                                // Fallback to full_name if structured names are missing
-                                                $display_name = $user['full_name'];
-                                                $avatar_initial = strtoupper(substr($display_name, 0, 1));
+                                                // Fallback: Parsing full_name
+                                                $full = trim($user['full_name']);
+                                                
+                                                if (strpos($full, ',') !== false) {
+                                                    // Assume "Last, First..." format exists
+                                                    $parts = array_map('trim', explode(',', $full));
+                                                    
+                                                    if (count($parts) >= 1) {
+                                                        $last_part = $fix_case($parts[0]);
+                                                        $rest_parts = [];
+                                                        for($i=1; $i<count($parts); $i++) {
+                                                            $p = trim($parts[$i]);
+                                                            if(!empty($p)) $rest_parts[] = $fix_case($p);
+                                                        }
+                                                        $display_name = $last_part . (count($rest_parts) > 0 ? ', ' . implode(' ', $rest_parts) : '');
+                                                        $avatar_initial = strtoupper(substr($last_part, 0, 1));
+                                                    } else {
+                                                        $display_name = htmlspecialchars($full); 
+                                                        $avatar_initial = strtoupper(substr($full, 0, 1));
+                                                    }
+                                                    
+                                                } else {
+                                                    // Assume "First Last" format
+                                                    $parts = preg_split('/\s+/', $full, -1, PREG_SPLIT_NO_EMPTY);
+                                                    
+                                                    if (count($parts) > 1) {
+                                                        $last_part = array_pop($parts); // Take the last word as surname
+                                                        $first_part = implode(' ', $parts); // The rest is first/middle
+                                                        
+                                                        $last_part = $fix_case($last_part);
+                                                        $first_part = $fix_case($first_part);
+                                                        
+                                                        $display_name = $last_part . ', ' . $first_part;
+                                                        $avatar_initial = strtoupper(substr($last_part, 0, 1));
+                                                    } else {
+                                                        // Single word name
+                                                        $display_name = $fix_case($full);
+                                                        $avatar_initial = strtoupper(substr($display_name, 0, 1));
+                                                    }
+                                                }
                                             } else {
                                                 $display_name = "User " . ($user['employee_id'] ?? 'Unknown');
                                             }
