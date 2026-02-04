@@ -47,20 +47,20 @@ if ($selected_skill !== '' && in_array($selected_skill, $skills)) {
 
 if ($selected_skill !== '') {
     // Leaderboard for a specific skill
-    $sql = "SELECT u.employee_id, u.full_name, u.job_position, u.email, ues.skill_name, ues.total_points
+    $sql = "SELECT u.employee_id, u.full_name, u.last_name, u.first_name, u.middle_name, u.job_position, u.email, ues.skill_name, ues.total_points
             FROM users u
             JOIN user_earned_skills ues ON u.id = ues.user_id
             " . ($where ? 'WHERE ' . implode(' AND ', $where) : '') . "
-            ORDER BY ues.total_points DESC, u.full_name ASC
+            ORDER BY ues.total_points DESC, u.last_name ASC, u.first_name ASC
             LIMIT 50";
 } else {
     // Leaderboard for all skills: sum all skill points per user
-    $sql = "SELECT u.employee_id, u.full_name, u.job_position, u.email, SUM(ues.total_points) as total_xp
+    $sql = "SELECT u.employee_id, u.full_name, u.last_name, u.first_name, u.middle_name, u.job_position, u.email, SUM(ues.total_points) as total_xp
             FROM users u
             JOIN user_earned_skills ues ON u.id = ues.user_id
             " . ($where ? 'WHERE ' . implode(' AND ', $where) : '') . "
-            GROUP BY u.employee_id, u.full_name, u.job_position, u.email
-            ORDER BY total_xp DESC, u.full_name ASC
+            GROUP BY u.employee_id, u.full_name, u.last_name, u.first_name, u.middle_name, u.job_position, u.email
+            ORDER BY total_xp DESC, u.last_name ASC, u.first_name ASC
             LIMIT 50";
 }
 try {
@@ -268,13 +268,42 @@ window.onunload = function() { void (0); }
                                         <?php endif; ?>
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap">
+                                        <?php 
+                                            // Format name: Last Name, Full First Name, Middle Initial.
+                                            // Requirements: All capitalized (Title Case) except Middle Initial (All Caps)
+                                            $l_name = ucwords(strtolower($user['last_name'] ?? ''));
+                                            $f_name = ucwords(strtolower($user['first_name'] ?? ''));
+                                            $m_name = trim($user['middle_name'] ?? '');
+                                            $m_initial = '';
+                                            if (!empty($m_name)) {
+                                                $m_initial = strtoupper(substr($m_name, 0, 1)) . '.';
+                                            }
+
+                                            // Construct formatted name logic with fallbacks
+                                            $display_name = '';
+                                            $avatar_initial = '?';
+
+                                            if (!empty($l_name) && !empty($f_name)) {
+                                                $display_name = $l_name . ', ' . $f_name;
+                                                if ($m_initial) {
+                                                    $display_name .= ', ' . $m_initial;
+                                                }
+                                                $avatar_initial = strtoupper(substr($l_name, 0, 1));
+                                            } elseif (!empty($user['full_name'])) {
+                                                // Fallback to full_name if structured names are missing
+                                                $display_name = $user['full_name'];
+                                                $avatar_initial = strtoupper(substr($display_name, 0, 1));
+                                            } else {
+                                                $display_name = "User " . ($user['employee_id'] ?? 'Unknown');
+                                            }
+                                        ?>
                                         <div class="flex items-center">
                                             <div class="avatar mr-3" style="background-color: <?php echo $is_current_user ? '#3b82f6' : '#e2e8f0'; ?>; color: <?php echo $is_current_user ? 'white' : '#64748b'; ?>;">
-                                                <?php echo isset($user['full_name']) ? strtoupper(substr($user['full_name'], 0, 1)) : '?'; ?>
+                                                <?php echo htmlspecialchars($avatar_initial); ?>
                                             </div>
                                             <div>
                                                 <div class="text-sm font-medium <?php echo $is_current_user ? 'text-blue-600' : 'text-gray-900'; ?>">
-                                                    <?php echo isset($user['full_name']) ? htmlspecialchars($user['full_name']) : 'Unknown'; ?>
+                                                    <?php echo htmlspecialchars($display_name); ?>
                                                     <?php if ($is_current_user): ?>
                                                         <span class="ml-2 text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">You</span>
                                                     <?php endif; ?>
