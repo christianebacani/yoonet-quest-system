@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Jan 15, 2026 at 02:06 AM
+-- Generation Time: Feb 04, 2026 at 11:46 AM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -822,12 +822,15 @@ CREATE TABLE `users` (
 --
 
 INSERT INTO `users` (`id`, `employee_id`, `email`, `password`, `full_name`, `role`, `profile_photo`, `bio`, `location`, `department`, `job_position`, `quest_interests`, `profile_completed`, `hire_date`, `availability_status`, `availability_message`, `created_at`, `updated_at`, `preferred_role`, `availability`, `availability_hours`, `last_name`, `first_name`, `middle_name`) VALUES
-(1, 'ADMIN001', 'admin@yoonet.com', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'System Administrator', 'admin', NULL, NULL, NULL, NULL, NULL, NULL, 0, NULL, '', NULL, '2025-10-08 20:54:49', NULL, NULL, NULL, NULL, NULL, NULL, NULL),
-(2, 'QL001', 'questlead@yoonet.com', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'Bacani, Christiane, R.', 'quest_lead', NULL, 'None', NULL, NULL, 'data_analyst', 'Development Projects,Research Tasks', 1, NULL, 'casual', NULL, '2025-10-08 20:54:49', '2025-11-06 16:42:11', NULL, 'casual', NULL, NULL, NULL, NULL),
-(3, 'SA001', 'skillassoc@yoonet.com', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'Christiane Rhely Joselle A. Bacani', 'skill_associate', NULL, '', NULL, NULL, 'qa_engineer', 'Team Collaboration,Innovation Projects', 1, NULL, 'full_time', NULL, '2025-10-08 20:54:49', '2025-11-02 17:10:27', NULL, 'full_time', NULL, NULL, NULL, NULL),
-(5, 'QL002', 'gavjvorzki@gmail.com', '$2y$10$HmvegFPQYhBcviVtBbdKxOQ1V/osBYltV8EY63/touknBe31gijO.', 'Chrae Flores-Bacani', 'quest_lead', NULL, 'I am a UI/UX Designer', NULL, NULL, 'ui_ux_designer', 'Design Challenges,Research Tasks', 1, NULL, 'casual', NULL, '2025-10-15 00:19:04', '2025-11-02 17:10:27', NULL, 'casual', NULL, NULL, NULL, NULL),
-(7, 'SA002', 'ronnelferrer@gmail.com', '$2y$10$HqnXmgCwA2Lr1oJToc1Icu6mxqwy/ZBt4tbBiNcunuhan.WJ9k/PW', 'Christiane Rhely Joselle A. Bacani', 'skill_associate', NULL, 'I am the best programmer of all time', NULL, NULL, 'qa_engineer', 'Research Tasks', 1, NULL, 'project_based', NULL, '2025-10-30 23:38:49', '2025-11-02 17:10:27', NULL, 'project_based', NULL, NULL, NULL, NULL),
-(12, 'QL003', 'christianerhellyjosellebacani@rocketmail.com', '$2y$10$p8CmRL6WvAAlfesceTZUDeqjw095/aeQMRP2wYA3GCafZmZciOou2', 'Bacani, Christiane Rhely Joselle, A.', 'quest_lead', NULL, '', NULL, NULL, 'Software Engineer', 'Development Projects,Design Challenges,Research Tasks,Learning Goals,Team Collaboration,Innovation Projects', 1, NULL, 'full_time', NULL, '2025-11-03 22:56:13', '2025-11-04 05:56:33', NULL, 'project_based', NULL, 'bacaNI', 'christiane rheLY JOSELLE', 'aguibitin');
+(1, 'ADMIN001', 'admin@yoonet.com', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'System Administrator', 'admin', NULL, NULL, NULL, NULL, 'junior_customer_service_associate', NULL, 0, NULL, '', NULL, '2025-10-08 20:54:49', '2026-02-03 10:36:04', NULL, NULL, NULL, NULL, NULL, NULL),
+(2, 'QL001', 'questlead@yoonet.com', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'Bacani, Christiane, R.', 'quest_lead', NULL, 'None', NULL, NULL, 'junior_customer_service_associate', 'Development Projects,Research Tasks', 1, NULL, 'casual', NULL, '2025-10-08 20:54:49', '2026-02-03 10:36:04', NULL, 'casual', NULL, NULL, NULL, NULL),
+(3, 'SA001', 'skillassoc@yoonet.com', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'Christiane Rhely Joselle A. Bacani', 'skill_associate', NULL, '', NULL, NULL, 'junior_customer_service_associate', 'Team Collaboration,Innovation Projects', 1, NULL, 'full_time', NULL, '2025-10-08 20:54:49', '2026-02-03 10:36:04', NULL, 'full_time', NULL, NULL, NULL, NULL),
+(5, 'QL002', 'gavjvorzki@gmail.com', '$2y$10$HmvegFPQYhBcviVtBbdKxOQ1V/osBYltV8EY63/touknBe31gijO.', 'Chrae Flores-Bacani', 'quest_lead', NULL, 'I am a UI/UX Designer', NULL, NULL, 'junior_customer_service_associate', 'Design Challenges,Research Tasks', 1, NULL, 'casual', NULL, '2025-10-15 00:19:04', '2026-02-03 10:36:04', NULL, 'casual', NULL, NULL, NULL, NULL),
+(7, 'SA002', 'ronnelferrer@gmail.com', '$2y$10$HqnXmgCwA2Lr1oJToc1Icu6mxqwy/ZBt4tbBiNcunuhan.WJ9k/PW', 'Christiane Rhely Joselle A. Bacani', 'skill_associate', NULL, 'I am the best programmer of all time', NULL, NULL, 'junior_customer_service_associate', 'Research Tasks', 1, NULL, 'project_based', NULL, '2025-10-30 23:38:49', '2026-02-03 10:36:04', NULL, 'project_based', NULL, NULL, NULL, NULL),
+(12, 'QL003', 'christianerhellyjosellebacani@rocketmail.com', '$2y$10$p8CmRL6WvAAlfesceTZUDeqjw095/aeQMRP2wYA3GCafZmZciOou2', 'Bacani, Christiane Rhely Joselle, A.', 'quest_lead', NULL, '', NULL, NULL, 'junior_customer_service_associate', 'Development Projects,Design Challenges,Research Tasks,Learning Goals,Team Collaboration,Innovation Projects', 1, NULL, 'full_time', NULL, '2025-11-03 22:56:13', '2026-02-03 10:46:12', NULL, 'project_based', NULL, 'Bacani', 'Christiane Rhely Joselle', 'Aguibitin'),
+(13, 'SA004', 'christianbacani581@gmail.com', '$2y$10$LGcJzR8uY.KQo85UlFHCUehzN.Nd14YX0xSVHm88WU72CY2kuFYBC', 'Smith, Joe, F.', 'skill_associate', NULL, 'The best Joe Smith', NULL, NULL, 'junior_customer_service_associate', 'Development Projects,Design Challenges', 1, NULL, 'full_time', NULL, '2026-01-21 08:41:19', '2026-02-03 10:36:04', NULL, 'part_time', NULL, 'Smith', 'Joe', 'Fruger'),
+(14, 'SA003', 'crjabacani@bpsu.edu.ph', '$2y$10$BMAMtzH4wzUvr1dIFtSIne.4JnotbGNjATPbNqxde8hRiwBdYARX.', 'Bacani, Christiane Rhely Joselle, À.', 'quest_lead', NULL, '', NULL, NULL, 'junior_customer_service_associate', 'Research Tasks,Learning Goals,Innovation Projects', 1, NULL, 'full_time', NULL, '2026-01-31 02:34:43', '2026-02-03 10:36:04', NULL, 'project_based', NULL, 'Bacani', 'Christiane Rhely Joselle', 'Àguibitin'),
+(17, 'QL10', 'aldrindilig@bpsu.edu.ph', '$2y$10$do2Je6.NXdwtDI.YqaiVYuOWwTUmgjFWXBf8uetV0BzdCqCfDE2le', 'Bacani, Christiane Rhely Joselle, À.', 'quest_lead', NULL, '', NULL, NULL, 'junior_customer_service_associate', 'Development Projects,Innovation Projects', 1, NULL, 'full_time', NULL, '2026-02-03 04:55:02', '2026-02-03 11:56:03', NULL, 'full_time', NULL, 'Bacani', 'Christiane Rhely Joselle', 'Àguibitin');
 
 -- --------------------------------------------------------
 
@@ -940,7 +943,7 @@ INSERT INTO `user_quests` (`id`, `employee_id`, `quest_id`, `status`, `assigned_
 (224, 'QL001', 115, 'completed', '2025-11-07 20:03:33', '2025-11-07 20:03:43', NULL, '2025-11-07 23:34:39', NULL, 0.00, NULL, 1),
 (225, 'QL002', 116, 'submitted', '2025-11-07 20:10:03', '2025-11-07 20:10:14', NULL, NULL, NULL, 0.00, NULL, 1),
 (226, 'QL001', 117, 'completed', '2025-11-07 20:26:45', '2025-11-07 20:27:08', NULL, '2025-11-07 23:30:35', NULL, 0.00, NULL, 1),
-(227, 'QL001', 118, 'in_progress', '2025-11-07 22:16:09', '2025-11-07 22:16:33', NULL, NULL, NULL, 0.00, NULL, 1),
+(227, 'QL001', 118, '', '2025-11-07 22:16:09', '2025-11-07 22:16:33', NULL, NULL, NULL, 0.00, NULL, 1),
 (232, 'QL001', 119, 'declined', '2025-11-07 22:45:16', NULL, NULL, NULL, NULL, 0.00, NULL, 1),
 (233, 'QL002', 119, 'in_progress', '2025-11-07 22:45:16', '2025-11-08 00:38:58', NULL, NULL, NULL, 0.00, NULL, 1),
 (234, 'SA001', 119, 'completed', '2025-11-07 22:45:16', '2025-11-07 22:45:55', NULL, '2025-11-07 23:25:24', NULL, 0.00, NULL, 1),
@@ -972,7 +975,9 @@ CREATE TABLE `user_settings` (
 --
 
 INSERT INTO `user_settings` (`id`, `user_id`, `theme`, `dark_mode`, `font_size`, `created_at`, `updated_at`) VALUES
-(1, 12, 'default', 0, 'medium', '2025-11-07 20:25:19', '2025-11-07 20:25:19');
+(1, 12, 'default', 0, 'medium', '2025-11-07 20:25:19', '2025-11-07 20:25:19'),
+(2, 2, 'default', 0, 'medium', '2026-02-03 10:13:12', '2026-02-03 10:13:12'),
+(3, 17, 'default', 0, 'medium', '2026-02-03 11:56:04', '2026-02-03 11:56:04');
 
 -- --------------------------------------------------------
 
@@ -1387,7 +1392,7 @@ ALTER TABLE `system_settings`
 -- AUTO_INCREMENT for table `users`
 --
 ALTER TABLE `users`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=13;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=18;
 
 --
 -- AUTO_INCREMENT for table `user_achievements`
@@ -1423,7 +1428,7 @@ ALTER TABLE `user_quests`
 -- AUTO_INCREMENT for table `user_settings`
 --
 ALTER TABLE `user_settings`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
 
 --
 -- AUTO_INCREMENT for table `user_skills`
