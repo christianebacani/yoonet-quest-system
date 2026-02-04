@@ -357,33 +357,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             background: linear-gradient(90deg, rgba(99,102,241,0.06), rgba(99,102,241,0.03));
             color: #4338ca;
         }
-        /* Remove any browser-provided arrow on inputs (best-effort) */
-        #job_position {
+        /* Select Dropdowns General Styling */
+        .form-select {
             -webkit-appearance: none;
             -moz-appearance: none;
             appearance: none;
+            background-color: #fff;
             background-image: none !important;
-            padding-right: 1rem;
-        }
-        /* Custom select wrapper to visually match job-position input */
-        .custom-select .form-select {
-            -webkit-appearance: none;
-            -moz-appearance: none;
-            appearance: none;
-            background: #fff;
+            width: 100%;
+            padding: 0.75rem 2.5rem 0.75rem 0.75rem; /* Room for chevron */
             border-radius: 0.5rem;
             border: 1px solid #cbd5e1;
-            padding: 0.75rem 2.75rem 0.75rem 0.75rem; /* leave room for chevron */
-            box-shadow: 0 4px 12px rgba(60,72,88,0.06);
+            font-size: 1rem;
             transition: border-color 0.15s ease, box-shadow 0.15s ease;
+            box-sizing: border-box;
+            box-shadow: 0 4px 12px rgba(60,72,88,0.06);
+            cursor: pointer;
+            
+            /* Handle long text */
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
-        .custom-select .form-select:focus {
+        
+        /* Container wrapper to hold input + icon */
+        .select-input-wrapper {
+            position: relative;
+            width: 100%;
+        }
+
+        /* The arrow icon inside the wrapper */
+        .select-arrow-icon {
+            position: absolute;
+            right: 1rem;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #6b7280;
+            pointer-events: none;
+            font-size: 14px;
+            z-index: 10;
+        }
+
+        .form-select:focus {
             border-color: #6366f1;
             box-shadow: 0 6px 18px rgba(99,102,241,0.08);
             outline: none;
-        }
-        .select-arrow {
-            color: #6b7280;
         }
         .form-input:focus, .form-select:focus {
             border-color: #6366f1;
@@ -958,27 +976,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <input type="text" name="middle_name" id="middle_name" class="form-input" required value="<?php if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($error) || (isset($error) && strpos($error, 'Middle Name') === false)) echo htmlspecialchars($_POST['middle_name'] ?? ''); ?>">
             </div>
             <!-- Removed separate Gmail field; use single Email field below -->
-            <div class="form-group custom-select" style="position:relative;">
+            <div class="form-group">
                 <label for="job_position" class="form-label">Job Position</label>
-                <select name="job_position" id="job_position" class="form-select" required>
-                    <option value="">Select Job Position</option>
-                    <option value="junior_customer_service_associate" <?php if (!isset($_POST['job_position']) || (isset($_POST['job_position']) && $_POST['job_position']==='junior_customer_service_associate')) echo 'selected'; ?>>Junior Customer Service Associate</option>
-                    <option value="mid_level_customer_service_associate" <?php if (isset($_POST['job_position']) && $_POST['job_position']==='mid_level_customer_service_associate') echo 'selected'; ?>>Mid-level Customer Service Associate</option>
-                    <option value="senior_customer_service_associate" <?php if (isset($_POST['job_position']) && $_POST['job_position']==='senior_customer_service_associate') echo 'selected'; ?>>Senior Customer Service Associate</option>
-                    <option value="customer_service_team_lead" <?php if (isset($_POST['job_position']) && $_POST['job_position']==='customer_service_team_lead') echo 'selected'; ?>>Customer Service Team Lead</option>
-                    <option value="customer_service_manager" <?php if (isset($_POST['job_position']) && $_POST['job_position']==='customer_service_manager') echo 'selected'; ?>>Customer Service Manager</option>
-                </select>
+                <div class="select-input-wrapper">
+                    <select name="job_position" id="job_position" class="form-select" required>
+                        <option value="">Select Job Position</option>
+                        <option value="junior_customer_service_associate" <?php if (!isset($_POST['job_position']) || (isset($_POST['job_position']) && $_POST['job_position']==='junior_customer_service_associate')) echo 'selected'; ?>>Junior Customer Service Associate</option>
+                        <option value="mid_level_customer_service_associate" <?php if (isset($_POST['job_position']) && $_POST['job_position']==='mid_level_customer_service_associate') echo 'selected'; ?>>Mid-level Customer Service Associate</option>
+                        <option value="senior_customer_service_associate" <?php if (isset($_POST['job_position']) && $_POST['job_position']==='senior_customer_service_associate') echo 'selected'; ?>>Senior Customer Service Associate</option>
+                        <option value="customer_service_team_lead" <?php if (isset($_POST['job_position']) && $_POST['job_position']==='customer_service_team_lead') echo 'selected'; ?>>Customer Service Team Lead</option>
+                        <option value="customer_service_manager" <?php if (isset($_POST['job_position']) && $_POST['job_position']==='customer_service_manager') echo 'selected'; ?>>Customer Service Manager</option>
+                    </select>
+                    <i class="fas fa-chevron-down select-arrow-icon" aria-hidden="true"></i>
+                </div>
             </div>
-            <div class="form-group custom-select" style="position:relative;">
+            <div class="form-group">
                 <label for="availability" class="form-label">Employee Type</label>
-                <select name="availability" id="availability" class="form-select" required>
-                    <option value="">Select Availability</option>
-                    <option value="full_time" <?php if (isset($_POST['availability']) && $_POST['availability']==='full_time') echo 'selected'; ?>>Full Time (30+ hrs/week)</option>
-                    <option value="part_time" <?php if (isset($_POST['availability']) && $_POST['availability']==='part_time') echo 'selected'; ?>>Part Time (8–29 hrs/week)</option>
-                    <option value="project_based" <?php if (isset($_POST['availability']) && $_POST['availability']==='project_based') echo 'selected'; ?>>Project Based (varies)</option>
-                    <option value="casual" <?php if (isset($_POST['availability']) && $_POST['availability']==='casual') echo 'selected'; ?>>Casual (&lt;20 hrs/week)</option>
-                </select>
-                <i class="fas fa-chevron-down select-arrow" aria-hidden="true" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);color:#6b7280;pointer-events:none;font-size:14px"></i>
+                <div class="select-input-wrapper">
+                    <select name="availability" id="availability" class="form-select" required>
+                        <option value="">Select Availability</option>
+                        <option value="full_time" <?php if (isset($_POST['availability']) && $_POST['availability']==='full_time') echo 'selected'; ?>>Full Time (30+ hrs/week)</option>
+                        <option value="part_time" <?php if (isset($_POST['availability']) && $_POST['availability']==='part_time') echo 'selected'; ?>>Part Time (8–29 hrs/week)</option>
+                        <option value="project_based" <?php if (isset($_POST['availability']) && $_POST['availability']==='project_based') echo 'selected'; ?>>Project Based (varies)</option>
+                        <option value="casual" <?php if (isset($_POST['availability']) && $_POST['availability']==='casual') echo 'selected'; ?>>Casual (&lt;20 hrs/week)</option>
+                    </select>
+                    <i class="fas fa-chevron-down select-arrow-icon" aria-hidden="true"></i>
+                </div>
                 <div id="availability-hint" style="margin-top:6px;color:#6b7280;font-size:0.9rem;"></div>
             </div>
             <div class="form-group">
@@ -987,19 +1010,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
             <div class="form-group">
                 <label for="role" class="form-label">Role</label>
-                <select name="role" id="role" class="form-select">
-                    <option value="skill_associate">Skill Associate</option>
-                    <option value="quest_lead">Quest Lead</option>
-                </select>
+                <div class="select-input-wrapper">
+                    <select name="role" id="role" class="form-select">
+                        <option value="skill_associate">Skill Associate</option>
+                        <option value="quest_lead">Quest Lead</option>
+                    </select>
+                    <i class="fas fa-chevron-down select-arrow-icon" aria-hidden="true"></i>
+                </div>
             </div>
             <div class="form-group">
                 <label for="gender" class="form-label">Gender</label>
-                <select name="gender" id="gender" class="form-select" required>
-                    <option value="">Select Gender</option>
-                    <option value="male">Male</option>
-                    <option value="female">Female</option>
-                    <option value="other">Other</option>
-                </select>
+                <div class="select-input-wrapper">
+                    <select name="gender" id="gender" class="form-select" required>
+                        <option value="">Select Gender</option>
+                        <option value="male">Male</option>
+                        <option value="female">Female</option>
+                        <option value="other">Other</option>
+                    </select>
+                    <i class="fas fa-chevron-down select-arrow-icon" aria-hidden="true"></i>
+                </div>
             </div>
             <div class="form-group">
                 <label for="password" class="form-label">Password</label>
