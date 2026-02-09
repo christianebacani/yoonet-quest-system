@@ -33,14 +33,10 @@ try {
 // the host/port/credentials below.
 // ─────────────────────────────────────────────────────────────────────────
 define('SMTP_HOST',       'smtp.gmail.com');          // SMTP server hostname
-define('SMTP_PORT',       587);                       // 587 = STARTTLS, 465 = SSL
+define('SMTP_PORT',       465);                       // 465 = SSL (recommended for XAMPP), 587 = STARTTLS
 define('SMTP_USERNAME',   'christianbacani581@gmail.com'); // Your system email address
-define('SMTP_PASSWORD',   'kwsf tzuh zxfd xrot');                        // ← PASTE YOUR 16-CHAR GMAIL APP PASSWORD HERE (e.g. 'abcd efgh ijkl mnop')
-//                        ⚠️  '12-04-2003' was your regular password — Gmail BLOCKS that.
-//                        You MUST use a Gmail App Password instead. Get one at:
-//                        https://myaccount.google.com/apppasswords
-//                        (Requires 2-Step Verification to be enabled first)
-define('SMTP_FROM_NAME',  'YooNet Quest System');     // Display name in the From header
+define('SMTP_PASSWORD',   'kwsf tzuh zxfd xrot');     // Gmail App Password (16-char code)
+define('SMTP_FROM_NAME',  'YooNet Quest System');      // Display name in the From header
 define('SMTP_FROM_EMAIL', 'christianbacani581@gmail.com'); // Must match SMTP_USERNAME for Gmail
-define('SMTP_ENCRYPTION', 'tls');                     // 'tls' (STARTTLS on 587) or 'ssl' (port 465)
+define('SMTP_ENCRYPTION', 'ssl');                      // 'ssl' (port 465, best for XAMPP) or 'tls' (port 587)
 ?>
