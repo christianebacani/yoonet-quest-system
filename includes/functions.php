@@ -35,15 +35,11 @@ function is_manager($employee_id) {
     }
 }
 
-function send_welcome_email($to_email, $to_name, $employee_id, $password) {
-    // You'll need to configure these settings for your Gmail account
-    $from_email = "christianbacani581@gmail.com"; // Replace with your Gmail address
-    $from_name = "Yoonet Philippines";
-    $smtp_host = "smtp.gmail.com";
-    $smtp_port = 587;
-    $smtp_username = "christianbacani581@gmail.com"; // Same as from_email
-    $smtp_password = "12-04-2003"; // Gmail App Password
-    
+function send_welcome_email($to_email, $to_name, $employee_id, $password, $reply_to_email = '') {
+    require_once __DIR__ . '/smtp_mailer.php';
+
+    $from_name  = defined('SMTP_FROM_NAME')  ? SMTP_FROM_NAME  : 'YooNet Quest System';
+
     $subject = "Welcome to YooNet Quest System - Your Account Details";
     
     $html_body = "
@@ -79,12 +75,12 @@ function send_welcome_email($to_email, $to_name, $employee_id, $password) {
                 
                 <p>You can now access the Quest System and start participating in quests, earning points, and tracking your progress.</p>
                 
-                <a href='https://yoonet-quest-system.lovestoblog.com/login.php' class='button'>Login to Your Account</a>
+                <a href='https://yoonet-quest-system.infinityfreeapp.com/login.php' class='button'>Login to Your Account</a>
                 
-                <p>If you have any questions or need assistance, please contact your system administrator.</p>
+                <p>If you have any questions or need assistance, please contact your Quest Lead.</p>
                 
                 <div class='footer'>
-                    <p>This email was sent automatically from YooNet Quest System.<br>
+                    <p>This email was sent from YooNet Quest System.<br>
                     Please do not reply to this email.</p>
                 </div>
             </div>
@@ -92,30 +88,26 @@ function send_welcome_email($to_email, $to_name, $employee_id, $password) {
     </body>
     </html>";
     
-    $text_body = "Welcome to YooNet Quest System!\n\n";
+    $text_body  = "Welcome to YooNet Quest System!\n\n";
     $text_body .= "Hello " . $to_name . ",\n\n";
     $text_body .= "Your account has been successfully created. Here are your login credentials:\n\n";
     $text_body .= "Employee ID: " . $employee_id . "\n";
     $text_body .= "Email: " . $to_email . "\n";
     $text_body .= "Temporary Password: " . $password . "\n\n";
     $text_body .= "Please change your password after your first login.\n\n";
-    $text_body .= "Login at: https://yoonet-quest-system.lovestoblog.com/login.php\n\n";
-    $text_body .= "Best regards,\nYooNet Quest System Team";
-    
-    // Email headers
-    $headers = array();
-    $headers[] = "MIME-Version: 1.0";
-    $headers[] = "Content-Type: text/html; charset=UTF-8";
-    $headers[] = "From: " . $from_name . " <" . $from_email . ">";
-    $headers[] = "Reply-To: " . $from_email;
-    $headers[] = "X-Mailer: PHP/" . phpversion();
-    
-    // Try to send email using mail() function first (simpler approach)
-    if (mail($to_email, $subject, $html_body, implode("\r\n", $headers))) {
-        return true;
+    $text_body .= "Login at: https://yoonet-quest-system.infinityfreeapp.com/login.php\n\n";
+    $text_body .= "Best regards,\n" . $from_name . " Team";
+
+    // Use the SMTP mailer (tries SMTP first, then mail() as fallback)
+    $result = smtp_send_email($to_email, $to_name, $subject, $html_body, $text_body, $reply_to_email);
+
+    if ($result['success']) {
+        error_log("Welcome email sent to {$to_email} via {$result['method']}");
+        return ['success' => true, 'method' => $result['method']];
     }
-    
-    return false;
+
+    error_log("Failed to send welcome email to {$to_email}: {$result['error']}");
+    return ['success' => false, 'error' => $result['error']];
 }
 
 // Enhanced validation functions for account creation

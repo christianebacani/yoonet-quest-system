@@ -93,8 +93,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         elseif (!filter_var($new_email, FILTER_VALIDATE_EMAIL)) {
             $error = 'Please enter a valid email address.';
         }
-        elseif (!preg_match('/^[A-Za-z0-9 .\-&,\/()|_]+$/', $raw_job_position)) {
-            $error = 'Job Position contains invalid characters. Allowed: letters, numbers, spaces, dots, hyphens, underscores, &, /, comma, (), and |. ';
+        elseif (!in_array($raw_job_position, ['junior_customer_service_associate','mid_level_customer_service_associate','senior_customer_service_associate','customer_service_team_lead','customer_service_manager'])) {
+            $error = 'Invalid Job Position selected. Please select a valid Job Position from the dropdown.';
         }
         // Availability must be one of the allowed statuses
         elseif (!in_array($new_availability, ['full_time','part_time','casual','project_based'])) {
@@ -380,23 +380,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             overflow: hidden;
             text-overflow: ellipsis;
         }
+        /* Remove native arrow in IE/Edge */
+        .form-select::-ms-expand {
+            display: none;
+        }
         
-        /* Container wrapper to hold input + icon */
+        /* Container wrapper to hold select + icon */
         .select-input-wrapper {
             position: relative;
+            display: block;
             width: 100%;
         }
 
         /* The arrow icon inside the wrapper */
         .select-arrow-icon {
             position: absolute;
-            right: 1rem;
+            right: 0.85rem;
             top: 50%;
             transform: translateY(-50%);
             color: #6b7280;
             pointer-events: none;
-            font-size: 14px;
-            z-index: 10;
+            font-size: 13px;
+            z-index: 2;
+            line-height: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 16px;
+            height: 16px;
         }
 
         .form-select:focus {
@@ -1076,23 +1087,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <h3><i class="fas fa-check-circle"></i> Account Created Successfully!</h3>
                 </div>
                 <div class="email-modal-body">
-                    <p>The account has been created successfully. Would you like to open Gmail to compose an email with the account details?</p>
+                    <p>The account has been created successfully. Send the login credentials to the new user via email.</p>
                     <div class="email-details">
                         <p><strong>Name:</strong> <span id="modalUserName"></span></p>
                         <p><strong>Email:</strong> <span id="modalUserEmail"></span></p>
                         <p><strong>Employee ID:</strong> <span id="modalUserId"></span></p>
                     </div>
+                    <!-- Status area for send progress -->
+                    <div id="emailSendStatus" style="display:none; margin-top:12px; padding:12px; border-radius:8px; font-size:0.95rem;"></div>
                     <div class="email-modal-warning">
                         <i class="fas fa-info-circle"></i>
-                        <span>This will open Gmail in a new tab with pre-filled login credentials including the temporary password. You can review and send the email manually.</span>
+                        <span>This will send a welcome email with the login credentials (including the temporary password) directly to the new user's email address. Works with any email domain.</span>
                     </div>
                 </div>
                 <div class="email-modal-footer">
-                    <button type="button" class="btn btn-secondary" onclick="closeEmailModal()">
-                        <i class="fas fa-times"></i> No, Skip Email
+                    <button type="button" class="btn btn-secondary" onclick="closeEmailModal()" id="skipEmailBtn">
+                        <i class="fas fa-times"></i> Skip Email
                     </button>
                     <button type="button" class="btn btn-primary" onclick="sendWelcomeEmail()" id="sendEmailBtn">
-                        <i class="fas fa-external-link-alt"></i> Open Gmail to Send
+                        <i class="fas fa-paper-plane"></i> Send Welcome Email
+                    </button>
+                    <button type="button" class="btn btn-secondary" onclick="openGmailCompose()" id="gmailFallbackBtn" style="display:none;" title="Open Gmail compose as a manual fallback">
+                        <i class="fas fa-external-link-alt"></i> Open Gmail Manually
                     </button>
                 </div>
             </div>
@@ -1484,46 +1500,107 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             const userEmail = modal.dataset.userEmail;
             const userId = modal.dataset.userId;
             const userPassword = modal.dataset.userPassword;
-            
-            // Create email content
-            const subject = `Welcome to YooNet Quest System - Your Account Details`;
-            
-            const emailBody = `Hello ${userName},
+            const sendBtn = document.getElementById('sendEmailBtn');
+            const skipBtn = document.getElementById('skipEmailBtn');
+            const statusDiv = document.getElementById('emailSendStatus');
+            const gmailBtn = document.getElementById('gmailFallbackBtn');
 
-Your account has been successfully created in the YooNet Quest System. Below are your login credentials:
+            // Disable buttons and show sending state
+            sendBtn.disabled = true;
+            sendBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sending...';
+            skipBtn.disabled = true;
+            statusDiv.style.display = 'block';
+            statusDiv.style.background = '#eef2ff';
+            statusDiv.style.color = '#4338ca';
+            statusDiv.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sending welcome email to <strong>' + userEmail + '</strong>...';
 
-== YOUR ACCOUNT DETAILS ==
-Employee ID: ${userId}
-Email: ${userEmail}
-Temporary Password: ${userPassword}
+            // Send via server-side AJAX
+            fetch('send_welcome_email.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    to_email: userEmail,
+                    to_name: userName,
+                    employee_id: userId,
+                    password: userPassword
+                })
+            })
+            .then(response => {
+                // Read the raw text first so we can diagnose non-JSON responses
+                return response.text().then(text => {
+                    try {
+                        return JSON.parse(text);
+                    } catch (parseErr) {
+                        // PHP returned non-JSON (error page, warning, etc.)
+                        console.error('send_welcome_email.php returned non-JSON:', text);
+                        return {
+                            success: false,
+                            method: 'none',
+                            error: 'Server returned an invalid response (HTTP ' + response.status + '). Check PHP error log for details.'
+                        };
+                    }
+                });
+            })
+            .then(data => {
+                if (data.success) {
+                    // Email sent successfully via server
+                    statusDiv.style.background = '#ecfdf5';
+                    statusDiv.style.color = '#065f46';
+                    statusDiv.innerHTML = '<i class="fas fa-check-circle"></i> Email sent successfully to <strong>' + userEmail + '</strong>! (via ' + data.method.toUpperCase() + ')';
+                    sendBtn.style.display = 'none';
+                    gmailBtn.style.display = 'none';
+                    skipBtn.disabled = false;
+                    skipBtn.innerHTML = '<i class="fas fa-check"></i> Done';
+                    toastManager.success('Email Sent!', 'Welcome email with login credentials has been sent to ' + userEmail);
 
-IMPORTANT: For security reasons, please change your password after your first login.
+                    // Auto-close after 3 seconds
+                    setTimeout(() => { closeEmailModal(); }, 3000);
+                } else {
+                    // Server-side send failed — show Gmail fallback
+                    statusDiv.style.background = '#fef2f2';
+                    statusDiv.style.color = '#991b1b';
+                    statusDiv.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Server email failed: ' + (data.error || 'Unknown error') + '<br><small>You can send it manually via Gmail below, or check SMTP settings in <code>includes/config.php</code>.</small>';
+                    sendBtn.style.display = 'none';
+                    gmailBtn.style.display = 'inline-flex';
+                    skipBtn.disabled = false;
+                    skipBtn.innerHTML = '<i class="fas fa-times"></i> Skip Email';
+                    toastManager.error('Email Send Failed', 'Server could not send the email. Use the Gmail button as a fallback.');
+                }
+            })
+            .catch(err => {
+                // True network error (server unreachable, CORS, etc.)
+                console.error('Fetch error:', err);
+                statusDiv.style.display = 'block';
+                statusDiv.style.background = '#fef2f2';
+                statusDiv.style.color = '#991b1b';
+                statusDiv.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Could not reach the server: ' + (err.message || 'Network error') + '. You can send the email manually via Gmail below.';
+                sendBtn.style.display = 'none';
+                gmailBtn.style.display = 'inline-flex';
+                skipBtn.disabled = false;
+                skipBtn.innerHTML = '<i class="fas fa-times"></i> Skip Email';
+                toastManager.error('Connection Error', 'Could not reach the server. Try the Gmail fallback.');
+            });
+        }
 
-You can now access the Quest System and start participating in quests, earning points, and tracking your progress.
+        /**
+         * Gmail compose fallback — opens a pre-filled Gmail compose window.
+         * Used only when server-side sending fails.
+         */
+        function openGmailCompose() {
+            const modal = document.getElementById('emailConfirmationModal');
+            const userName = modal.dataset.userName;
+            const userEmail = modal.dataset.userEmail;
+            const userId = modal.dataset.userId;
+            const userPassword = modal.dataset.userPassword;
 
-Login at: https://yoonet-quest-system.infinityfreeapp.com
+            const subject = 'Welcome to YooNet Quest System - Your Account Details';
+            const emailBody = `Hello ${userName},\n\nYour account has been successfully created in the YooNet Quest System. Below are your login credentials:\n\n== YOUR ACCOUNT DETAILS ==\nEmployee ID: ${userId}\nEmail: ${userEmail}\nTemporary Password: ${userPassword}\n\nIMPORTANT: For security reasons, please change your password after your first login.\n\nLogin at: https://yoonet-quest-system.infinityfreeapp.com\n\nBest regards,\nYooNet Quest System Team`;
 
-If you have any questions or need assistance, please contact your system administrator.
-
-Best regards,
-YooNet Quest System Team
-
----
-This email contains sensitive login information. Please keep it secure and delete it after you've changed your password.`;
-
-            // Encode the email parameters for Gmail URL
             const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(userEmail)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(emailBody)}`;
-            
-            // Open Gmail compose in new tab
             window.open(gmailUrl, '_blank');
-            
-            // Show success message and close modal
             toastManager.success('Gmail Opened!', 'Gmail compose window opened. Please review and send the email manually.');
-            
-            // Close modal after a short delay
-            setTimeout(() => {
-                closeEmailModal();
-            }, 1500);
+
+            setTimeout(() => { closeEmailModal(); }, 1500);
         }
         
         // Close modal when clicking overlay
@@ -1544,95 +1621,9 @@ This email contains sensitive login information. Please keep it secure and delet
         });
 
         // -----------------------------
-        // Job position autocomplete
+        // Availability hint updater
         // -----------------------------
         document.addEventListener('DOMContentLoaded', function() {
-            const jobInput = document.getElementById('job_position');
-            const suggestionsBox = document.getElementById('job_position_suggestions');
-            const jobPositions = [
-                'Software Engineer', 'QA Engineer', 'Product Manager', 'UX/UI Designer',
-                'DevOps Engineer', 'Data Analyst', 'Project Manager', 'Business Analyst',
-                'HR Specialist', 'Sales Executive'
-            ];
-
-            let activeIndex = -1;
-
-            function renderSuggestions(list) {
-                suggestionsBox.innerHTML = '';
-                if (!list.length) {
-                    suggestionsBox.style.display = 'none';
-                    suggestionsBox.setAttribute('aria-hidden', 'true');
-                    return;
-                }
-                list.forEach((item, idx) => {
-                    const div = document.createElement('div');
-                    div.className = 'autocomplete-suggestion';
-                    div.textContent = item;
-                    div.dataset.value = item;
-                    div.addEventListener('mousedown', function(e) {
-                        // use mousedown to prevent blur before click
-                        e.preventDefault();
-                        jobInput.value = this.dataset.value;
-                        suggestionsBox.style.display = 'none';
-                    });
-                    suggestionsBox.appendChild(div);
-                });
-                suggestionsBox.style.display = 'block';
-                suggestionsBox.setAttribute('aria-hidden', 'false');
-            }
-
-            function filterSuggestions(query) {
-                const q = (query || '').trim().toLowerCase();
-                if (!q) return jobPositions.slice(0, 8);
-                return jobPositions.filter(p => p.toLowerCase().includes(q)).slice(0, 8);
-            }
-
-            jobInput.addEventListener('input', function() {
-                activeIndex = -1;
-                const matches = filterSuggestions(this.value);
-                renderSuggestions(matches);
-            });
-
-            jobInput.addEventListener('keydown', function(e) {
-                const items = suggestionsBox.querySelectorAll('.autocomplete-suggestion');
-                if (!items.length) return;
-                if (e.key === 'ArrowDown') {
-                    e.preventDefault();
-                    activeIndex = Math.min(activeIndex + 1, items.length - 1);
-                    items.forEach(i => i.classList.remove('active'));
-                    items[activeIndex].classList.add('active');
-                    items[activeIndex].scrollIntoView({ block: 'nearest' });
-                } else if (e.key === 'ArrowUp') {
-                    e.preventDefault();
-                    activeIndex = Math.max(activeIndex - 1, 0);
-                    items.forEach(i => i.classList.remove('active'));
-                    items[activeIndex].classList.add('active');
-                    items[activeIndex].scrollIntoView({ block: 'nearest' });
-                } else if (e.key === 'Enter') {
-                    if (activeIndex >= 0 && items[activeIndex]) {
-                        e.preventDefault();
-                        jobInput.value = items[activeIndex].dataset.value;
-                        suggestionsBox.style.display = 'none';
-                    }
-                }
-            });
-
-            // Close suggestions on blur
-            jobInput.addEventListener('blur', function() {
-                setTimeout(() => {
-                    suggestionsBox.style.display = 'none';
-                }, 150);
-            });
-
-            // Initialize suggestions (show top suggestions when focused)
-            jobInput.addEventListener('focus', function() {
-                const matches = filterSuggestions(this.value);
-                renderSuggestions(matches);
-            });
-
-            // -----------------------------
-            // Availability hint updater
-            // -----------------------------
             const availability = document.getElementById('availability');
             const availabilityHint = document.getElementById('availability-hint');
             const availabilityMap = {
