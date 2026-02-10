@@ -45,5 +45,5 @@ define('SMTP_ENCRYPTION', 'ssl');                      // 'ssl' (port 465, best 
 // For development: use http://localhost/yoonet-quest-system/
 // For production: use your actual domain with HTTPS
 // IMPORTANT: This must match the domain in email links to avoid "dangerous link" warnings
-define('BASE_URL', 'http://localhost/yoonet-quest-system/');  // Change this to your production URL
+define('BASE_URL', 'https://yoonet-quest-system.infinityfreeapp.com');  // ← CHANGE THIS TO YOUR PRODUCTION URL
 ?>
