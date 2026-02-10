@@ -1594,7 +1594,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             const userPassword = modal.dataset.userPassword;
 
             const subject = 'Welcome to YooNet Quest System - Your Account Details';
-            const emailBody = `Hello ${userName},\n\nYour account has been successfully created in the YooNet Quest System. Below are your login credentials:\n\n== YOUR ACCOUNT DETAILS ==\nEmployee ID: ${userId}\nEmail: ${userEmail}\nTemporary Password: ${userPassword}\n\nIMPORTANT: For security reasons, please change your password after your first login.\n\nLogin at: https://yoonet-quest-system.infinityfreeapp.com\n\nBest regards,\nYooNet Quest System Team`;
+            const emailBody = `Hello ${userName},\n\nYour account has been successfully created in the YooNet Quest System. Below are your login credentials:\n\n== YOUR ACCOUNT DETAILS ==\nEmployee ID: ${userId}\nEmail: ${userEmail}\nTemporary Password: ${userPassword}\n\nIMPORTANT: For security reasons, please change your password after your first login.\n\nLogin at: ${window.location.origin}/login.php\n\nBest regards,\nYooNet Quest System Team`;
 
             const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(userEmail)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(emailBody)}`;
             window.open(gmailUrl, '_blank');

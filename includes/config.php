@@ -39,4 +39,11 @@ define('SMTP_PASSWORD',   'kwsf tzuh zxfd xrot');     // Gmail App Password (16-
 define('SMTP_FROM_NAME',  'YooNet Quest System');      // Display name in the From header
 define('SMTP_FROM_EMAIL', 'christianbacani581@gmail.com'); // Must match SMTP_USERNAME for Gmail
 define('SMTP_ENCRYPTION', 'ssl');                      // 'ssl' (port 465, best for XAMPP) or 'tls' (port 587)
+
+// ── Base URL Configuration ──────────────────────────────────────────────
+// This should match your actual domain where the application is hosted.
+// For development: use http://localhost/yoonet-quest-system/
+// For production: use your actual domain with HTTPS
+// IMPORTANT: This must match the domain in email links to avoid "dangerous link" warnings
+define('BASE_URL', 'http://localhost/yoonet-quest-system/');  // Change this to your production URL
 ?>

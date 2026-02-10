@@ -273,6 +273,10 @@ class SmtpMailer
 
         $headers[] = "MIME-Version: 1.0";
         $headers[] = "X-Mailer: YooNet-Quest-System/1.0";
+        $headers[] = "X-Priority: 3"; // Normal priority
+        $headers[] = "X-MSMail-Priority: Normal";
+        $headers[] = "Importance: Normal";
+        $headers[] = "List-Unsubscribe: <mailto:" . $fromEmail . "?subject=Unsubscribe>";
 
         // If we have both HTML and text, use multipart/alternative
         if (!empty($textBody) && !empty($htmlBody)) {

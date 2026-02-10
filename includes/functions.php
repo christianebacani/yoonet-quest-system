@@ -75,7 +75,7 @@ function send_welcome_email($to_email, $to_name, $employee_id, $password, $reply
                 
                 <p>You can now access the Quest System and start participating in quests, earning points, and tracking your progress.</p>
                 
-                <a href='https://yoonet-quest-system.infinityfreeapp.com/login.php' class='button'>Login to Your Account</a>
+                <a href='" . BASE_URL . "login.php' class='button'>Login to Your Account</a>
                 
                 <p>If you have any questions or need assistance, please contact your Quest Lead.</p>
                 
@@ -95,7 +95,7 @@ function send_welcome_email($to_email, $to_name, $employee_id, $password, $reply
     $text_body .= "Email: " . $to_email . "\n";
     $text_body .= "Temporary Password: " . $password . "\n\n";
     $text_body .= "Please change your password after your first login.\n\n";
-    $text_body .= "Login at: https://yoonet-quest-system.infinityfreeapp.com/login.php\n\n";
+    $text_body .= "Login at: " . BASE_URL . "login.php\n\n";
     $text_body .= "Best regards,\n" . $from_name . " Team";
 
     // Use the SMTP mailer (tries SMTP first, then mail() as fallback)
