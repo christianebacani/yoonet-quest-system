@@ -1,6 +1,5 @@
 <?php
 session_start();
-
 $host = 'localhost';
 $db   = 'yoonet_quest';
 $user = 'root';
@@ -32,18 +31,18 @@ try {
 // You can also use other SMTP providers (Outlook, Yahoo, etc.) by changing
 // the host/port/credentials below.
 // ─────────────────────────────────────────────────────────────────────────
-define('SMTP_HOST',       'smtp.gmail.com');          // SMTP server hostname
-define('SMTP_PORT',       465);                       // 465 = SSL (recommended for XAMPP), 587 = STARTTLS
-define('SMTP_USERNAME',   'christianbacani581@gmail.com'); // Your system email address
-define('SMTP_PASSWORD',   'kwsf tzuh zxfd xrot');     // Gmail App Password (16-char code)
-define('SMTP_FROM_NAME',  'YooNet Quest System');      // Display name in the From header
-define('SMTP_FROM_EMAIL', 'christianbacani581@gmail.com'); // Must match SMTP_USERNAME for Gmail
-define('SMTP_ENCRYPTION', 'ssl');                      // 'ssl' (port 465, best for XAMPP) or 'tls' (port 587)
+define('SMTP_HOST',       getenv('SMTP_HOST'));
+define('SMTP_PORT',       getenv('SMTP_PORT'));
+define('SMTP_USERNAME',   getenv('SMTP_USERNAME'));
+define('SMTP_PASSWORD',   getenv('SMTP_PASSWORD'));
+define('SMTP_FROM_NAME',  getenv('SMTP_FROM_NAME'));
+define('SMTP_FROM_EMAIL', getenv('SMTP_FROM_EMAIL'));
+define('SMTP_ENCRYPTION', getenv('SMTP_ENCRYPTION'));
 
 // ── Base URL Configuration ──────────────────────────────────────────────
 // This should match your actual domain where the application is hosted.
 // For development: use http://localhost/yoonet-quest-system/
 // For production: use your actual domain with HTTPS
 // IMPORTANT: This must match the domain in email links to avoid "dangerous link" warnings
-define('BASE_URL', 'https://yoonet-quest-system.infinityfreeapp.com');  // ← CHANGE THIS TO YOUR PRODUCTION URL
+define('BASE_URL', getenv('BASE_URL'));
 ?>
