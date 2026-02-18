@@ -1,12 +1,9 @@
--- Add is_sample_output column to quest_attachments if not exists
-ALTER TABLE `quest_attachments`
-  ADD COLUMN IF NOT EXISTS `is_sample_output` tinyint(1) NOT NULL DEFAULT 0 AFTER `file_type`;
 -- phpMyAdmin SQL Dump
 -- version 5.2.1
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Feb 04, 2026 at 11:46 AM
+-- Generation Time: Feb 18, 2026 at 12:53 PM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -60,6 +57,32 @@ CREATE TABLE `activity_logs` (
   `ip_address` varchar(45) DEFAULT NULL,
   `user_agent` text DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `calls`
+--
+
+CREATE TABLE `calls` (
+  `id` int(11) NOT NULL,
+  `employee_id` varchar(50) NOT NULL,
+  `qa_score` float NOT NULL,
+  `call_time` datetime DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `call_logs`
+--
+
+CREATE TABLE `call_logs` (
+  `id` int(11) NOT NULL,
+  `employee_id` varchar(50) NOT NULL,
+  `log_date` date NOT NULL,
+  `log_text` text DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
@@ -354,7 +377,15 @@ INSERT INTO `comprehensive_skills` (`id`, `skill_name`, `category_id`, `descript
 (466, 'Performance Metrics', 4, 'KPI tracking and reporting', 25, 40, 60, 85, 115, '2025-11-02 14:43:30'),
 (476, 'Client Communication', 8, 'Auto skill for Client & Support Operations: Client Communication', 5, 10, 15, 20, 25, '2025-11-07 10:29:15'),
 (477, 'Ticket Management', 8, 'Auto skill for Client & Support Operations: Ticket Management', 5, 10, 15, 20, 25, '2025-11-07 10:29:15'),
-(478, 'Incident Diagnosis', 8, 'Auto skill for Client & Support Operations: Incident Diagnosis', 5, 10, 15, 20, 25, '2025-11-07 10:29:15');
+(478, 'Incident Diagnosis', 8, 'Auto skill for Client & Support Operations: Incident Diagnosis', 5, 10, 15, 20, 25, '2025-11-07 10:29:15'),
+(479, 'Call Handling', 9, 'Auto skill for Client Call: Call Handling', 5, 10, 15, 20, 25, '2026-02-16 13:31:24'),
+(480, 'Customer Empathy', 9, 'Auto skill for Client Call: Customer Empathy', 5, 10, 15, 20, 25, '2026-02-16 13:31:24'),
+(481, 'Basic Troubleshooting', 9, 'Auto skill for Client Call: Basic Troubleshooting', 5, 10, 15, 20, 25, '2026-02-16 13:31:24'),
+(482, 'Communication', 9, 'Auto skill for Client Call: Communication', 5, 10, 15, 20, 25, '2026-02-18 11:27:23'),
+(483, 'Attention to Detail', 9, 'Auto skill for Client Call: Attention to Detail', 5, 10, 15, 20, 25, '2026-02-18 11:27:23'),
+(484, 'Tech Proficiency', 9, 'Auto skill for Client Call: Tech Proficiency', 5, 10, 15, 20, 25, '2026-02-18 11:27:23'),
+(485, 'Empathy', 9, 'Auto skill for Client Call: Empathy', 5, 10, 15, 20, 25, '2026-02-18 11:27:23'),
+(486, 'Teamwork', 9, 'Auto skill for Client Call: Teamwork', 5, 10, 15, 20, 25, '2026-02-18 11:27:23');
 
 -- --------------------------------------------------------
 
@@ -373,6 +404,19 @@ CREATE TABLE `employee_groups` (
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `event_attendance`
+--
+
+CREATE TABLE `event_attendance` (
+  `id` int(11) NOT NULL,
+  `employee_id` varchar(50) NOT NULL,
+  `event_type` varchar(50) NOT NULL,
+  `attended_at` datetime DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `group_members`
 --
 
@@ -381,6 +425,19 @@ CREATE TABLE `group_members` (
   `group_id` int(11) NOT NULL,
   `employee_id` varchar(50) NOT NULL,
   `joined_at` timestamp NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `patient_records`
+--
+
+CREATE TABLE `patient_records` (
+  `id` int(11) NOT NULL,
+  `updated_by` varchar(50) NOT NULL,
+  `approved_by` varchar(50) DEFAULT NULL,
+  `update_time` datetime DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
@@ -423,24 +480,19 @@ CREATE TABLE `quests` (
   `external_ticket_link` varchar(500) DEFAULT NULL,
   `service_level_description` text DEFAULT NULL,
   `vendor_name` varchar(255) DEFAULT NULL,
-  `estimated_hours` decimal(6,2) DEFAULT NULL
+  `estimated_hours` decimal(6,2) DEFAULT NULL,
+  `aggregation_date` date DEFAULT NULL,
+  `aggregation_shift` varchar(20) DEFAULT NULL,
+  `call_log_path` varchar(255) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
 -- Dumping data for table `quests`
 --
 
-INSERT INTO `quests` (`id`, `title`, `description`, `status`, `due_date`, `created_by`, `created_at`, `updated_at`, `quest_assignment_type`, `quest_type`, `visibility`, `recurrence_pattern`, `recurrence_end_date`, `publish_at`, `category_id`, `max_attempts`, `support_client_name`, `support_ticket_id`, `support_priority`, `support_sla_hours`, `support_channel`, `support_contact`, `display_type`, `client_name`, `client_reference`, `sla_priority`, `expected_response`, `client_contact_email`, `client_contact_phone`, `sla_due_hours`, `external_ticket_link`, `service_level_description`, `vendor_name`, `estimated_hours`) VALUES
-(115, 'Quest Title for Client and Support Operations # 1', 'Description for Client and Support Operations # 1', 'active', '2025-11-30 04:15:00', 'QL003', '2025-11-08 04:03:33', NULL, 'optional', '', 'private', NULL, NULL, NULL, NULL, 1, NULL, NULL, NULL, NULL, NULL, NULL, 'client_support', 'Client Name for Client and Support Operations # 1', 'Ticket / Reference ID for Client and Support Operations # 1', 'high', '24 hours', 'name@client.com', '0999 999 9999', 23, 'https://www.yoonet.io/', 'Service Level / Notes for Client and Support Operations # 1', 'Vendor / Provider for Client & Support Operations #1', 2.00),
-(116, 'Quest Title for Client and Support Operations # 2', 'Description for Client and Support Operations # 2', 'active', '2025-11-30 04:15:00', 'QL003', '2025-11-08 04:10:03', NULL, 'optional', '', 'private', NULL, NULL, NULL, NULL, 1, NULL, NULL, NULL, NULL, NULL, NULL, 'client_support', 'Client Name for Client and Support Operations # 2', 'Ticket / Reference ID for Client and Support Operations # 2', 'high', '24 hours', 'name@client.com', '0999 999 9999', 23, 'https://www.yoonet.io/', 'Service Level / Notes for Client and Support Operations # 2', 'Vendor / Provider for Client & Support Operations #1', 2.00),
-(117, 'Quest Title for Client and Support Operations # 3', 'Description for Client and Support Operations # 3', 'active', '2025-11-30 04:30:00', 'QL003', '2025-11-08 04:26:45', NULL, 'optional', '', 'private', NULL, NULL, NULL, NULL, 1, NULL, NULL, NULL, NULL, NULL, NULL, 'client_support', 'Client Name for Client and Support Operations # 3', 'Ticket / Reference ID for Client & Support Operations # 3', 'medium', '24 hours', 'name@client.com', '0999 999 9999', 25, NULL, 'Service Level / Notes for Client & Support Operations # 3', 'Vendor / Provider for Client & Support Operations #1', 13.00),
-(118, 'Quest Title for Client and Support Operations #4', 'Description for Client and Support Operations #4', 'active', '2025-11-30 06:15:00', 'QL003', '2025-11-08 06:16:09', NULL, 'optional', '', 'private', NULL, NULL, NULL, NULL, 1, NULL, NULL, NULL, NULL, NULL, NULL, 'client_support', 'Client Name for Client and Support Operations # 4', 'Ticket / Reference ID for Client and Support Operations # 4', 'medium', '24 hours', 'name@client.com', '0999 999 9999', 31, 'https://www.yoonet.io/', 'Service Level / Notes for Client and Support Operations #4', 'Vendor / Provider for Client & Support Operations #1', 44.00),
-(119, 'Quest Title for Client and Support Operations # 5 (Editted)', 'Description for Client and Support Operations # 5 (Edited)', 'active', '2025-12-28 06:45:00', 'QL003', '2025-11-08 06:37:23', '2025-11-08 06:45:16', 'optional', '', 'private', NULL, '0000-00-00 00:00:00', '0000-00-00 00:00:00', NULL, 1, NULL, NULL, NULL, NULL, NULL, NULL, 'client_support', 'Client Name for Client and Support Operations # 5 (Edited)', 'Ticket / Reference ID for Client and Support Operations # 5 (Edited)', 'medium', '24 hours', 'name@client.com', '0999 999 9999', 45, 'https://www.yoonet.io/', 'Service Level / Notes for Client and Support Operations # 5 (Edited)', 'Vendor / Provider for Client & Support Operations #1', 45.00),
-(120, '(TEST) Quest Title for Client and Support Operations #1 (Edited)', '(TEST) Description for Client and Support Operations #1 (Edited)', 'active', '2025-11-08 07:50:00', 'QL001', '2025-11-08 07:43:45', '2025-11-08 07:45:50', 'optional', '', 'private', NULL, '0000-00-00 00:00:00', '0000-00-00 00:00:00', NULL, 1, NULL, NULL, NULL, NULL, NULL, NULL, 'client_support', '(TEST) Client Name for Client and Support Operations #1 (Edited)', '(TEST) Ticket / Reference ID for Client and Support Operations #1 (Edited)', 'high', '24 hours', 'name@client.com', '0999 999 9999', 45, NULL, '(TEST) Service Level / Notes for Client and Support Operations #1 (Edited)', 'Vendor / Provider for Client & Support Operations #1', 45.00),
-(121, '(TEST) Quest Title for Client and Support Operations #2', '(TEST) Description for Client and Support Operations #2', 'active', '2025-11-15 07:05:00', 'QL001', '2025-11-08 07:51:11', NULL, 'optional', '', 'private', NULL, NULL, NULL, NULL, 1, NULL, NULL, NULL, NULL, NULL, NULL, 'client_support', '(TEST) Description for Client and Support Operations #2', '(TEST) Ticket / Reference ID for Client and Support Operations #2', 'medium', '24 hours', 'name@client.com', '0999 999 9999', 45, NULL, '(TEST) Service Level / Notes for Client and Support Operations #2', 'Vendor / Provider for Client & Support Operations #1', 45.00),
-(122, '(TEST) Quest Title for Client and Support Operations #3', '(TEST) Description for Client and Support Operations #3', 'active', '2025-11-26 07:55:00', 'QL001', '2025-11-08 07:52:43', NULL, 'optional', '', 'private', NULL, NULL, NULL, NULL, 1, NULL, NULL, NULL, NULL, NULL, NULL, 'client_support', '(TEST) Client Name for Client and Support Operations #3', '(TEST) Ticket / Reference ID for Client and Support Operations #3', 'medium', '24 hours', 'name@client.com', '0999 999 9999', 45, NULL, '(TEST) Service Level / Notes for Client and Support Operations #3', 'Vendor / Provider for Client & Support Operations #1', 45.00),
-(123, '(TEST) Quest Title for Client and Support Operations #4', '(TEST) Description for Client and Support Operations #4', 'active', '2025-11-30 07:55:00', 'QL001', '2025-11-08 07:57:31', NULL, 'optional', '', 'private', NULL, NULL, NULL, NULL, 1, NULL, NULL, NULL, NULL, NULL, NULL, 'client_support', '(TEST) Client Name for Client and Support Operations #4', '(TEST) Ticket / Reference ID for Client and Support Operations #4', 'medium', '24 hours', 'name@client.com', '0999 999 9999', 45, 'https://www.yoonet.io/', '(TEST) Service Level / Notes for Client and Support Operations #4', 'Vendor / Provider for Client & Support Operations #1', 45.00),
-(124, '(TEST) Quest Title for Custom Quest Type #1 (Edited)', '(TEST) Description for Custom Quest Type #1 (Edited)', 'active', '2025-11-14 08:30:00', 'QL002', '2025-11-08 08:01:38', '2025-11-08 08:18:16', 'optional', '', 'private', NULL, '0000-00-00 00:00:00', '0000-00-00 00:00:00', NULL, 1, NULL, NULL, NULL, NULL, NULL, NULL, 'custom', NULL, NULL, 'medium', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+INSERT INTO `quests` (`id`, `title`, `description`, `status`, `due_date`, `created_by`, `created_at`, `updated_at`, `quest_assignment_type`, `quest_type`, `visibility`, `recurrence_pattern`, `recurrence_end_date`, `publish_at`, `category_id`, `max_attempts`, `support_client_name`, `support_ticket_id`, `support_priority`, `support_sla_hours`, `support_channel`, `support_contact`, `display_type`, `client_name`, `client_reference`, `sla_priority`, `expected_response`, `client_contact_email`, `client_contact_phone`, `sla_due_hours`, `external_ticket_link`, `service_level_description`, `vendor_name`, `estimated_hours`, `aggregation_date`, `aggregation_shift`, `call_log_path`) VALUES
+(137, 'Client Call Handling (February 18, 2026 #1)', 'Client Call Handling (February 18, 2026 #1)', 'active', '2026-02-28 18:45:00', 'QL001', '2026-02-18 18:43:45', NULL, 'mandatory', '', 'private', NULL, NULL, NULL, NULL, 1, NULL, NULL, NULL, NULL, NULL, NULL, 'client_call', NULL, NULL, 'medium', NULL, 'name@client.com', '0999 999 9999', 24, 'https://open.spotify.com/album/3KmSMUwyrakryureTNI4U8', 'None', 'Supplier Name', 3.50, '2026-02-28', 'full_day', NULL),
+(138, 'Client Call Handling (February 18, 2026 #1)', 'Client Call Handling (February 18, 2026 #1)', 'active', '2026-02-28 18:45:00', 'QL001', '2026-02-18 18:52:07', NULL, 'mandatory', '', 'private', NULL, NULL, NULL, NULL, 1, NULL, NULL, NULL, NULL, NULL, NULL, 'client_call', NULL, NULL, 'medium', NULL, 'name@client.com', '0999 999 9999', 24, 'https://open.spotify.com/album/3KmSMUwyrakryureTNI4U8', 'None', 'Supplier Name', 3.50, '2026-02-28', 'full_day', NULL);
 
 -- --------------------------------------------------------
 
@@ -500,9 +552,18 @@ CREATE TABLE `quest_attachments` (
   `file_path` varchar(255) NOT NULL,
   `file_size` int(11) NOT NULL,
   `file_type` varchar(100) NOT NULL,
-  `is_sample_output` tinyint(1) NOT NULL DEFAULT 0,
-  `uploaded_at` timestamp NOT NULL DEFAULT current_timestamp()
+  `uploaded_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `uploaded_by` varchar(255) DEFAULT NULL,
+  `is_sample_output` tinyint(1) DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- Dumping data for table `quest_attachments`
+--
+
+INSERT INTO `quest_attachments` (`id`, `quest_id`, `file_name`, `file_path`, `file_size`, `file_type`, `uploaded_at`, `uploaded_by`, `is_sample_output`) VALUES
+(3, 137, 'Data_Engineer_Internship_Resume.pdf', 'uploads/quest_attachments/sample_output_699597e109113.pdf', 52281, 'application/pdf', '2026-02-18 10:43:45', 'QL001', 1),
+(4, 138, 'Data_Engineer_Internship_Resume.pdf', 'uploads/quest_attachments/sample_output_699599d7b3c68.pdf', 52281, 'application/pdf', '2026-02-18 10:52:07', 'QL001', 1);
 
 -- --------------------------------------------------------
 
@@ -551,35 +612,16 @@ CREATE TABLE `quest_skills` (
 --
 
 INSERT INTO `quest_skills` (`id`, `quest_id`, `skill_id`, `tier_level`, `created_at`, `required_level`) VALUES
-(263, 115, 476, 3, '2025-11-07 20:03:33', 'beginner'),
-(264, 115, 477, 2, '2025-11-07 20:03:33', 'beginner'),
-(265, 115, 478, 3, '2025-11-07 20:03:33', 'beginner'),
-(266, 116, 476, 3, '2025-11-07 20:10:03', 'beginner'),
-(267, 116, 477, 2, '2025-11-07 20:10:03', 'beginner'),
-(268, 116, 478, 3, '2025-11-07 20:10:03', 'beginner'),
-(269, 117, 476, 3, '2025-11-07 20:26:45', 'beginner'),
-(270, 117, 477, 2, '2025-11-07 20:26:45', 'beginner'),
-(271, 117, 478, 3, '2025-11-07 20:26:45', 'beginner'),
-(272, 118, 476, 3, '2025-11-07 22:16:09', 'beginner'),
-(273, 118, 477, 2, '2025-11-07 22:16:09', 'beginner'),
-(274, 118, 478, 3, '2025-11-07 22:16:09', 'beginner'),
-(278, 119, 476, 3, '2025-11-07 22:45:16', 'beginner'),
-(279, 119, 477, 2, '2025-11-07 22:45:16', 'beginner'),
-(280, 119, 478, 3, '2025-11-07 22:45:16', 'beginner'),
-(284, 120, 476, 3, '2025-11-07 23:45:50', 'beginner'),
-(285, 120, 477, 2, '2025-11-07 23:45:50', 'beginner'),
-(286, 120, 478, 3, '2025-11-07 23:45:50', 'beginner'),
-(287, 121, 476, 3, '2025-11-07 23:51:11', 'beginner'),
-(288, 121, 477, 2, '2025-11-07 23:51:11', 'beginner'),
-(289, 121, 478, 3, '2025-11-07 23:51:11', 'beginner'),
-(290, 122, 476, 3, '2025-11-07 23:52:43', 'beginner'),
-(291, 122, 477, 2, '2025-11-07 23:52:43', 'beginner'),
-(292, 122, 478, 3, '2025-11-07 23:52:43', 'beginner'),
-(293, 123, 476, 3, '2025-11-07 23:57:31', 'beginner'),
-(294, 123, 477, 2, '2025-11-07 23:57:31', 'beginner'),
-(295, 123, 478, 3, '2025-11-07 23:57:31', 'beginner'),
-(297, 124, 416, 5, '2025-11-08 00:18:16', 'beginner'),
-(298, 124, 426, 5, '2025-11-08 00:18:16', 'beginner');
+(341, 137, 482, 1, '2026-02-18 11:27:23', 'beginner'),
+(342, 137, 483, 1, '2026-02-18 11:27:23', 'beginner'),
+(343, 137, 484, 1, '2026-02-18 11:27:23', 'beginner'),
+(344, 137, 485, 1, '2026-02-18 11:27:23', 'beginner'),
+(345, 137, 486, 1, '2026-02-18 11:27:23', 'beginner'),
+(346, 138, 482, 1, '2026-02-18 11:27:23', 'beginner'),
+(347, 138, 483, 1, '2026-02-18 11:27:23', 'beginner'),
+(348, 138, 484, 1, '2026-02-18 11:27:23', 'beginner'),
+(349, 138, 485, 1, '2026-02-18 11:27:23', 'beginner'),
+(350, 138, 486, 1, '2026-02-18 11:27:23', 'beginner');
 
 -- --------------------------------------------------------
 
@@ -611,19 +653,6 @@ CREATE TABLE `quest_submissions` (
   `resolution_status` varchar(100) DEFAULT NULL,
   `follow_up_required` tinyint(1) DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
---
--- Dumping data for table `quest_submissions`
---
-
-INSERT INTO `quest_submissions` (`id`, `quest_id`, `employee_id`, `submission_text`, `file_path`, `submitted_at`, `status`, `feedback`, `reviewed_by`, `reviewed_at`, `drive_link`, `additional_xp`, `grade`, `text_content`, `comments`, `submission_type`, `file_name`, `ticket_reference`, `time_spent_hours`, `evidence_json`, `resolution_status`, `follow_up_required`) VALUES
-(62, 115, 'QL001', NULL, 'uploads/quest_submissions/QL001_support_1762550683.docx', '2025-11-07 21:24:43', 'approved', NULL, 'QL003', '2025-11-07 23:34:39', '', 0, NULL, 'Yes (Edited Edited Edited Edited)', 'Yes (Edited Edited Edited Edited)', 'text', 'System_Integration_Methodologies_Reviewer.docx', 'This should be displayed (Edited Edited Edited)', 3.00, '[\"screenshot\",\"log\",\"customer_confirmation\",\"ticket_update\"]', 'resolved', 0),
-(63, 116, 'QL002', NULL, 'uploads/quest_submissions/QL002_support_1762546290.pdf', '2025-11-07 20:11:30', '', NULL, NULL, NULL, NULL, 0, NULL, 'Action Taken / Resolution # 2', 'Comments # 2', 'text', 'signed-Request-for-Univ-Memo-AI-for-IA.docx.pdf', 'Ticket / Reference ID for Client and Support Operations # 2', 4.50, '[\"screenshot\",\"log\",\"customer_confirmation\"]', 'deferred', 1),
-(64, 117, 'QL001', NULL, 'uploads/quest_submissions/QL001_support_1762550475.docx', '2025-11-07 21:21:15', 'approved', NULL, 'QL003', '2025-11-07 23:30:35', '', 0, NULL, 'Action Taken / Resolution # 3 (Edited)', 'Comment # 3 (Edited)', 'text', 'SIA_Introduction_Paper.docx', 'Ticket / Reference ID # 3 (Edited)', 2.50, '[\"screenshot\"]', 'escalated', 0),
-(65, 119, 'SA001', NULL, 'uploads/quest_submissions/SA001_support_1762555663.pdf', '2025-11-07 22:47:43', 'approved', NULL, 'QL003', '2025-11-07 23:25:24', '', 0, NULL, 'Action Taken / Resolution # 5 (Edited)', 'Comments # 5 (Edited)', 'text', 'Case-Study-Proposal-1-1.pdf', 'Ticket / Reference ID # 5 (Edited)', 4.50, '[\"screenshot\",\"log\",\"customer_confirmation\",\"ticket_update\"]', 'resolved', 1),
-(66, 122, 'QL002', NULL, 'uploads/quest_submissions/QL002_support_1762559690.pdf', '2025-11-07 23:54:50', 'approved', NULL, 'QL001', '2025-11-07 23:55:30', '', 0, NULL, '(TEST) Action Taken / Resolution ID #3 (Edited)', '(TEST) Comment #3 (Edited)', 'text', 'ENSA_Module_9-QoS-Concepts.pdf', '(TEST) Ticket / Reference ID #3 (Edited)', 2.00, '[\"screenshot\",\"log\",\"customer_confirmation\",\"ticket_update\"]', 'deferred', 0),
-(67, 123, 'QL002', NULL, NULL, '2025-11-07 23:58:08', 'approved', NULL, 'QL001', '2025-11-07 23:58:44', NULL, 0, NULL, 'Action Taken / Resolution (required)', '', 'text', '', '(TEST) Ticket / Reference ID for Client and Support Operations #4', NULL, '', 'resolved', 0),
-(68, 124, 'QL003', '', '', '2025-11-08 00:28:28', 'approved', NULL, 'QL002', '2025-11-08 00:30:02', 'https://drive.google.com/drive/u/0/folders/1LjJVjh_RbLqcBCpyzj2MxCl2G09Gq-o-', 0, NULL, '', 'Submitted (Edited)', 'link', '', '', NULL, '', '', 0);
 
 -- --------------------------------------------------------
 
@@ -704,7 +733,8 @@ INSERT INTO `skill_categories` (`id`, `category_name`, `description`, `icon`, `c
 (2, 'Communication Skills', 'Written, verbal, and interpersonal communication abilities', 'fas fa-comments', '#F59E0B', '2025-10-08 20:54:49', 0),
 (3, 'Soft Skills', 'Personal attributes and social abilities', 'fas fa-heart', '#EF4444', '2025-10-08 20:54:49', 0),
 (4, 'Business Skills', 'Management, strategy, and business acumen', 'fas fa-briefcase', '#10B981', '2025-10-08 20:54:49', 0),
-(8, 'Client & Support Operations', NULL, NULL, '#6366f1', '2025-11-07 10:29:15', 0);
+(8, 'Client & Support Operations', NULL, NULL, '#6366f1', '2025-11-07 10:29:15', 0),
+(9, 'Client Call', NULL, NULL, '#6366f1', '2026-02-16 13:31:24', 0);
 
 -- --------------------------------------------------------
 
@@ -834,7 +864,12 @@ INSERT INTO `users` (`id`, `employee_id`, `email`, `password`, `full_name`, `rol
 (12, 'QL003', 'christianerhellyjosellebacani@rocketmail.com', '$2y$10$p8CmRL6WvAAlfesceTZUDeqjw095/aeQMRP2wYA3GCafZmZciOou2', 'Bacani, Christiane Rhely Joselle, A.', 'quest_lead', NULL, '', NULL, NULL, 'junior_customer_service_associate', 'Development Projects,Design Challenges,Research Tasks,Learning Goals,Team Collaboration,Innovation Projects', 1, NULL, 'full_time', NULL, '2025-11-03 22:56:13', '2026-02-03 10:46:12', NULL, 'project_based', NULL, 'Bacani', 'Christiane Rhely Joselle', 'Aguibitin'),
 (13, 'SA004', 'christianbacani581@gmail.com', '$2y$10$LGcJzR8uY.KQo85UlFHCUehzN.Nd14YX0xSVHm88WU72CY2kuFYBC', 'Smith, Joe, F.', 'skill_associate', NULL, 'The best Joe Smith', NULL, NULL, 'junior_customer_service_associate', 'Development Projects,Design Challenges', 1, NULL, 'full_time', NULL, '2026-01-21 08:41:19', '2026-02-03 10:36:04', NULL, 'part_time', NULL, 'Smith', 'Joe', 'Fruger'),
 (14, 'SA003', 'crjabacani@bpsu.edu.ph', '$2y$10$BMAMtzH4wzUvr1dIFtSIne.4JnotbGNjATPbNqxde8hRiwBdYARX.', 'Bacani, Christiane Rhely Joselle, À.', 'quest_lead', NULL, '', NULL, NULL, 'junior_customer_service_associate', 'Research Tasks,Learning Goals,Innovation Projects', 1, NULL, 'full_time', NULL, '2026-01-31 02:34:43', '2026-02-03 10:36:04', NULL, 'project_based', NULL, 'Bacani', 'Christiane Rhely Joselle', 'Àguibitin'),
-(17, 'QL10', 'aldrindilig@bpsu.edu.ph', '$2y$10$do2Je6.NXdwtDI.YqaiVYuOWwTUmgjFWXBf8uetV0BzdCqCfDE2le', 'Bacani, Christiane Rhely Joselle, À.', 'quest_lead', NULL, '', NULL, NULL, 'junior_customer_service_associate', 'Development Projects,Innovation Projects', 1, NULL, 'full_time', NULL, '2026-02-03 04:55:02', '2026-02-03 11:56:03', NULL, 'full_time', NULL, 'Bacani', 'Christiane Rhely Joselle', 'Àguibitin');
+(17, 'QL10', 'aldrindilig@bpsu.edu.ph', '$2y$10$do2Je6.NXdwtDI.YqaiVYuOWwTUmgjFWXBf8uetV0BzdCqCfDE2le', 'Bacani, Christiane Rhely Joselle, À.', 'quest_lead', NULL, '', NULL, NULL, 'junior_customer_service_associate', 'Development Projects,Innovation Projects', 1, NULL, 'full_time', NULL, '2026-02-03 04:55:02', '2026-02-03 11:56:03', NULL, 'full_time', NULL, 'Bacani', 'Christiane Rhely Joselle', 'Àguibitin'),
+(18, 'QL005', 'johnronnelferrer2003@gmail.com', '$2y$10$v1/RNm.ehSYozCmhFUuh1evjX0kJsckhYI2LoGz/YGzJBMtq.V5EK', 'Ferrer, John Ronnel, B.', 'quest_lead', NULL, '', NULL, NULL, 'junior_customer_service_associate', 'Development Projects,Research Tasks,Team Collaboration', 1, NULL, 'full_time', NULL, '2026-02-09 06:15:29', '2026-02-10 14:14:25', NULL, 'full_time', NULL, 'Ferrer', 'John Ronnel', 'Buan'),
+(19, 'QL007', 'johnbuanferrer@gmail.com', '$2y$10$RQuUh9IpWFUm.Rb1tn1p0uYgzBLe/N5xDqdfCdX8HauK5PFWvocta', 'Ferrer, John Ronnel, B.', 'quest_lead', NULL, NULL, NULL, NULL, 'junior_customer_service_associate', NULL, 0, NULL, 'full_time', NULL, '2026-02-09 06:23:47', NULL, NULL, 'full_time', NULL, 'Ferrer', 'John Ronnel', 'Buan'),
+(20, 'QL008', 'ashpascual2@gmail.com', '$2y$10$ScmSWJ3RywHWYG5m4lDZFOoYakliFmPFPNisAXSjLIEvEwnyUVs0y', 'Pascual, Ash Edward, D.', 'quest_lead', NULL, NULL, NULL, NULL, 'junior_customer_service_associate', NULL, 0, NULL, 'full_time', NULL, '2026-02-10 07:15:20', NULL, NULL, 'full_time', NULL, 'Pascual', 'Ash Edward', 'Dimaculangan'),
+(21, 'QL009', 'jronnelferrer23@gmail.com', '$2y$10$L52h7Co2NkpNHIP65UJiy.yq3AzR6UuCkVKp2dqQ00Z9ZLZx2yDNS', 'Pascual, Ash Edward, D.', 'quest_lead', NULL, NULL, NULL, NULL, 'junior_customer_service_associate', NULL, 0, NULL, 'full_time', NULL, '2026-02-10 07:19:46', NULL, NULL, 'full_time', NULL, 'Pascual', 'Ash Edward', 'Dimaculangan'),
+(22, 'QL44', 'raeflores012@gmai.com', '$2y$10$W7aIcPktjwo5nQgKpsovveBO/46crt3iV5GHV2bhJJMUEaLyYRH3G', 'Flores-Bacani, Rica Mae, G.', 'quest_lead', NULL, NULL, NULL, NULL, 'junior_customer_service_associate', NULL, 0, NULL, 'full_time', NULL, '2026-02-10 07:25:32', NULL, NULL, 'full_time', NULL, 'Flores-Bacani', 'Rica Mae', 'Gueco');
 
 -- --------------------------------------------------------
 
@@ -870,25 +905,26 @@ CREATE TABLE `user_earned_skills` (
   `recent_points` int(11) NOT NULL DEFAULT 0,
   `status` enum('ACTIVE','STALE','RUSTY') NOT NULL DEFAULT 'ACTIVE',
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  `employee_id` varchar(50) NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
 -- Dumping data for table `user_earned_skills`
 --
 
-INSERT INTO `user_earned_skills` (`id`, `user_id`, `skill_name`, `total_points`, `current_level`, `current_stage`, `last_used`, `recent_points`, `status`, `created_at`, `updated_at`) VALUES
-(46, 3, 'Client Communication', 20, 1, 'Learning', '2025-11-07 23:25:24', 20, 'ACTIVE', '2025-11-07 23:25:24', '2025-11-07 23:25:24'),
-(47, 3, 'Ticket Management', 8, 1, 'Learning', '2025-11-07 23:25:24', 8, 'ACTIVE', '2025-11-07 23:25:24', '2025-11-07 23:25:24'),
-(48, 3, 'Incident Diagnosis', 20, 1, 'Learning', '2025-11-07 23:25:24', 20, 'ACTIVE', '2025-11-07 23:25:24', '2025-11-07 23:25:24'),
-(49, 2, 'Client Communication', 34, 1, 'Learning', '2025-11-07 23:34:39', 20, 'ACTIVE', '2025-11-07 23:30:35', '2025-11-07 23:34:39'),
-(50, 2, 'Ticket Management', 14, 1, 'Learning', '2025-11-07 23:34:39', 8, 'ACTIVE', '2025-11-07 23:30:35', '2025-11-07 23:34:39'),
-(51, 2, 'Incident Diagnosis', 34, 1, 'Learning', '2025-11-07 23:34:39', 20, 'ACTIVE', '2025-11-07 23:30:35', '2025-11-07 23:34:39'),
-(52, 5, 'Client Communication', 37, 1, 'Learning', '2025-11-07 23:58:44', 20, 'ACTIVE', '2025-11-07 23:55:30', '2025-11-07 23:58:44'),
-(53, 5, 'Ticket Management', 15, 1, 'Learning', '2025-11-07 23:58:44', 8, 'ACTIVE', '2025-11-07 23:55:30', '2025-11-07 23:58:44'),
-(54, 5, 'Incident Diagnosis', 37, 1, 'Learning', '2025-11-07 23:58:44', 20, 'ACTIVE', '2025-11-07 23:55:30', '2025-11-07 23:58:44'),
-(55, 12, 'AWS Cloud', 70, 1, 'Learning', '2025-11-08 00:30:02', 70, 'ACTIVE', '2025-11-08 00:30:02', '2025-11-08 00:30:02'),
-(56, 12, 'Email Etiquette', 70, 1, 'Learning', '2025-11-08 00:30:02', 70, 'ACTIVE', '2025-11-08 00:30:02', '2025-11-08 00:30:02');
+INSERT INTO `user_earned_skills` (`id`, `user_id`, `skill_name`, `total_points`, `current_level`, `current_stage`, `last_used`, `recent_points`, `status`, `created_at`, `updated_at`, `employee_id`) VALUES
+(46, 3, 'Client Communication', 20, 1, 'Learning', '2025-11-07 23:25:24', 20, 'ACTIVE', '2025-11-07 23:25:24', '2025-11-07 23:25:24', ''),
+(47, 3, 'Ticket Management', 8, 1, 'Learning', '2025-11-07 23:25:24', 8, 'ACTIVE', '2025-11-07 23:25:24', '2025-11-07 23:25:24', ''),
+(48, 3, 'Incident Diagnosis', 20, 1, 'Learning', '2025-11-07 23:25:24', 20, 'ACTIVE', '2025-11-07 23:25:24', '2025-11-07 23:25:24', ''),
+(49, 2, 'Client Communication', 34, 1, 'Learning', '2025-11-07 23:34:39', 20, 'ACTIVE', '2025-11-07 23:30:35', '2025-11-07 23:34:39', ''),
+(50, 2, 'Ticket Management', 14, 1, 'Learning', '2025-11-07 23:34:39', 8, 'ACTIVE', '2025-11-07 23:30:35', '2025-11-07 23:34:39', ''),
+(51, 2, 'Incident Diagnosis', 34, 1, 'Learning', '2025-11-07 23:34:39', 20, 'ACTIVE', '2025-11-07 23:30:35', '2025-11-07 23:34:39', ''),
+(52, 5, 'Client Communication', 37, 1, 'Learning', '2025-11-07 23:58:44', 20, 'ACTIVE', '2025-11-07 23:55:30', '2025-11-07 23:58:44', ''),
+(53, 5, 'Ticket Management', 15, 1, 'Learning', '2025-11-07 23:58:44', 8, 'ACTIVE', '2025-11-07 23:55:30', '2025-11-07 23:58:44', ''),
+(54, 5, 'Incident Diagnosis', 37, 1, 'Learning', '2025-11-07 23:58:44', 20, 'ACTIVE', '2025-11-07 23:55:30', '2025-11-07 23:58:44', ''),
+(55, 12, 'AWS Cloud', 70, 1, 'Learning', '2025-11-08 00:30:02', 70, 'ACTIVE', '2025-11-08 00:30:02', '2025-11-08 00:30:02', ''),
+(56, 12, 'Email Etiquette', 70, 1, 'Learning', '2025-11-08 00:30:02', 70, 'ACTIVE', '2025-11-08 00:30:02', '2025-11-08 00:30:02', '');
 
 -- --------------------------------------------------------
 
@@ -944,19 +980,8 @@ CREATE TABLE `user_quests` (
 --
 
 INSERT INTO `user_quests` (`id`, `employee_id`, `quest_id`, `status`, `assigned_at`, `started_at`, `submitted_at`, `completed_at`, `progress_notes`, `progress_percentage`, `notes`, `attempts`) VALUES
-(224, 'QL001', 115, 'completed', '2025-11-07 20:03:33', '2025-11-07 20:03:43', NULL, '2025-11-07 23:34:39', NULL, 0.00, NULL, 1),
-(225, 'QL002', 116, 'submitted', '2025-11-07 20:10:03', '2025-11-07 20:10:14', NULL, NULL, NULL, 0.00, NULL, 1),
-(226, 'QL001', 117, 'completed', '2025-11-07 20:26:45', '2025-11-07 20:27:08', NULL, '2025-11-07 23:30:35', NULL, 0.00, NULL, 1),
-(227, 'QL001', 118, '', '2025-11-07 22:16:09', '2025-11-07 22:16:33', NULL, NULL, NULL, 0.00, NULL, 1),
-(232, 'QL001', 119, 'declined', '2025-11-07 22:45:16', NULL, NULL, NULL, NULL, 0.00, NULL, 1),
-(233, 'QL002', 119, 'in_progress', '2025-11-07 22:45:16', '2025-11-08 00:38:58', NULL, NULL, NULL, 0.00, NULL, 1),
-(234, 'SA001', 119, 'completed', '2025-11-07 22:45:16', '2025-11-07 22:45:55', NULL, '2025-11-07 23:25:24', NULL, 0.00, NULL, 1),
-(235, 'SA002', 119, 'assigned', '2025-11-07 22:45:16', NULL, NULL, NULL, NULL, 0.00, NULL, 1),
-(237, 'QL002', 120, '', '2025-11-07 23:45:50', '2025-11-07 23:46:23', NULL, NULL, NULL, 0.00, NULL, 1),
-(238, 'QL002', 121, 'declined', '2025-11-07 23:51:11', NULL, NULL, NULL, NULL, 0.00, NULL, 1),
-(239, 'QL002', 122, 'completed', '2025-11-07 23:52:43', '2025-11-07 23:52:56', NULL, '2025-11-07 23:55:30', NULL, 0.00, NULL, 1),
-(240, 'QL002', 123, 'completed', '2025-11-07 23:57:31', '2025-11-07 23:57:42', NULL, '2025-11-07 23:58:44', NULL, 0.00, NULL, 1),
-(242, 'QL003', 124, 'completed', '2025-11-08 00:18:16', '2025-11-08 00:18:35', NULL, '2025-11-08 00:30:02', NULL, 0.00, NULL, 1);
+(255, 'QL003', 137, 'in_progress', '2026-02-18 10:43:45', NULL, NULL, NULL, NULL, 0.00, NULL, 1),
+(256, 'QL003', 138, 'in_progress', '2026-02-18 10:52:07', NULL, NULL, NULL, NULL, 0.00, NULL, 1);
 
 -- --------------------------------------------------------
 
@@ -1072,6 +1097,18 @@ ALTER TABLE `activity_logs`
   ADD KEY `idx_activity_logs_user_created` (`user_id`,`created_at`);
 
 --
+-- Indexes for table `calls`
+--
+ALTER TABLE `calls`
+  ADD PRIMARY KEY (`id`);
+
+--
+-- Indexes for table `call_logs`
+--
+ALTER TABLE `call_logs`
+  ADD PRIMARY KEY (`id`);
+
+--
 -- Indexes for table `comprehensive_skills`
 --
 ALTER TABLE `comprehensive_skills`
@@ -1086,12 +1123,24 @@ ALTER TABLE `employee_groups`
   ADD KEY `created_by` (`created_by`);
 
 --
+-- Indexes for table `event_attendance`
+--
+ALTER TABLE `event_attendance`
+  ADD PRIMARY KEY (`id`);
+
+--
 -- Indexes for table `group_members`
 --
 ALTER TABLE `group_members`
   ADD PRIMARY KEY (`id`),
   ADD KEY `group_id` (`group_id`),
   ADD KEY `employee_id` (`employee_id`);
+
+--
+-- Indexes for table `patient_records`
+--
+ALTER TABLE `patient_records`
+  ADD PRIMARY KEY (`id`);
 
 --
 -- Indexes for table `quests`
@@ -1297,15 +1346,33 @@ ALTER TABLE `activity_logs`
   MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
+-- AUTO_INCREMENT for table `calls`
+--
+ALTER TABLE `calls`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `call_logs`
+--
+ALTER TABLE `call_logs`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
 -- AUTO_INCREMENT for table `comprehensive_skills`
 --
 ALTER TABLE `comprehensive_skills`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=479;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=487;
 
 --
 -- AUTO_INCREMENT for table `employee_groups`
 --
 ALTER TABLE `employee_groups`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `event_attendance`
+--
+ALTER TABLE `event_attendance`
   MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
@@ -1315,10 +1382,16 @@ ALTER TABLE `group_members`
   MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
+-- AUTO_INCREMENT for table `patient_records`
+--
+ALTER TABLE `patient_records`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
 -- AUTO_INCREMENT for table `quests`
 --
 ALTER TABLE `quests`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=125;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=139;
 
 --
 -- AUTO_INCREMENT for table `quest_assessment_details`
@@ -1330,7 +1403,7 @@ ALTER TABLE `quest_assessment_details`
 -- AUTO_INCREMENT for table `quest_attachments`
 --
 ALTER TABLE `quest_attachments`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
 
 --
 -- AUTO_INCREMENT for table `quest_completions`
@@ -1342,7 +1415,7 @@ ALTER TABLE `quest_completions`
 -- AUTO_INCREMENT for table `quest_skills`
 --
 ALTER TABLE `quest_skills`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=299;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=351;
 
 --
 -- AUTO_INCREMENT for table `quest_submissions`
@@ -1372,7 +1445,7 @@ ALTER TABLE `skill_assessments`
 -- AUTO_INCREMENT for table `skill_categories`
 --
 ALTER TABLE `skill_categories`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=9;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=10;
 
 --
 -- AUTO_INCREMENT for table `skill_level_thresholds`
@@ -1396,7 +1469,7 @@ ALTER TABLE `system_settings`
 -- AUTO_INCREMENT for table `users`
 --
 ALTER TABLE `users`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=18;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=23;
 
 --
 -- AUTO_INCREMENT for table `user_achievements`
@@ -1426,7 +1499,7 @@ ALTER TABLE `user_profile_views`
 -- AUTO_INCREMENT for table `user_quests`
 --
 ALTER TABLE `user_quests`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=243;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=257;
 
 --
 -- AUTO_INCREMENT for table `user_settings`
