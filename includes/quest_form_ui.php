@@ -1,4 +1,6 @@
 <?php
+// Ensure $sample_output_url is available if set in parent scope
+global $sample_output_url;
 // This file is a verbatim copy of the form UI used by create_quest.php.
 // It expects the following variables to be present when included:
 // - $mode: 'create' or 'view'
@@ -18,12 +20,38 @@
             <!-- Quest Type Selection -->
             <div>
                 <label for="display_type" class="block text-sm font-medium text-gray-700 mb-1">Quest Type*</label>
-                <select name="display_type" id="display_type" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300">
-                    <?php foreach ($quest_types as $qt): ?>
-                        <option value="<?php echo htmlspecialchars($qt['type_key']); ?>" <?php echo (isset($display_type) && $display_type == $qt['type_key']) ? 'selected' : (!isset($display_type) && $qt['type_key']=='custom' ? 'selected' : ''); ?>><?php echo htmlspecialchars($qt['name']); ?></option>
-                    <?php endforeach; ?>
-                </select>
-                <p class="text-xs text-gray-500 mt-1">Choose the quest type. Selecting <strong>Client &amp; Support Operations</strong> will auto-attach required skills and reveal client/SLA fields for outsourcing requests.</p>
+                <?php
+                // Determine human-friendly name for current display_type
+                $display_type_name = null;
+                if (!empty($quest_types) && isset($display_type)) {
+                    foreach ($quest_types as $qt) {
+                        if (isset($qt['type_key']) && $qt['type_key'] === $display_type) { $display_type_name = $qt['name']; break; }
+                    }
+                }
+                // If not found, try to lookup from DB directly (robust fallback)
+                if ($display_type_name === null && isset($display_type)) {
+                    try {
+                        if (isset($pdo)) {
+                            $stmt = $pdo->prepare("SELECT name FROM quest_types WHERE type_key = ? LIMIT 1");
+                            $stmt->execute([$display_type]);
+                            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+                            if ($row && !empty($row['name'])) { $display_type_name = $row['name']; }
+                        }
+                    } catch (Exception $e) {
+                        // ignore DB errors and fall back to raw key
+                    }
+                }
+                ?>
+                <?php if ($mode === 'view'): ?>
+                    <div class="w-full px-4 py-2.5 border border-gray-200 rounded-lg bg-gray-50 text-gray-700"><?php echo htmlspecialchars($display_type_display ?? $display_type_name ?? $display_type); ?></div>
+                <?php else: ?>
+                    <select name="display_type" id="display_type" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300">
+                        <?php foreach ($quest_types as $qt): ?>
+                            <option value="<?php echo htmlspecialchars($qt['type_key']); ?>" <?php echo (isset($display_type) && $display_type == $qt['type_key']) ? 'selected' : (!isset($display_type) && $qt['type_key']=='custom' ? 'selected' : ''); ?>><?php echo htmlspecialchars($qt['name']); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                <?php endif; ?>
+                <p class="text-xs text-gray-500 mt-1">Choose the quest type. Selecting <strong>Client Call Handling</strong> will auto-attach required skills and reveal aggregation and call log fields for call center or client support tasks.</p>
             </div>
 
             <div>
@@ -43,20 +71,63 @@
             </div>
 
             <!-- Client / Support extra details (moved below title & description) -->
-            <div id="clientDetails" style="display: <?php echo (isset($display_type) && $display_type === 'client_support') ? 'block' : 'none'; ?>;">
-                <p class="text-xs text-gray-500 mb-2">These fields capture client-facing details and SLA expectations. Fill them when the quest relates to external clients or support tickets.</p>
+            <div id="clientDetails" style="display: <?php echo (isset($display_type) && $display_type === 'client_call') ? 'block' : 'none'; ?>;"> 
+                <?php if ($mode === 'view' && !empty($sample_output_url)): ?>
+                <div class="mb-3">
+                    <label class="block text-sm font-medium text-indigo-700 mb-1"><i class="fas fa-file-arrow-down mr-1"></i>Expected Output</label>
+                    <div class="w-full px-4 py-2.5 border border-indigo-200 rounded-lg bg-indigo-50 text-indigo-900 mb-2 flex items-center gap-3">
+                        <a href="<?php echo htmlspecialchars($sample_output_url); ?>" download class="inline-block bg-indigo-600 text-white px-3 py-1 rounded-md text-sm">Download Expected Output</a>
+                        <a href="<?php echo htmlspecialchars($sample_output_url); ?>" target="_blank" class="inline-block text-indigo-700 underline font-medium text-sm">View</a>
+                    </div>
+                </div>
+                <?php endif; ?>
+                <p class="text-xs text-gray-500 mb-2">
+                    <strong>Aggregate Client Call Handling:</strong> This quest covers all client calls handled for a specific date and shift or full day.<br>
+                    <em>Example title:</em> "Client Call Handling for 2026-02-16 (Full Day)"<br>
+                    <em>Attach a call log, ticket summary, or report as evidence.</em>
+                </p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Date</label>
+                        <div class="w-full px-4 py-2.5 border border-gray-200 rounded-lg bg-gray-50 text-gray-700"><?php echo htmlspecialchars($aggregation_date ?? ''); ?></div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Shift</label>
+                        <div class="w-full px-4 py-2.5 border border-gray-200 rounded-lg bg-gray-50 text-gray-700">
+                            <?php 
+                            $shift = $aggregation_shift ?? '';
+                            $shiftLabels = ['full_day'=>'Full Day','morning'=>'Morning','afternoon'=>'Afternoon','evening'=>'Evening','night'=>'Night'];
+                            echo htmlspecialchars($shiftLabels[$shift] ?? $shift);
+                            ?>
+                        </div>
+                    </div>
+                </div>
+                <!-- Expected Output Upload for all viewers in view mode -->
+                <?php if ($mode !== 'view'): ?>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Expected Output Upload (for submitters)</label>
+                    <input type="file" name="sample_output" id="sample_output" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg bg-white text-gray-700">
+                    <p class="text-xs text-gray-500 mt-1">Attach a sample output file to show submitters what is expected. (Optional, visible to quest takers)</p>
+                </div>
+                <?php endif; ?>
+                <?php /* Expected Output view block moved above Date/Shift so it appears below Description and above Date */ ?>
+                <?php
+                // Only show these fields if not in view mode, or if not a client_call quest
+                $hide_extra = ($mode === 'view' && isset($display_type) && $display_type === 'client_call');
+                ?>
+                <?php if (!$hide_extra): ?>
                 <div>
                     <label for="client_name" class="block text-sm font-medium text-gray-700 mb-1">Client Name</label>
-                    <input type="text" id="client_name" name="client_name" value="<?php echo htmlspecialchars($client_name ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="Client or account name">
+                    <input type="text" id="client_name" name="client_name" value="<?php echo htmlspecialchars($client_name ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="Client or account name" <?php echo ($mode === 'view') ? 'readonly disabled' : ''; ?>>
                 </div>
                 <div>
                     <label for="client_reference" class="block text-sm font-medium text-gray-700 mb-1">Ticket / Reference ID</label>
-                    <input type="text" id="client_reference" name="client_reference" value="<?php echo htmlspecialchars($client_reference ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="Ticket number or reference">
+                    <input type="text" id="client_reference" name="client_reference" value="<?php echo htmlspecialchars($client_reference ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="Ticket number or reference" <?php echo ($mode === 'view') ? 'readonly disabled' : ''; ?>>
                 </div>
                 <div class="grid grid-cols-2 gap-6">
                     <div>
                         <label for="sla_priority" class="block text-sm font-medium text-gray-700 mb-1">SLA Priority</label>
-                        <select id="sla_priority" name="sla_priority" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg">
+                        <select id="sla_priority" name="sla_priority" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" <?php echo ($mode === 'view') ? 'disabled' : ''; ?>>
                             <option value="low" <?php echo (isset($sla_priority) && $sla_priority == 'low') ? 'selected' : ''; ?>>Low</option>
                             <option value="medium" <?php echo (isset($sla_priority) && $sla_priority == 'medium') ? 'selected' : (!isset($sla_priority) ? 'selected' : ''); ?>>Medium</option>
                             <option value="high" <?php echo (isset($sla_priority) && $sla_priority == 'high') ? 'selected' : ''; ?>>High</option>
@@ -64,40 +135,41 @@
                     </div>
                     <div>
                         <label for="expected_response" class="block text-sm font-medium text-gray-700 mb-1">Expected Response</label>
-                        <input type="text" id="expected_response" name="expected_response" value="<?php echo htmlspecialchars($expected_response ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="e.g., 24 hours">
+                        <input type="text" id="expected_response" name="expected_response" value="<?php echo htmlspecialchars($expected_response ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="e.g., 24 hours" <?php echo ($mode === 'view') ? 'readonly disabled' : ''; ?>>
                     </div>
                 </div>
+                <?php endif; ?>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
                     <div>
                         <label for="client_contact_email" class="block text-sm font-medium text-gray-700 mb-1">Client Contact Email</label>
-                        <input type="email" id="client_contact_email" name="client_contact_email" value="<?php echo htmlspecialchars($client_contact_email ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="name@client.com">
+                        <input type="email" id="client_contact_email" name="client_contact_email" value="<?php echo htmlspecialchars($client_contact_email ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="name@client.com" <?php echo ($mode === 'view') ? 'readonly disabled' : ''; ?>>
                     </div>
                     <div>
                         <label for="client_contact_phone" class="block text-sm font-medium text-gray-700 mb-1">Client Contact Phone</label>
-                        <input type="text" id="client_contact_phone" name="client_contact_phone" value="<?php echo htmlspecialchars($client_contact_phone ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="+1 555 000 0000">
+                        <input type="text" id="client_contact_phone" name="client_contact_phone" value="<?php echo htmlspecialchars($client_contact_phone ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="+1 555 000 0000" <?php echo ($mode === 'view') ? 'readonly disabled' : ''; ?>>
                     </div>
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mt-4">
                     <div>
                         <label for="sla_due_hours" class="block text-sm font-medium text-gray-700 mb-1">SLA Due (hours)</label>
-                        <input type="number" id="sla_due_hours" name="sla_due_hours" min="0" step="1" value="<?php echo htmlspecialchars($sla_due_hours ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="24">
+                        <input type="number" id="sla_due_hours" name="sla_due_hours" min="0" step="1" value="<?php echo htmlspecialchars($sla_due_hours ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="24" <?php echo ($mode === 'view') ? 'readonly disabled' : ''; ?>>
                     </div>
                     <div>
                         <label for="estimated_hours" class="block text-sm font-medium text-gray-700 mb-1">Estimated Effort (hrs)</label>
-                        <input type="number" id="estimated_hours" name="estimated_hours" min="0" step="0.25" value="<?php echo htmlspecialchars($estimated_hours ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="e.g., 3.5">
+                        <input type="number" id="estimated_hours" name="estimated_hours" min="0" step="0.25" value="<?php echo htmlspecialchars($estimated_hours ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="e.g., 3.5" <?php echo ($mode === 'view') ? 'readonly disabled' : ''; ?>>
                     </div>
                     <div>
                         <label for="vendor_name" class="block text-sm font-medium text-gray-700 mb-1">Vendor / Provider</label>
-                        <input type="text" id="vendor_name" name="vendor_name" value="<?php echo htmlspecialchars($vendor_name ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="Vendor or supplier name">
+                        <input type="text" id="vendor_name" name="vendor_name" value="<?php echo htmlspecialchars($vendor_name ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="Vendor or supplier name" <?php echo ($mode === 'view') ? 'readonly disabled' : ''; ?>>
                     </div>
                 </div>
                 <div class="mt-4">
                     <label for="external_ticket_link" class="block text-sm font-medium text-gray-700 mb-1">External Ticket Link</label>
-                    <input type="url" id="external_ticket_link" name="external_ticket_link" value="<?php echo htmlspecialchars($external_ticket_link ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="https://support.example.com/ticket/12345">
+                    <input type="url" id="external_ticket_link" name="external_ticket_link" value="<?php echo htmlspecialchars($external_ticket_link ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="https://support.example.com/ticket/12345" <?php echo ($mode === 'view') ? 'readonly disabled' : ''; ?>>
                 </div>
                 <div class="mt-4">
                     <label for="service_level_description" class="block text-sm font-medium text-gray-700 mb-1">Service Level / Notes</label>
-                    <textarea id="service_level_description" name="service_level_description" rows="3" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="Optional notes about expected service levels, escalation path, attachments, etc."><?php echo htmlspecialchars($service_level_description ?? ''); ?></textarea>
+                    <textarea id="service_level_description" name="service_level_description" rows="3" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="Optional notes about expected service levels, escalation path, attachments, etc." <?php echo ($mode === 'view') ? 'readonly disabled' : ''; ?>><?php echo htmlspecialchars($service_level_description ?? ''); ?></textarea>
                 </div>
             </div>
 
@@ -235,23 +307,34 @@
                     <div id="selected-skills-badges" class="flex flex-wrap gap-2">
                         <?php if (!empty($quest_skills) && is_array($quest_skills)): ?>
                             <?php foreach ($quest_skills as $qs): ?>
-                                    <?php
-                                        $sname = htmlspecialchars($qs['skill_name'] ?? ($qs['skill_id'] ?? 'Skill'));
-                                        $tier = isset($qs['tier_level']) ? intval($qs['tier_level']) : (isset($qs['tier']) ? intval($qs['tier']) : null);
-                                        // Map numeric tier to friendly label
-                                        $tierNames = [1 => 'Beginner', 2 => 'Intermediate', 3 => 'Advanced', 4 => 'Expert', 5 => 'Master'];
-                                        $tierLabel = $tier ? ($tierNames[$tier] ?? 'Tier ' . $tier) : '—';
-                                        // If this form is being displayed for a client_support quest, show category as 'Auto'
-                                        if (isset($display_type) && $display_type === 'client_support') {
-                                            $cat = 'Auto';
-                                        } else {
-                                            $cat = htmlspecialchars($qs['category_name'] ?? ($qs['category'] ?? 'Auto'));
-                                        }
-                                    ?>
+                                <?php
+                                    $sname = htmlspecialchars($qs['skill_name'] ?? ($qs['skill_id'] ?? 'Skill'));
+                                    // Determine tier numeric value from possible schema variations
+                                    $tier = null;
+                                    if (isset($qs['tier_level'])) {
+                                        $tier = intval($qs['tier_level']);
+                                    } elseif (!empty($qs['required_level'])) {
+                                        $req = strtolower(trim($qs['required_level']));
+                                        $reqMap = ['beginner'=>1, 'intermediate'=>2, 'advanced'=>3, 'expert'=>4, 'master'=>5];
+                                        $tier = $reqMap[$req] ?? null;
+                                    } elseif (isset($qs['base_points'])) {
+                                        $bp = intval($qs['base_points']);
+                                        if ($bp <= 3) { $tier = 1; }
+                                        elseif ($bp <= 8) { $tier = 2; }
+                                        elseif ($bp <= 18) { $tier = 3; }
+                                        elseif ($bp <= 30) { $tier = 4; }
+                                        else { $tier = 5; }
+                                    }
+                                    $tierNames = [1 => 'Beginner', 2 => 'Intermediate', 3 => 'Advanced', 4 => 'Expert', 5 => 'Master'];
+                                    $tierLabel = $tier ? ($tierNames[$tier] ?? 'Tier ' . $tier) : '—';
+                                    $cat = htmlspecialchars($qs['category_name'] ?? ($qs['category'] ?? 'Auto'));
+                                    // Show (Auto) only for client_call quests, otherwise (Manual)
+                                    $auto = (isset($display_type) && $display_type === 'client_call') ? 'Auto' : 'Manual';
+                                ?>
                                 <div class="px-3 py-1 rounded-lg bg-white border border-blue-200 text-sm flex items-center gap-2" title="<?php echo $tierLabel . ' • ' . $cat; ?>">
                                     <span class="font-medium text-blue-700"><?php echo $sname; ?></span>
-                                    <span class="text-xs text-gray-500">&middot; <?php echo $tierLabel; ?></span>
-                                    <span class="ml-2 text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded"><?php echo $cat; ?></span>
+                                    <span class="ml-2 text-xs bg-yellow-50 text-yellow-700 px-2 py-0.5 rounded">(<?php echo $auto; ?>)</span>
+                                    <span class="ml-2 text-xs font-bold text-gray-900 bg-yellow-100 px-2 py-0.5 rounded"><?php echo $tierLabel; ?></span>
                                 </div>
                             <?php endforeach; ?>
                         <?php else: ?>

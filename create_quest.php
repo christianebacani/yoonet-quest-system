@@ -39,14 +39,14 @@ try {
     )");
 
     // Check if table is empty
-    $stmt = $pdo->query("SELECT COUNT(*) FROM quest_types");
-    $count = $stmt->fetchColumn();
+    $qstmt = $pdo->query("SELECT type_key, name FROM quest_types ORDER BY id");
+    $count = $qstmt->fetchColumn();
     
     if ($count == 0) {
-        // Insert the two supported quest types: custom and client_support
+        // Insert the supported quest types: custom, client_support, client_call
         $defaultTypes = [
             ['type_key' => 'custom', 'name' => 'Custom', 'description' => 'User-defined/custom quests', 'icon' => 'fa-star'],
-            ['type_key' => 'client_support', 'name' => 'Client & Support Operations', 'description' => 'Client support related quests (auto-attached skills)', 'icon' => 'fa-headset']
+            ['type_key' => 'client_call', 'name' => 'Client Call Handling', 'description' => 'Aggregate and handle all client calls for a shift/period (call center task)', 'icon' => 'fa-phone']
         ];
 
         $stmt = $pdo->prepare("INSERT INTO quest_types (type_key, name, description, icon) VALUES (:type_key, :name, :description, :icon)");
@@ -82,6 +82,10 @@ try {
     $pdo->exec("ALTER TABLE quests ADD COLUMN IF NOT EXISTS service_level_description TEXT DEFAULT NULL");
     $pdo->exec("ALTER TABLE quests ADD COLUMN IF NOT EXISTS vendor_name VARCHAR(255) DEFAULT NULL");
     $pdo->exec("ALTER TABLE quests ADD COLUMN IF NOT EXISTS estimated_hours DECIMAL(6,2) DEFAULT NULL");
+    // Add aggregation_date, aggregation_shift, call_log_path for client_call
+    $pdo->exec("ALTER TABLE quests ADD COLUMN IF NOT EXISTS aggregation_date DATE DEFAULT NULL");
+    $pdo->exec("ALTER TABLE quests ADD COLUMN IF NOT EXISTS aggregation_shift VARCHAR(20) DEFAULT NULL");
+    $pdo->exec("ALTER TABLE quests ADD COLUMN IF NOT EXISTS call_log_path VARCHAR(255) DEFAULT NULL");
     $pdo->exec("ALTER TABLE quests 
                 ADD COLUMN IF NOT EXISTS visibility ENUM('public', 'private') DEFAULT 'public'");
     $pdo->exec("ALTER TABLE quests 
@@ -108,15 +112,22 @@ try {
         file_path VARCHAR(255) NOT NULL,
         file_size INT NOT NULL,
         file_type VARCHAR(100) NOT NULL,
+        uploaded_by VARCHAR(255) DEFAULT NULL,
         uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        is_sample_output TINYINT(1) DEFAULT 0,
         FOREIGN KEY (quest_id) REFERENCES quests(id) ON DELETE CASCADE
     )");
+    // Ensure columns exist for older installations where the table may be missing new fields
+    $pdo->exec("ALTER TABLE quest_attachments ADD COLUMN IF NOT EXISTS uploaded_by VARCHAR(255) DEFAULT NULL");
+    $pdo->exec("ALTER TABLE quest_attachments ADD COLUMN IF NOT EXISTS is_sample_output TINYINT(1) DEFAULT 0");
 } catch (PDOException $e) {
     error_log("Error setting up new tables: " . $e->getMessage());
 }
 
 $error = '';
 $success = '';
+// Track inserted attachments across request for rendering/debugging
+$inserted_attachments = [];
 
 // Initialize form variables
 $title = '';
@@ -148,25 +159,35 @@ try {
     $skills = $stmt->fetchAll(PDO::FETCH_ASSOC);
     // Fetch quest types from DB (populated by migration/create_quest.php setup)
     try {
-    // Only fetch the two supported quest types
-    $qstmt = $pdo->query("SELECT type_key, name FROM quest_types WHERE type_key IN ('custom','client_support') ORDER BY id");
-    $quest_types = $qstmt->fetchAll(PDO::FETCH_ASSOC);
+        // Always show both 'Custom' and 'Client Call' options, regardless of DB state
+        $qstmt = $pdo->query("SELECT type_key, name FROM quest_types WHERE type_key IN ('custom','client_call') ORDER BY id");
+        $quest_types = $qstmt->fetchAll(PDO::FETCH_ASSOC);
+        // If DB is missing either, add fallback
+        $type_keys = array_column($quest_types, 'type_key');
+        if (!in_array('custom', $type_keys)) {
+            $quest_types[] = ['type_key' => 'custom', 'name' => 'Custom'];
+        }
+        if (!in_array('client_call', $type_keys)) {
+            $quest_types[] = ['type_key' => 'client_call', 'name' => 'Client Call Handling'];
+        }
     } catch (PDOException $e) {
         // If quest_types doesn't exist yet, fall back to defaults
         $quest_types = [
             ['type_key' => 'custom', 'name' => 'Custom'],
-            ['type_key' => 'client_support', 'name' => 'Client & Support Operations']
+            ['type_key' => 'client_call', 'name' => 'Client Call Handling']
         ];
     }
 } catch (PDOException $e) {
     error_log("Database error fetching data: " . $e->getMessage());
 }
 
-// Auto skills for Client & Support Operations (used for display before creation)
+// Auto skills for Client Call Handling (used for display before creation)
 $client_auto_skills = [
-    ['skill_name' => 'Client Communication', 'category_name' => 'Client & Support Operations', 'tier' => 3, 'is_custom' => false],
-    ['skill_name' => 'Ticket Management', 'category_name' => 'Client & Support Operations', 'tier' => 2, 'is_custom' => false],
-    ['skill_name' => 'Incident Diagnosis', 'category_name' => 'Client & Support Operations', 'tier' => 3, 'is_custom' => false]
+    ['skill_name' => 'Communication', 'category_name' => 'Core Skills', 'tier' => 1, 'is_custom' => false],
+    ['skill_name' => 'Attention to Detail', 'category_name' => 'Core Skills', 'tier' => 1, 'is_custom' => false],
+    ['skill_name' => 'Tech Proficiency', 'category_name' => 'Core Skills', 'tier' => 1, 'is_custom' => false],
+    ['skill_name' => 'Empathy', 'category_name' => 'Core Skills', 'tier' => 1, 'is_custom' => false],
+    ['skill_name' => 'Teamwork', 'category_name' => 'Core Skills', 'tier' => 1, 'is_custom' => false]
 ];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -200,21 +221,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($ts === false || $ts <= 0) {
             $due_date = null;
         } else {
-            // normalize format
             $due_date = date('Y-m-d H:i:s', $ts);
-        }
-    }
-
-    // Enforce a minimum lead time to avoid immediate 'missed' race conditions.
-    // Require due_date to be at least $minLeadSeconds in the future.
-    $minLeadSeconds = 300; // 5 minutes
-    if (!empty($due_date)) {
-        $dueTs = strtotime($due_date);
-        // Accept due dates that are exactly $minLeadSeconds in the future.
-        // Previously this used <= which rejected exact-equality and caused
-        // valid selections (e.g. exactly 5 minutes ahead) to be treated as invalid.
-        if ($dueTs !== false && $dueTs < (time() + $minLeadSeconds)) {
-            $error = 'Due date must be at least ' . ($minLeadSeconds/60) . ' minutes in the future. Please select a later date/time.';
         }
     }
     // Quest type (routine/minor/standard/major/project) and recurrence/publish fields
@@ -235,9 +242,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $assign_to = isset($_POST['assign_to']) ? $_POST['assign_to'] : [];
     $assign_group = null;
     $status = 'active';
-    // Quest display type: 'custom' (default) or 'client_support'
+    // Quest display type: 'custom' (default) or 'client_call'
     $display_type = isset($_POST['display_type']) ? $_POST['display_type'] : 'custom';
-    // Additional client/support details (visible only for client_support type)
+    // Server-side validation: require sample_output when creating a client_call quest
+    if ($display_type === 'client_call') {
+        if (!isset($_FILES['sample_output']) || ($_FILES['sample_output']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+            $error = 'Expected Output sample file is required when creating a Client Call Handling quest.';
+        }
+    }
+    // Additional client call details (visible only for client_call type)
     $client_name = trim($_POST['client_name'] ?? '');
     $client_reference = trim($_POST['client_reference'] ?? '');
     $sla_priority = $_POST['sla_priority'] ?? 'medium';
@@ -250,6 +263,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $service_level_description = trim($_POST['service_level_description'] ?? '');
     $vendor_name = trim($_POST['vendor_name'] ?? '');
     $estimated_hours = isset($_POST['estimated_hours']) && $_POST['estimated_hours'] !== '' ? floatval($_POST['estimated_hours']) : null;
+    // Aggregation fields for client_call
+    $aggregation_date = isset($_POST['aggregation_date']) ? $_POST['aggregation_date'] : null;
+    $aggregation_shift = isset($_POST['aggregation_shift']) ? $_POST['aggregation_shift'] : null;
+    // call_log upload removed: Expected Output Upload (sample) is used instead for evidence
+    // Handle file upload for sample_output (client_call only)
+    $sample_output_url = '';
+    if ($display_type === 'client_call' && isset($_FILES['sample_output']) && $_FILES['sample_output']['error'] === UPLOAD_ERR_OK) {
+        $upload_dir = __DIR__ . '/uploads/quest_attachments/';
+        if (!is_dir($upload_dir)) { mkdir($upload_dir, 0777, true); }
+        $ext = pathinfo($_FILES['sample_output']['name'], PATHINFO_EXTENSION);
+        $basename = uniqid('sample_output_') . '.' . $ext;
+        $target_path = $upload_dir . $basename;
+        if (move_uploaded_file($_FILES['sample_output']['tmp_name'], $target_path)) {
+            $sample_output_url = 'uploads/quest_attachments/' . $basename;
+        }
+    }
+    // Save sample_output as a special attachment if uploaded
+    // NOTE: Do not insert into quest_attachments yet — quest_id is not available until the quest record is created below.
     
     // Handle selected skills with tiers
     $selected_skills = isset($_POST['quest_skills']) ? $_POST['quest_skills'] : [];
@@ -297,8 +328,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Due date is required';
     } elseif (!in_array($quest_assignment_type, ['mandatory', 'optional'])) {
         $error = 'Quest assignment type must be either mandatory or optional';
-    } elseif ($display_type !== 'client_support' && empty($existing_skills) && empty($custom_skills)) {
-        // For custom quests require user-selected skills; for client_support skills are auto-attached
+    } elseif ($display_type !== 'client_call' && empty($existing_skills) && empty($custom_skills)) {
+        // For custom quests require user-selected skills; for client_call skills are auto-attached
         $error = 'At least one skill must be selected for this quest';
     } elseif (count($selected_skills) > 5) {
         $error = 'Maximum of 5 skills can be selected per quest';
@@ -356,14 +387,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (empty($error)) {
             try {
                 $pdo->beginTransaction();
+                // Track any attachment rows created during this transaction for debugging/flash
+                $inserted_attachments = array();
                 
                 // Determine visibility: if assigned to specific users, make private
                 $visibility_value = !empty($assign_to) ? 'private' : 'public';
 
                 // Create the quest (include display_type and optional client/support fields)
                 $stmt = $pdo->prepare("INSERT INTO quests 
-                    (title, description, status, due_date, created_by, quest_assignment_type, visibility, display_type, quest_type, recurrence_pattern, recurrence_end_date, publish_at, client_name, client_reference, sla_priority, expected_response, client_contact_email, client_contact_phone, sla_due_hours, external_ticket_link, service_level_description, vendor_name, estimated_hours, created_at) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())");
+                    (title, description, status, due_date, created_by, quest_assignment_type, quest_type, visibility, recurrence_pattern, recurrence_end_date, publish_at, display_type, client_name, client_reference, sla_priority, expected_response, client_contact_email, client_contact_phone, sla_due_hours, external_ticket_link, service_level_description, vendor_name, estimated_hours, aggregation_date, aggregation_shift) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
                 $stmt->execute([
                     $title,
                     $description,
@@ -371,12 +404,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $due_date,
                     $_SESSION['employee_id'],
                     $quest_assignment_type,
-                    $visibility_value,
-                    $display_type,
                     in_array($quest_type, ['routine','minor','standard','major','project','recurring']) ? $quest_type : 'routine',
+                    $visibility_value,
                     $recurrence_pattern ?: null,
                     $recurrence_end_date,
                     $publish_at,
+                    $display_type,
                     $client_name ?: null,
                     $client_reference ?: null,
                     in_array($sla_priority, ['low','medium','high']) ? $sla_priority : 'medium',
@@ -387,29 +420,54 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $external_ticket_link ?: null,
                     $service_level_description ?: null,
                     $vendor_name ?: null,
-                    $estimated_hours
+                    $estimated_hours,
+                    $aggregation_date,
+                    $aggregation_shift
                 ]);
                 $quest_id = $pdo->lastInsertId();
+
+                // If a sample expected output file was uploaded earlier, insert it now with the correct quest_id
+                if (!empty($sample_output_url)) {
+                    try {
+                        $ist = $pdo->prepare("INSERT INTO quest_attachments (quest_id, file_name, file_path, file_size, file_type, uploaded_by, uploaded_at, is_sample_output) VALUES (?, ?, ?, ?, ?, ?, NOW(), 1)");
+                        $ist->execute([
+                            $quest_id,
+                            $_FILES['sample_output']['name'] ?? basename($sample_output_url),
+                            $sample_output_url,
+                            $_FILES['sample_output']['size'] ?? 0,
+                            $_FILES['sample_output']['type'] ?? 'application/octet-stream',
+                            $_SESSION['employee_id'] ?? null
+                        ]);
+                        // record inserted attachment id and filename for the success flash
+                        $att_id = $pdo->lastInsertId();
+                        $inserted_attachments[] = ['id' => $att_id, 'file' => $_FILES['sample_output']['name'] ?? basename($sample_output_url), 'path' => $sample_output_url];
+                    } catch (PDOException $e) {
+                        // Log but do not abort the whole transaction for a non-critical attachment failure
+                        error_log('Failed to save sample_output attachment: ' . $e->getMessage());
+                    }
+                }
 
                 // Process skills: use the already separated existing and custom skills
                 $final_skill_ids = [];
 
-                // If this is a Client & Support Operations quest, auto-attach a fixed set of skills
-                if ($display_type === 'client_support') {
-                    // Define auto skills and desired tiers (1-5)
+                if ($display_type === 'client_call') {
+                    // Standardized auto-skills for Client Call Handling
                     $autoSkills = [
-                        'Client Communication' => 3,
-                        'Ticket Management' => 2,
-                        'Incident Diagnosis' => 3
+                        'Communication' => 1,
+                        'Attention to Detail' => 1,
+                        'Tech Proficiency' => 1,
+                        'Empathy' => 1,
+                        'Teamwork' => 1
                     ];
+                    $category_name = 'Client Call';
 
                     // Ensure category exists
                     $catStmt = $pdo->prepare("SELECT id FROM skill_categories WHERE category_name = ? LIMIT 1");
-                    $catStmt->execute(['Client & Support Operations']);
+                    $catStmt->execute([$category_name]);
                     $category_id = $catStmt->fetchColumn();
                     if (!$category_id) {
                         $insCat = $pdo->prepare("INSERT INTO skill_categories (category_name) VALUES (?)");
-                        $insCat->execute(['Client & Support Operations']);
+                        $insCat->execute([$category_name]);
                         $category_id = $pdo->lastInsertId();
                     }
 
@@ -420,7 +478,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $sid = $sStmt->fetchColumn();
                         if (!$sid) {
                             $create = $pdo->prepare("INSERT INTO comprehensive_skills (skill_name, category_id, description, tier_1_points, tier_2_points, tier_3_points, tier_4_points, tier_5_points) VALUES (?, ?, ?, 5, 10, 15, 20, 25)");
-                            $create->execute([$skillName, $category_id, "Auto skill for Client & Support Operations: $skillName"]);
+                            $create->execute([$skillName, $category_id, "Auto skill for $category_name: $skillName"]);
                             $sid = $pdo->lastInsertId();
                         }
                         $final_skill_ids[] = intval($sid);
@@ -584,6 +642,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $assignment_count = count($all_assignments);
                 $success = 'Quest created successfully' . 
                            ($assignment_count > 0 ? " and assigned to $assignment_count employee(s)!" : '!');
+                // If attachments were inserted, append details to the success message for debugging
+                // Do not append attachment debug info for client_call quests (we hide attachments for that type)
+                if (!empty($inserted_attachments) && (($display_type ?? '') !== 'client_call')) {
+                    $parts = [];
+                    foreach ($inserted_attachments as $ia) {
+                        $parts[] = "[id=" . intval($ia['id']) . ", file=" . htmlspecialchars($ia['file']) . "]";
+                    }
+                    if (!empty($parts)) {
+                        $success .= ' Attachments saved: ' . implode(', ', $parts);
+                    }
+                }
                 
                 // Clear form on success
                 if ($success) {
@@ -594,7 +663,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $due_date = null;
                     $selected_skills = [];
                 }
-            } catch (PDOException $e) {
+            }
+            catch (PDOException $e) {
                 if ($pdo->inTransaction()) {
                     $pdo->rollBack();
                 }
@@ -1343,6 +1413,19 @@ function getFontSize() {
                         <h3 class="text-sm font-medium text-green-800">Success</h3>
                         <div class="mt-1 text-sm text-green-700">
                             <?php echo htmlspecialchars($success); ?>
+                            <?php if (!empty($inserted_attachments) && (($display_type ?? '') !== 'client_call')): ?>
+                                <div class="mt-2 text-sm">
+                                    <strong>Saved attachment(s):</strong>
+                                    <ul class="mt-1 list-disc pl-5">
+                                    <?php foreach ($inserted_attachments as $ia): ?>
+                                        <li>
+                                            <a href="<?php echo htmlspecialchars($ia['path']); ?>" target="_blank" class="text-blue-700 underline"><?php echo htmlspecialchars($ia['file']); ?></a>
+                                            (id=<?php echo intval($ia['id']); ?>)
+                                        </li>
+                                    <?php endforeach; ?>
+                                    </ul>
+                                </div>
+                            <?php endif; ?>
                         </div>
                     </div>
                 </div>
@@ -1365,7 +1448,7 @@ function getFontSize() {
                                     <option value="<?php echo htmlspecialchars($qt['type_key']); ?>" <?php echo (isset($display_type) && $display_type == $qt['type_key']) ? 'selected' : (!isset($display_type) && $qt['type_key']=='custom' ? 'selected' : ''); ?>><?php echo htmlspecialchars($qt['name']); ?></option>
                                 <?php endforeach; ?>
                             </select>
-                            <p class="text-xs text-gray-500 mt-1">Choose the quest type. Selecting <strong>Client &amp; Support Operations</strong> will auto-attach required skills and reveal client/SLA fields for outsourcing requests.</p>
+                            <p class="text-xs text-gray-500 mt-1">Choose the quest type. Selecting <strong>Client Call Handling</strong> will auto-attach required skills and reveal aggregation and call log fields for call center or client support tasks.</p>
                         </div>
 
                         <!-- Client / Support extra details are rendered below title & description (moved) -->
@@ -1385,32 +1468,37 @@ function getFontSize() {
                             <p class="text-xs text-gray-500 mt-1">Provide clear acceptance criteria, expected outputs, and any steps or context reviewers need. Attach sample files if helpful.</p>
                         </div>
 
-                        <!-- Client / Support extra details (moved below title & description) -->
-                        <div id="clientDetails" style="display: <?php echo (isset($display_type) && $display_type === 'client_support') ? 'block' : 'none'; ?>;">
-                            <p class="text-xs text-gray-500 mb-2">These fields capture client-facing details and SLA expectations. Fill them when the quest relates to external clients or support tickets.</p>
-                            <div>
-                                <label for="client_name" class="block text-sm font-medium text-gray-700 mb-1">Client Name</label>
-                                <input type="text" id="client_name" name="client_name" value="<?php echo htmlspecialchars($client_name ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="Client or account name">
-                            </div>
-                            <div>
-                                <label for="client_reference" class="block text-sm font-medium text-gray-700 mb-1">Ticket / Reference ID</label>
-                                <input type="text" id="client_reference" name="client_reference" value="<?php echo htmlspecialchars($client_reference ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="Ticket number or reference">
-                            </div>
-                            <div class="grid grid-cols-2 gap-6">
+                        <!-- Client Call Handling Aggregation Details -->
+                        <div id="clientDetails" style="display: <?php echo (isset($display_type) && $display_type === 'client_call') ? 'block' : 'none'; ?>;">
+                            <p class="text-xs text-gray-500 mb-2">
+                                <strong>Aggregate Client Call Handling:</strong> This quest should cover all client calls handled for a specific shift, day, or reporting period. Please specify the period and upload a summary or log of all calls handled.<br>
+                                <em>Example title:</em> "Client Call Handling for 2026-02-16 (Morning Shift)"<br>
+                                <em>Attach a call log, ticket summary, or report as evidence.</em>
+                            </p>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div>
-                                    <label for="sla_priority" class="block text-sm font-medium text-gray-700 mb-1">SLA Priority</label>
-                                    <select id="sla_priority" name="sla_priority" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg">
-                                        <option value="low" <?php echo (isset($sla_priority) && $sla_priority == 'low') ? 'selected' : ''; ?>>Low</option>
-                                        <option value="medium" <?php echo (isset($sla_priority) && $sla_priority == 'medium') ? 'selected' : (!isset($sla_priority) ? 'selected' : ''); ?>>Medium</option>
-                                        <option value="high" <?php echo (isset($sla_priority) && $sla_priority == 'high') ? 'selected' : ''; ?>>High</option>
+                                    <label for="aggregation_date" class="block text-sm font-medium text-gray-700 mb-1">Date*</label>
+                                    <input type="date" id="aggregation_date" name="aggregation_date" value="<?php echo htmlspecialchars($aggregation_date ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" required>
+                                </div>
+                                <div>
+                                    <label for="aggregation_shift" class="block text-sm font-medium text-gray-700 mb-1">Shift*</label>
+                                    <select id="aggregation_shift" name="aggregation_shift" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" required>
+                                        <option value="">Select shift</option>
+                                        <option value="full_day" <?php if(isset($aggregation_shift) && $aggregation_shift=='full_day') echo 'selected'; ?>>Full Day</option>
+                                        <option value="morning" <?php if(isset($aggregation_shift) && $aggregation_shift=='morning') echo 'selected'; ?>>Morning</option>
+                                        <option value="afternoon" <?php if(isset($aggregation_shift) && $aggregation_shift=='afternoon') echo 'selected'; ?>>Afternoon</option>
+                                        <option value="evening" <?php if(isset($aggregation_shift) && $aggregation_shift=='evening') echo 'selected'; ?>>Evening</option>
+                                        <option value="night" <?php if(isset($aggregation_shift) && $aggregation_shift=='night') echo 'selected'; ?>>Night</option>
                                     </select>
                                 </div>
-                                <div>
-                                    <label for="expected_response" class="block text-sm font-medium text-gray-700 mb-1">Expected Response</label>
-                                    <input type="text" id="expected_response" name="expected_response" value="<?php echo htmlspecialchars($expected_response ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="e.g., 24 hours">
-                                </div>
                             </div>
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
+                            <!-- Call Log / Evidence Upload removed for Client Call Handling quests; Expected Output Upload (sample) is used instead -->
+                            <div class="mt-3">
+                                <label for="sample_output" class="block text-sm font-medium text-gray-700 mb-1">Expected Output Upload (sample)</label>
+                                <input type="file" id="sample_output" name="sample_output" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" accept=".txt,.csv,.pdf,.xlsx,.xls">
+                                <p class="text-xs text-gray-400">Upload the expected output sample file that submitters should match. This will be shown on the quest view as "Expected Output" and saved to the quest_attachments table.</p>
+                            </div>
+                            <div class="grid grid-cols-2 gap-6 mt-4">
                                 <div>
                                     <label for="client_contact_email" class="block text-sm font-medium text-gray-700 mb-1">Client Contact Email</label>
                                     <input type="email" id="client_contact_email" name="client_contact_email" value="<?php echo htmlspecialchars($client_contact_email ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="name@client.com">
@@ -1578,7 +1666,7 @@ function getFontSize() {
                                 </div>
                             </div>
 
-                                <p class="text-xs text-gray-500">Tip: For client-facing quests, keep skills focused on customer handling and diagnosis. Auto-attached skills will be added if you choose the Client & Support type.</p>
+                                <p class="text-xs text-gray-500">Tip: For client-facing quests, keep skills focused on customer handling and diagnosis. Auto-attached skills will be added if you choose the Client & Support or Client Call - Junior Associate type.</p>
 
                             <!-- Category Buttons -->
                             <div class="mb-4">
@@ -2485,12 +2573,21 @@ function getFontSize() {
                 $('.is-invalid').removeClass('is-invalid');
                 $('.error-message').remove();
                 
-                // Validate skills selection (allow zero when Client & Support Operations is chosen)
+                // Validate skills selection (allow zero when Client Call is chosen)
                 var displayTypeVal = $('#display_type').val();
-                if (displayTypeVal !== 'client_support' && selectedSkills.size === 0) {
+                if (displayTypeVal !== 'client_call' && selectedSkills.size === 0) {
                     $('#skillsSection').addClass('is-invalid');
                     $('#skillsSection').append('<p class="error-message text-red-500 text-sm mt-1">Please select at least one skill for this quest</p>');
                     isValid = false;
+                }
+                // If Client Call is chosen, ensure Expected Output sample file is provided
+                if (displayTypeVal === 'client_call') {
+                    var sampleEl = document.getElementById('sample_output');
+                    if (!sampleEl || !sampleEl.value) {
+                        // show inline error near the call_log/sample inputs
+                        $('#skillsSection').after('<p class="error-message text-red-500 text-sm mt-2">Expected Output sample file is required for Client Call Handling quests.</p>');
+                        isValid = false;
+                    }
                 }
                 
                 console.log('DEBUG: Form validation - Selected skills:', selectedSkills.size);
@@ -3643,7 +3740,7 @@ document.addEventListener('DOMContentLoaded', function() {
         var sel = document.getElementById('display_type');
         if (!sel) return;
         var val = sel.value;
-        var isClient = (val === 'client_support');
+        var isClient = (val === 'client_call');
 
         var clientDetails = document.getElementById('clientDetails');
         if (clientDetails) clientDetails.style.display = isClient ? 'block' : 'none';
@@ -3653,7 +3750,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         var skillsSection = document.getElementById('skillsSection');
         if (skillsSection) {
-            // disable interactive controls when client_support
+            // disable interactive controls when client_call
             var interactive = skillsSection.querySelectorAll('input, button, select, textarea');
             interactive.forEach(function(el) {
                 // keep lockedSkillsContainer elements interactive state unchanged
@@ -3675,7 +3772,7 @@ document.addEventListener('DOMContentLoaded', function() {
             // hide Add Custom Skill buttons
             var addBtns = skillsSection.querySelectorAll('[onclick="showCustomSkillModal()"]');
             addBtns.forEach(function(b){ b.style.display = isClient ? 'none' : 'inline-block'; });
-            // If client_support is selected, render the auto skills into the selected badges area
+            // If client_call is selected, render the auto skills into the selected badges area
             var badgesContainer = document.getElementById('selected-skills-badges');
             if (isClient) {
                 renderClientAutoSkillsInto(badgesContainer);
@@ -3695,7 +3792,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
     </script>
-</body>
 <script>
 // Toggle client details visibility when quest type changes
 document.addEventListener('DOMContentLoaded', function() {
@@ -3703,7 +3799,7 @@ document.addEventListener('DOMContentLoaded', function() {
     var clientDetails = document.getElementById('clientDetails');
     function updateClientDetails() {
         if (!displaySelect || !clientDetails) return;
-        if (displaySelect.value === 'client_support') {
+        if (displaySelect.value === 'client_call') {
             clientDetails.style.display = 'block';
         } else {
             clientDetails.style.display = 'none';
@@ -3819,13 +3915,13 @@ document.addEventListener('DOMContentLoaded', function() {
         try {
             var displaySelect = document.getElementById('display_type');
             var isClient = false;
-            if (displaySelect) isClient = (displaySelect.value === 'client_support');
+            if (displaySelect) isClient = (displaySelect.value === 'client_call');
 
             // Count selected skills via hidden inputs created by the UI
             var skillInputs = document.querySelectorAll('input[name^="quest_skills"]');
             var selectedCount = skillInputs ? skillInputs.length : 0;
 
-            // If client_support, client auto-skills will be attached server-side; allow zero on client
+            // If client_call, client auto-skills will be attached server-side; allow zero on client
             if (!isClient && selectedCount === 0) {
                 e.preventDefault();
                 alert('Please select at least one skill for this quest.');

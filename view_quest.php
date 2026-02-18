@@ -66,8 +66,20 @@ try {
     $stmt = $pdo->prepare("SELECT * FROM quest_attachments WHERE quest_id = ?");
     $stmt->execute([$quest_id]);
     $attachments = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    // Find sample output attachment if present (by file name or is_sample_output flag)
+    $sample_output_url = '';
+    foreach ($attachments as $att) {
+        if ((isset($att['is_sample_output']) && $att['is_sample_output']) ||
+            (isset($att['file_name']) && stripos($att['file_name'], 'sample') !== false) ||
+            (isset($att['file_name']) && stripos($att['file_name'], 'expected') !== false)) {
+            $sample_output_url = $att['file_path'];
+            break;
+        }
+    }
 
-    // Load quest skills (for display, especially for client_support quests)
+    // No fallback to uploads directory: only show Expected Output when a DB attachment exists.
+
+    // Load quest skills (for display, especially for client_call quests)
     // Join skill_categories so we can show the skill category name and tier info in the view UI
     $stmt = $pdo->prepare("SELECT qs.*, cs.skill_name, cs.category_id, sc.category_name, cs.tier_1_points, cs.tier_2_points, cs.tier_3_points, cs.tier_4_points, cs.tier_5_points FROM quest_skills qs LEFT JOIN comprehensive_skills cs ON qs.skill_id = cs.id LEFT JOIN skill_categories sc ON cs.category_id = sc.id WHERE qs.quest_id = ?");
     $stmt->execute([$quest_id]);
@@ -150,123 +162,127 @@ if (isset($display_type) && strtolower(trim((string)$display_type)) === 'custom'
 </head>
 <body>
 <div class="container">
-    <?php if (!isset($quest['display_type']) || ($quest['display_type'] !== 'client_support' && $quest['display_type'] !== 'custom')): ?>
-        <a href="<?php echo htmlspecialchars($back_link); ?>" class="btn btn-ghost">← Back</a>
-        <h1><?php echo htmlspecialchars($quest['title']); ?></h1>
-        <div class="meta">Status: <?php echo htmlspecialchars($quest['status']); ?> | Due: <?php echo !empty($quest['due_date']) ? htmlspecialchars($quest['due_date']) : '—'; ?></div>
 
-        <div class="card" style="margin-top:12px;">
-            <h3>Description</h3>
-            <div><?php echo nl2br(htmlspecialchars($quest['description'])); ?></div>
-        </div>
-    <?php else: ?>
-        <a href="<?php echo htmlspecialchars($back_link); ?>" class="btn btn-ghost">← Back</a>
-    <?php endif; ?>
+    <a href="<?php echo htmlspecialchars($back_link); ?>" class="btn btn-ghost">← Back</a>
 
     <?php
-    // If this is a client_support quest OR a custom quest viewed by its creator (or
-    // requested by an assigned submitter via as_creator_view=1), render the full
-    // create/edit style form UI in read-only mode so the quest appears as it was
-    // created. For submitters the assignment section will be hidden by the form UI.
-    $as_creator_view = isset($_GET['as_creator_view']) && (string)$_GET['as_creator_view'] === '1';
-    // Determine if current user is assigned to this quest
+    // Always render the create quest UI in read-only mode for all quest types, with all values populated from the database.
+    $mode = 'view';
+    $title = $quest['title'] ?? '';
+    $description = $quest['description'] ?? '';
+    $display_type = $quest['display_type'] ?? 'custom';
+    $quest_assignment_type = $quest['quest_assignment_type'] ?? 'optional';
+    $client_name = $quest['client_name'] ?? '';
+    $client_reference = $quest['client_reference'] ?? '';
+    $sla_priority = $quest['sla_priority'] ?? 'medium';
+    $expected_response = $quest['expected_response'] ?? '';
+    $client_contact_email = $quest['client_contact_email'] ?? '';
+    $client_contact_phone = $quest['client_contact_phone'] ?? '';
+    $sla_due_hours = $quest['sla_due_hours'] ?? null;
+    $estimated_hours = $quest['estimated_hours'] ?? null;
+    $vendor_name = $quest['vendor_name'] ?? '';
+    $external_ticket_link = $quest['external_ticket_link'] ?? '';
+    $aggregation_date = $quest['aggregation_date'] ?? '';
+    $aggregation_shift = $quest['aggregation_shift'] ?? '';
+    $call_log_path = $quest['call_log_path'] ?? '';
+    $service_level_description = $quest['service_level_description'] ?? '';
+    $due_date = $quest['due_date'] ?? '';
+    $publish_at = $quest['publish_at'] ?? '';
+    $assign_to = array_map(function($u){ return $u['employee_id'] ?? ''; }, $assigned_users ?: []);
+    $quest_skills_count = is_array($quest_skills) ? count($quest_skills) : 0;
+
+    // Determine if the current viewer is an assigned user (not the creator)
     $is_assigned = false;
-    if (!empty($assigned_users) && $employee_id) {
+    if (!empty($employee_id) && is_array($assigned_users)) {
         foreach ($assigned_users as $au) {
-            if (isset($au['employee_id']) && (string)$au['employee_id'] === (string)$employee_id) { $is_assigned = true; break; }
+            if ((string)($au['employee_id'] ?? '') === (string)$employee_id) { $is_assigned = true; break; }
         }
     }
 
-    if (isset($quest['display_type']) && (
-            $quest['display_type'] === 'client_support' ||
-            ($quest['display_type'] === 'custom' && ($is_creator || ($as_creator_view && $is_assigned)))
-        )) {
-        // Prepare variables expected by the form include so it renders identical UI.
-        $mode = 'view';
-        // Populate basic form variables from $quest so the form fields show saved values
-        $title = $quest['title'] ?? '';
-        $description = $quest['description'] ?? '';
-        $display_type = $quest['display_type'] ?? 'custom';
-        $quest_assignment_type = $quest['quest_assignment_type'] ?? 'optional';
-        $client_name = $quest['client_name'] ?? '';
-        $client_reference = $quest['client_reference'] ?? '';
-        $sla_priority = $quest['sla_priority'] ?? 'medium';
-        $expected_response = $quest['expected_response'] ?? '';
-        $client_contact_email = $quest['client_contact_email'] ?? '';
-        $client_contact_phone = $quest['client_contact_phone'] ?? '';
-        $sla_due_hours = $quest['sla_due_hours'] ?? null;
-        $estimated_hours = $quest['estimated_hours'] ?? null;
-        $vendor_name = $quest['vendor_name'] ?? '';
-        $external_ticket_link = $quest['external_ticket_link'] ?? '';
-        $service_level_description = $quest['service_level_description'] ?? '';
-        $due_date = $quest['due_date'] ?? '';
-        $publish_at = $quest['publish_at'] ?? '';
-        $assign_to = array_map(function($u){ return $u['employee_id'] ?? ''; }, $assigned_users ?: []);
+    // Fetch employees and skills to match create_quest UI (used for lists and JS initialization)
+    try {
+        $stmt = $pdo->query("SELECT employee_id, full_name FROM users WHERE role IN ('skill_associate','quest_lead') ORDER BY full_name");
+        $employees = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) { $employees = []; }
+    try {
+        $stmt = $pdo->query("SELECT cs.id as skill_id, cs.skill_name, sc.category_name, sc.id as category_id, cs.tier_1_points, cs.tier_2_points, cs.tier_3_points, cs.tier_4_points, cs.tier_5_points FROM comprehensive_skills cs JOIN skill_categories sc ON cs.category_id = sc.id ORDER BY sc.category_name, cs.skill_name");
+        $skills = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) { $skills = []; }
+    try {
+        $qstmt = $pdo->query("SELECT type_key, name FROM quest_types WHERE type_key IN ('custom','client_call') ORDER BY id");
+        $quest_types = $qstmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        $quest_types = [ ['type_key'=>'custom','name'=>'Custom'], ['type_key'=>'client_call','name'=>'Client Call'] ];
+    }
 
-        // Fetch employees and skills to match create_quest UI (used for lists and JS initialization)
-        try {
-            $stmt = $pdo->query("SELECT employee_id, full_name FROM users WHERE role IN ('skill_associate','quest_lead') ORDER BY full_name");
-            $employees = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        } catch (PDOException $e) { $employees = []; }
-        try {
-            $stmt = $pdo->query("SELECT cs.id as skill_id, cs.skill_name, sc.category_name, sc.id as category_id, cs.tier_1_points, cs.tier_2_points, cs.tier_3_points, cs.tier_4_points, cs.tier_5_points FROM comprehensive_skills cs JOIN skill_categories sc ON cs.category_id = sc.id ORDER BY sc.category_name, cs.skill_name");
-            $skills = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        } catch (PDOException $e) { $skills = []; }
-        try {
-            $qstmt = $pdo->query("SELECT type_key, name FROM quest_types WHERE type_key IN ('custom','client_support') ORDER BY id");
-            $quest_types = $qstmt->fetchAll(PDO::FETCH_ASSOC);
-        } catch (PDOException $e) {
-            $quest_types = [ ['type_key'=>'custom','name'=>'Custom'], ['type_key'=>'client_support','name'=>'Client & Support Operations'] ];
+    // Ensure client_call fallback exists in the fetched list (some installs may have client_support instead)
+    $type_keys = array_column($quest_types, 'type_key');
+    if (!in_array('client_call', $type_keys)) {
+        $quest_types[] = ['type_key' => 'client_call', 'name' => 'Client Call Handling'];
+    }
+
+    // Determine human-friendly name for display_type (fallback if includes/quest_form_ui cannot resolve)
+    $display_type_name = null;
+    if (!empty($quest_types) && isset($display_type)) {
+        foreach ($quest_types as $qt) {
+            if (isset($qt['type_key']) && $qt['type_key'] === $display_type) { $display_type_name = $qt['name']; break; }
         }
+    }
+    if ($display_type_name === null && isset($display_type)) {
+        try {
+            $stmt = $pdo->prepare("SELECT name FROM quest_types WHERE type_key = ? LIMIT 1");
+            $stmt->execute([$display_type]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($row && !empty($row['name'])) { $display_type_name = $row['name']; }
+        } catch (Exception $e) {
+            // ignore and fall back to raw key
+        }
+    }
+    // friendly label for templates
+    $display_type_display = $display_type_name ?? $display_type;
 
-        // Count attached quest skills for display
-        $quest_skills_count = is_array($quest_skills) ? count($quest_skills) : 0;
+    // Ensure all client_call fields and correct skills are passed to the form UI
+    // Pass $sample_output_url to the form UI for Expected Output visibility
+    // If this is a client_call quest, override the displayed selected skills
+    // to the standardized auto-skill set so viewers (creator or assignees)
+    // always see the intended skill names and Beginner level.
+    if (isset($display_type) && $display_type === 'client_call') {
+        $quest_skills = [
+            ['skill_name' => 'Communication', 'tier_level' => 1, 'category_name' => 'Auto'],
+            ['skill_name' => 'Attention to Detail', 'tier_level' => 1, 'category_name' => 'Auto'],
+            ['skill_name' => 'Tech Proficiency', 'tier_level' => 1, 'category_name' => 'Auto'],
+            ['skill_name' => 'Empathy', 'tier_level' => 1, 'category_name' => 'Auto'],
+            ['skill_name' => 'Teamwork', 'tier_level' => 1, 'category_name' => 'Auto']
+        ];
+        $quest_skills_count = count($quest_skills);
+    }
 
-        // Include the full create-style form UI but rendered in view mode (read-only via JS)
-        include __DIR__ . '/includes/quest_form_ui.php';
+    include __DIR__ . '/includes/quest_form_ui.php';
+
+    // The Expected Output view block is rendered inside the included form UI (includes/quest_form_ui.php)
+
+    // --- Show all quest attachments (not just sample output) ---
+    // Hide generic attachment list for client_call quests (we already show Expected Output)
+    // Also hide for assigned users viewing their assigned quest (they only need Expected Output shown above)
+    if (!empty($attachments) && $display_type !== 'client_call' && (!($is_assigned && !$is_creator && ($_SESSION['role'] ?? '') !== 'learning_architect'))) {
+        echo '<div class="card p-6 mt-6">';
+        echo '<h2 class="text-xl font-semibold text-gray-800 mb-4 pb-2 border-b border-gray-100">';
+        echo '<i class="fas fa-paperclip text-indigo-500 mr-2"></i> Quest Attachments';
+        echo '</h2>';
+        echo '<ul class="list-disc pl-6">';
+        foreach ($attachments as $att) {
+            $file_name = htmlspecialchars($att['file_name'] ?? basename($att['file_path']));
+            $file_path = htmlspecialchars($att['file_path']);
+            $is_sample = !empty($att['is_sample_output']);
+            $label = $is_sample ? ' (Sample Output)' : '';
+            echo '<li class="mb-2">';
+            echo '<a href="' . $file_path . '" target="_blank" class="text-blue-700 underline">' . $file_name . '</a>' . $label;
+            echo '</li>';
+        }
+        echo '</ul>';
+        echo '</div>';
     }
     ?>
-
-    <?php if (!$is_custom && (!isset($quest['display_type']) || $quest['display_type'] !== 'client_support')): ?>
-        <div class="card" style="margin-top:12px;">
-            <h3>Attachments (creator uploaded)</h3>
-            <?php if (empty($attachments)): ?>
-                <div class="meta">No attachments uploaded by creator.</div>
-            <?php else: ?>
-                <?php foreach ($attachments as $att): ?>
-                    <div class="attachment">
-                        <a href="<?php echo htmlspecialchars($att['file_path']); ?>" target="_blank"><?php echo htmlspecialchars($att['file_name']); ?></a>
-                        (<?php echo round(((int)$att['file_size'])/1024,1); ?> KB)
-                    </div>
-                <?php endforeach; ?>
-            <?php endif; ?>
-        </div>
-
-        <div class="card" style="margin-top:12px;">
-            <h3>Your Submissions</h3>
-            <?php if (empty($submissions)): ?>
-                <div class="meta">No submissions found.</div>
-            <?php else: ?>
-                <ul>
-                <?php foreach ($submissions as $s): ?>
-                    <li style="margin-bottom:10px;">
-                        <div><strong><?php echo htmlspecialchars($s['title'] ?? 'Submission'); ?></strong> — <?php echo htmlspecialchars($s['status']); ?>
-                        <div class="meta">Submitted at: <?php echo htmlspecialchars($s['submitted_at']); ?> by <?php echo htmlspecialchars($s['full_name'] ?? $s['employee_id']); ?></div>
-                        <?php if (!empty($s['file_path'])): ?>
-                            <div class="attachment"><a href="<?php echo htmlspecialchars($s['file_path']); ?>" target="_blank">Download attachment</a></div>
-                        <?php endif; ?>
-                        <?php if (!empty($s['link'])): ?>
-                            <div class="attachment"><a href="<?php echo htmlspecialchars($s['link']); ?>" target="_blank">View link</a></div>
-                        <?php endif; ?>
-                        <?php if (!empty($s['text'])): ?>
-                            <div class="attachment"><?php echo nl2br(htmlspecialchars($s['text'])); ?></div>
-                        <?php endif; ?>
-                    </li>
-                <?php endforeach; ?>
-                </ul>
-            <?php endif; ?>
-        </div>
-    <?php endif; ?>
 
 </div>
 </body>

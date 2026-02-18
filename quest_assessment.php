@@ -232,7 +232,7 @@ try {
 }
 
 // Detect client & support quests early for POST handling as well
-$isClientSupport = isset($quest['display_type']) && $quest['display_type'] === 'client_support';
+    $isClientCall = isset($quest['display_type']) && $quest['display_type'] === 'client_call';
 
 // Try to resolve missing identifiers gracefully before redirecting
 if ($quest_id && !$user_id) {
@@ -290,8 +290,8 @@ if (empty($error) && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['subm
 
         // Special-case grading for Client & Support Operations quests: one overall grade applied to all auto-attached skills
         if ($isClientSupport) {
-            $overall_perf = isset($_POST['client_support_performance']) ? (float)$_POST['client_support_performance'] : 1.0;
-            $notes_overall = sanitize_input($_POST['client_support_notes'] ?? '');
+            $overall_perf = isset($_POST['client_call_performance']) ? (float)$_POST['client_call_performance'] : 1.0;
+            $notes_overall = sanitize_input($_POST['client_call_notes'] ?? '');
 
             // Compute early-submission bonus (2% per full day early, capped at 20%) using submitted_at and quest due_date
             $bonus_percent = 0.0;
@@ -337,7 +337,7 @@ if (empty($error) && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['subm
                 ];
                 $total_points += $result['points_awarded'];
 
-                // persist per-skill record but mark as overall client_support grade
+                // persist per-skill record but mark as overall client_call grade
                 try {
                     $reviewedBy = $_SESSION['employee_id'] ?? (string)($_SESSION['user_id'] ?? '');
                     $stmt = $pdo->prepare("INSERT INTO quest_assessment_details 
@@ -364,7 +364,7 @@ if (empty($error) && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['subm
                         $reviewedBy,
                     ]);
                 } catch (PDOException $e) {
-                    error_log('Failed to save client_support assessment detail: ' . $e->getMessage());
+                    error_log('Failed to save client_call assessment detail: ' . $e->getMessage());
                 }
             }
         } else {
@@ -763,8 +763,8 @@ if (isset($_GET['success'])) {
                     </div>
 
                     <?php
-                        // Detect client_support quests early so we can suppress the top file preview
-                        $isClientSupport = (isset($quest['display_type']) && $quest['display_type'] === 'client_support');
+                        // Detect client_call quests early so we can suppress the top file preview
+                        $isClientCall = (isset($quest['display_type']) && $quest['display_type'] === 'client_call');
 
                         if (!$isClientSupport) {
                         $rendered = false;
@@ -959,9 +959,9 @@ if (isset($_GET['success'])) {
 
                         }
 
-                        // If this quest is client_support, render client/support specific submitted fields
+                        // If this quest is client_call, render client call specific submitted fields
                         // Render Client & Support details only when the quest's display_type explicitly
-                        // indicates 'client_support'. Previously the UI fell back to checking submission
+                        // indicates 'client_call'. Previously the UI fell back to checking submission
                         // field presence which caused incorrect layouts for 'custom' quests.
                         if ($isClientSupport) {
                             $ticket = $latestSubmission['ticket_reference'] ?? $latestSubmission['ticket_id'] ?? $latestSubmission['ticket'] ?? '';
@@ -1230,7 +1230,7 @@ if (isset($_GET['success'])) {
                 $safe_skills = is_array($quest_skills) ? $quest_skills : []; 
                 $gradedAlready = in_array(strtolower(trim((string)($latestSubmission['status'] ?? ''))), ['approved','rejected'], true);
                 // Detect client & support quests (they use auto-attached skills and a single assessment instance)
-                $isClientSupport = isset($quest['display_type']) && $quest['display_type'] === 'client_support';
+                $isClientCall = isset($quest['display_type']) && $quest['display_type'] === 'client_call';
                 // Load existing assessment details per skill if graded
                 $existingAssessments = [];
                 if ($gradedAlready && !empty($latestSubmission['id'])) {
@@ -1308,7 +1308,7 @@ if (isset($_GET['success'])) {
                             }
                         ?>
                         <div>
-                            <select name="client_support_performance" class="performance-select" id="clientSupportPerf" <?= $gradedAlready ? 'disabled' : '' ?> style="width:100%;max-width:420px;padding:8px;border-radius:6px;border:1px solid #d1d5db;"
+                            <select name="client_call_performance" class="performance-select" id="clientCallPerf" <?= $gradedAlready ? 'disabled' : '' ?> style="width:100%;max-width:420px;padding:8px;border-radius:6px;border:1px solid #d1d5db;"
                                 data-submitted-ts="<?= (int)$submitted_at_ts ?>" data-due-ts="<?= (int)$due_ts ?>" data-skill-count="<?= count($quest_skills) ?>" data-graded="<?= $gradedAlready ? '1' : '0' ?>">
                                 <option value="0.0" <?= ($existingSelectedBase === 0.0)?'selected':'' ?>>Not completed (0%) = 0 pts</option>
                                 <option value="0.8" <?= ($existingSelectedBase === 0.8)?'selected':'' ?>>Completed but Below Expectations (-20%)</option>
@@ -1318,7 +1318,7 @@ if (isset($_GET['success'])) {
                             </select>
                         </div>
                         <div style="margin-top:8px;font-size:0.9em;color:#374151;">Early submission bonus: up to 2% per day early, capped at 20% (applied on top of the selected performance multiplier).</div>
-                        <div style="margin-top:8px;"><label for="client_support_notes">Notes (optional):</label><br/><textarea name="client_support_notes" id="client_support_notes" rows="3" style="width:100%;max-width:720px;"><?= htmlspecialchars($existingOverall['notes'] ?? '') ?></textarea></div>
+                        <div style="margin-top:8px;"><label for="client_call_notes">Notes (optional):</label><br/><textarea name="client_call_notes" id="client_call_notes" rows="3" style="width:100%;max-width:720px;"><?= htmlspecialchars($existingOverall['notes'] ?? '') ?></textarea></div>
 
                         <!-- Dynamic preview of points when grading client-support quests -->
                         <div id="clientSupportPreview" style="margin-top:12px;">

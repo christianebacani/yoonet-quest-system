@@ -86,8 +86,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $quest_id && $employee_id) {
         return $num;
     };
 
-    // Allow optional support file upload for client_support quests (stored into file_path like regular file submissions)
-    if (isset($quest['display_type']) && $quest['display_type'] === 'client_support') {
+    // Allow optional support file upload for client_call quests (stored into file_path like regular file submissions)
+    if (isset($quest['display_type']) && $quest['display_type'] === 'client_call') {
         if (isset($_FILES['support_file']) && isset($_FILES['support_file']['error'])) {
             $supp = $_FILES['support_file'];
             if ($supp['error'] === UPLOAD_ERR_OK) {
@@ -124,7 +124,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $quest_id && $employee_id) {
     $ticket_reference = '';
     $time_spent_hours = null;
     $evidence_json = '';
-    if (isset($quest['display_type']) && $quest['display_type'] === 'client_support') {
+    if (isset($quest['display_type']) && $quest['display_type'] === 'client_call') {
         // Force text submission type and collect client-specific fields
         $submission_type = 'text';
         $text = trim($_POST['action_taken'] ?? '');
@@ -590,7 +590,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $quest_id && $employee_id) {
                 </style>
             <?php }
             if (empty($success)) { ?>
-            <?php if (isset($quest['display_type']) && $quest['display_type'] === 'client_support'): ?>
+            <?php if (isset($quest['display_type']) && $quest['display_type'] === 'client_call'): ?>
             <!-- Modernized submission UI for Client & Support Operations quests (matches other quest types) -->
             <form method="post" enctype="multipart/form-data" id="submissionForm">
                 <input type="hidden" name="quest_id" value="<?php echo htmlspecialchars($quest_id); ?>">
@@ -621,10 +621,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $quest_id && $employee_id) {
                 </div>
 
                 <div class="form-row">
-                    <label class="form-label">Upload supporting file (optional)</label>
+                    <label class="form-label">Upload supporting file <span style='color:red'>(required)</span></label>
                     <div id="support_dropzone" class="dropzone" style="text-align:center;">
                         Drag & drop your file here or click to select
-                        <input type="file" id="support_file" name="support_file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.txt,.zip">
+                        <input type="file" id="support_file" name="support_file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.txt,.zip" required>
                     </div>
                     <div class="meta" style="margin-top:8px; text-align:center; font-size:0.95em; color:#6b7280;">PDF, DOC, DOCX, JPG, PNG, TXT, ZIP (Max 5MB)</div>
                     <button type="button" id="clearSupportFileBtn" class="btn btn-primary" style="margin-top:8px;display:none;">Unselect File</button>

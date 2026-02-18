@@ -58,7 +58,7 @@
         }
     }
 
-    $isClientSupport = (isset($quest['display_type']) && $quest['display_type'] === 'client_support');
+    $isClientCall = (isset($quest['display_type']) && $quest['display_type'] === 'client_call');
 
     // prepare file-related variables
     $filePath = '';
@@ -487,8 +487,8 @@ try {
                     <?php endif; ?>
 
                     <?php
-                        // If this quest is client_support, render all client/support specific submitted fields
-                        $isClientSupport = (isset($quest['display_type']) && $quest['display_type'] === 'client_support');
+                        // If this quest is client_call, render all client call specific submitted fields
+                        $isClientCall = (isset($quest['display_type']) && $quest['display_type'] === 'client_call');
                         // Safely detect if any client-related fields exist without triggering undefined-key notices
                         $hasClientFields = false;
                         $clientKeys = ['ticket_reference','ticket_id','ticket','action_taken','time_spent','time_spent_hours','time_spent_hrs','evidence_json','evidence','resolution_status','follow_up_required','follow_up','comments'];
@@ -497,7 +497,7 @@ try {
                         }
 
                         // Only render the Client & Support layout when the quest is explicitly
-                        // marked as client_support. Previously we also inferred client layout
+                        // marked as client_call. Previously we also inferred client layout
                         // when certain submission keys existed; that caused Custom quests to
                         // render with the wrong structure. Use display_type as the source
                         // of truth to decide layout.

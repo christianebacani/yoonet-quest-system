@@ -28,10 +28,10 @@ try {
     )");
 
     // Remove any non-default quest types and upsert the two canonical types
-    $pdo->exec("DELETE FROM quest_types WHERE type_key NOT IN ('custom','client_support')");
+    $pdo->exec("DELETE FROM quest_types WHERE type_key NOT IN ('custom','client_call')");
     $pdo->exec("INSERT INTO quest_types (type_key, name, description, icon) VALUES
         ('custom', 'Custom', 'User-defined/custom quests', 'fa-star'),
-        ('client_support', 'Client & Support Operations', 'Client support related quests (auto-attached skills)', 'fa-headset')
+        ('client_call', 'Client Call Handling', 'Aggregate and handle all client calls for a shift/period (call center task)', 'fa-phone')
         ON DUPLICATE KEY UPDATE name=VALUES(name), description=VALUES(description), icon=VALUES(icon)");
 } catch (PDOException $e) {
     // Non-fatal if ALTER fails on older MySQL versions; continue
@@ -131,7 +131,30 @@ try {
     $stmt->execute([$quest_id]);
     $subtasks = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
-    // Attachments removed for this installation (no longer used on edit page)
+    // Handle file upload for sample_output (client_call only)
+    $sample_output_url = '';
+    if ($display_type === 'client_call' && isset($_FILES['sample_output']) && $_FILES['sample_output']['error'] === UPLOAD_ERR_OK) {
+        $upload_dir = __DIR__ . '/uploads/quest_attachments/';
+        if (!is_dir($upload_dir)) { mkdir($upload_dir, 0777, true); }
+        $ext = pathinfo($_FILES['sample_output']['name'], PATHINFO_EXTENSION);
+        $basename = uniqid('sample_output_') . '.' . $ext;
+        $target_path = $upload_dir . $basename;
+        if (move_uploaded_file($_FILES['sample_output']['tmp_name'], $target_path)) {
+            $sample_output_url = 'uploads/quest_attachments/' . $basename;
+        }
+    }
+    // Save sample_output as a special attachment if uploaded
+    if (!empty($sample_output_url)) {
+        $stmt = $pdo->prepare("INSERT INTO quest_attachments (quest_id, file_name, file_path, file_size, file_type, uploaded_by, uploaded_at, is_sample_output) VALUES (?, ?, ?, ?, ?, ?, NOW(), 1)");
+        $stmt->execute([
+            $quest_id,
+            $_FILES['sample_output']['name'],
+            $sample_output_url,
+            $_FILES['sample_output']['size'],
+            $_FILES['sample_output']['type'],
+            $employee_id
+        ]);
+    }
     
     // Fetch quest skills for editing
     $stmt = $pdo->prepare("
@@ -230,7 +253,7 @@ try {
 } catch (PDOException $e) {
     $quest_types = [
         ['type_key' => 'custom', 'name' => 'Custom'],
-        ['type_key' => 'client_support', 'name' => 'Client & Support Operations']
+        ['type_key' => 'client_call', 'name' => 'Client Call Handling']
     ];
 }
 
@@ -1266,32 +1289,18 @@ function getFontSize() {
                         </div>
 
                         <!-- If this quest is Client & Support Operations, show the same client/SLA fields as create_quest.php so creators can edit them -->
-                        <?php if ($display_type === 'client_support'): ?>
+                        <?php if ($display_type === 'client_call'): ?>
                         <div id="clientDetails" class="mt-2">
-                            <p class="text-xs text-gray-500 mb-2">These fields capture client-facing details and SLA expectations. Fill them when the quest relates to external clients or support tickets.</p>
+                            <p class="text-xs text-gray-500 mb-2">
+                                <strong>Aggregate Client Calls:</strong> This quest should cover all client calls handled for a specific shift, day, or reporting period. Please specify the period and provide the Expected Output sample for submitters.<br>
+                                <em>Example title:</em> "Handle all client calls for 2026-02-16 (Morning Shift)"<br>
+                            </p>
                             <div>
-                                <label for="client_name" class="block text-sm font-medium text-gray-700 mb-1">Client Name</label>
-                                <input type="text" id="client_name" name="client_name" value="<?php echo htmlspecialchars($client_name ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="Client or account name">
+                                <label for="aggregation_period" class="block text-sm font-medium text-gray-700 mb-1">Aggregation Period*</label>
+                                <input type="text" id="aggregation_period" name="aggregation_period" value="<?php echo htmlspecialchars($aggregation_period ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="e.g., 2026-02-16 (Morning Shift)" required>
                             </div>
-                            <div>
-                                <label for="client_reference" class="block text-sm font-medium text-gray-700 mb-1">Ticket / Reference ID</label>
-                                <input type="text" id="client_reference" name="client_reference" value="<?php echo htmlspecialchars($client_reference ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="Ticket number or reference">
-                            </div>
-                            <div class="grid grid-cols-2 gap-6">
-                                <div>
-                                    <label for="sla_priority" class="block text-sm font-medium text-gray-700 mb-1">SLA Priority</label>
-                                    <select id="sla_priority" name="sla_priority" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg">
-                                        <option value="low" <?php echo (isset($sla_priority) && $sla_priority == 'low') ? 'selected' : ''; ?>>Low</option>
-                                        <option value="medium" <?php echo (isset($sla_priority) && $sla_priority == 'medium') ? 'selected' : (!isset($sla_priority) ? 'selected' : ''); ?>>Medium</option>
-                                        <option value="high" <?php echo (isset($sla_priority) && $sla_priority == 'high') ? 'selected' : ''; ?>>High</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label for="expected_response" class="block text-sm font-medium text-gray-700 mb-1">Expected Response</label>
-                                    <input type="text" id="expected_response" name="expected_response" value="<?php echo htmlspecialchars($expected_response ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="e.g., 24 hours">
-                                </div>
-                            </div>
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
+                            <!-- Call Log / Summary Upload removed; use Expected Output Upload instead -->
+                            <div class="grid grid-cols-2 gap-6 mt-4">
                                 <div>
                                     <label for="client_contact_email" class="block text-sm font-medium text-gray-700 mb-1">Client Contact Email</label>
                                     <input type="email" id="client_contact_email" name="client_contact_email" value="<?php echo htmlspecialchars($client_contact_email ?? ''); ?>" class="w-full px-4 py-2.5 border border-gray-200 rounded-lg" placeholder="name@client.com">
