@@ -1,3 +1,6 @@
+-- Add is_sample_output column to quest_attachments if not exists
+ALTER TABLE `quest_attachments`
+  ADD COLUMN IF NOT EXISTS `is_sample_output` tinyint(1) NOT NULL DEFAULT 0 AFTER `file_type`;
 -- phpMyAdmin SQL Dump
 -- version 5.2.1
 -- https://www.phpmyadmin.net/
@@ -497,6 +500,7 @@ CREATE TABLE `quest_attachments` (
   `file_path` varchar(255) NOT NULL,
   `file_size` int(11) NOT NULL,
   `file_type` varchar(100) NOT NULL,
+  `is_sample_output` tinyint(1) NOT NULL DEFAULT 0,
   `uploaded_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
