@@ -6,7 +6,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['login'])) {
     try {
         // Validate inputs
         $employee_id = sanitize_input($_POST['employee_id'] ?? '');
-        $password = sanitize_input($_POST['password'] ?? '');
+        $password = $_POST['password'] ?? '';
         
         if (empty($employee_id) || empty($password)) {
             throw new Exception("Both Employee ID and password are required");
