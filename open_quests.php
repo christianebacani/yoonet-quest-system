@@ -112,7 +112,8 @@ try {
         $qid = $q['id'];
         if (!isset($user_quests_map[$qid])) return true;
         $status = $user_quests_map[$qid]['status'];
-        return $status === 'assigned';
+        // Show quest if assigned, in_progress, accepted, or started (for optional/mandatory)
+        return in_array($status, ['assigned','in_progress','accepted','started']);
     });
     $available_quests = array_values($available_quests);
 } catch (PDOException $e) {

@@ -1,9 +1,97 @@
 <?php
-// created_quests.php - lists quests created by the current user
-$require_auth = true;
-require_once 'includes/auth.php';
 require_once 'includes/config.php';
 require_once 'includes/functions.php';
+
+$employee_id = $_SESSION['employee_id'] ?? null;
+$full_name = $_SESSION['full_name'] ?? 'User';
+
+// Try to map to users.id where possible
+$user_id = null;
+try {
+    if (!empty($employee_id) && isset($pdo)) {
+        $stmt = $pdo->prepare("SELECT id FROM users WHERE employee_id = ? LIMIT 1");
+        $stmt->execute([$employee_id]);
+        $user_id = $stmt->fetchColumn() ?: null;
+    }
+} catch (Exception $e) {
+    // ignore mapping errors
+}
+
+// Handle simple assignment action (POST)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['assign_quest_id']) && !empty($_POST['assign_to'])) {
+    $assign_quest_id = (int)$_POST['assign_quest_id'];
+    // Accept alphanumeric employee IDs (e.g. QL003, SA001) — do not cast to int
+    $assign_to = array_values(array_filter(array_map('trim', (array)$_POST['assign_to'])));
+    if ($assign_quest_id > 0 && count($assign_to) > 0 && isset($pdo)) {
+        try {
+            // verify creator and status
+            $stmt = $pdo->prepare("SELECT created_by, status FROM quests WHERE id = ?");
+            $stmt->execute([$assign_quest_id]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+            $createdBy = $row['created_by'] ?? null;
+            $status = strtolower($row['status'] ?? '');
+
+            // Normalize created_by and identifiers to allow various storage formats
+            $norm = function($v) { return strtolower(trim((string)($v ?? ''))); };
+            $createdByNorm = $norm($createdBy);
+            $empNorm = $norm($employee_id);
+            $userNorm = $norm($user_id);
+            $userPrefixed = $norm('user_' . (string)$user_id);
+
+            $allowed = $row && (
+                ($empNorm !== '' && $createdByNorm === $empNorm) ||
+                ($userNorm !== '' && $createdByNorm === $userNorm) ||
+                ($userPrefixed !== '' && $createdByNorm === $userPrefixed)
+            );
+
+            if (!$allowed) {
+                $_SESSION['error'] = 'You do not have permission to assign this quest or it is already assigned.';
+            } elseif (!in_array($status, ['created','active','assigned'])) {
+                $_SESSION['error'] = 'This quest cannot be assigned in its current state.';
+            } else {
+                $pdo->beginTransaction();
+                // prepared insert (use INSERT IGNORE if supported by your DB)
+                $insertStmt = $pdo->prepare("INSERT INTO user_quests (employee_id, quest_id, status, assigned_at) VALUES (?, ?, 'assigned', NOW())");
+                $checkStmt = $pdo->prepare("SELECT COUNT(*) FROM user_quests WHERE quest_id = ? AND employee_id = ?");
+                foreach ($assign_to as $emp_id) {
+                    $emp_id = trim((string)$emp_id);
+                    if ($emp_id === '') continue;
+                    try {
+                        $checkStmt->execute([$assign_quest_id, $emp_id]);
+                        if ($checkStmt->fetchColumn() == 0) {
+                            $insertStmt->execute([$emp_id, $assign_quest_id]);
+                        }
+                    } catch (PDOException $e) {
+                        // non-fatal per-assignee error; continue
+                        error_log('Assignment insert error for employee ' . $emp_id . ': ' . $e->getMessage());
+                    }
+                }
+                $pdo->commit();
+
+                // Verify assignments exist and update quest status to 'assigned'
+                try {
+                    $cntStmt = $pdo->prepare("SELECT COUNT(*) FROM user_quests WHERE quest_id = ?");
+                    $cntStmt->execute([$assign_quest_id]);
+                    $countAssigned = (int)$cntStmt->fetchColumn();
+                    if ($countAssigned > 0) {
+                        $updateStatus = $pdo->prepare("UPDATE quests SET status = 'assigned' WHERE id = ?");
+                        $updateStatus->execute([$assign_quest_id]);
+                    }
+                } catch (PDOException $e) {
+                    error_log('Failed to verify/update quest status after assignment: ' . $e->getMessage());
+                }
+
+                $_SESSION['success'] = 'Quest assigned successfully.';
+            }
+        } catch (PDOException $e) {
+            if (isset($pdo) && $pdo->inTransaction()) { $pdo->rollBack(); }
+            error_log('Error assigning quest: ' . $e->getMessage());
+            $_SESSION['error'] = 'Error assigning quest.';
+        }
+    }
+    header('Location: created_quests.php');
+    exit();
+}
 
 $page_title = 'My Created Quests';
 
@@ -278,6 +366,22 @@ function statusBadge($s) {
         @media(max-width:600px) { .footer-right { justify-content:center; } }
     </style>
     </style>
+    <style>
+    /* Improved Assign modal styles */
+    .assign-modal{display:none;position:fixed;inset:0;background:rgba(2,6,23,0.36);z-index:9999;align-items:center;justify-content:center;padding:28px}
+    .assign-modal[aria-hidden="false"]{display:flex}
+    .assign-modal-content{width:100%;max-width:620px;background:#fff;border-radius:12px;padding:22px 22px 18px;box-shadow:0 20px 60px rgba(2,6,23,0.12);border:1px solid rgba(15,23,42,0.04);}
+    .assign-modal-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+    .assign-modal-title{font-size:1.25rem;font-weight:700;color:#0f172a}
+    .assign-modal-close{background:transparent;border:none;color:#6b7280;font-size:20px;cursor:pointer}
+    .assign-employee-list{max-height:300px;overflow:auto;border-radius:10px;border:1px solid #eef2f7;padding:8px;background:#fbfdff}
+    .assign-employee-list label{display:flex;align-items:center;gap:12px;padding:10px;border-radius:8px;cursor:pointer}
+    .assign-employee-list label:hover{background:#f8fafc}
+    .assign-employee-list input[type=checkbox]{width:18px;height:18px}
+    .assign-actions{display:flex;gap:12px;justify-content:flex-end;margin-top:16px}
+    .btn-cancel{background:#fff;border:1px solid #e6e9f2;color:#5b6b8a;padding:10px 14px;border-radius:10px}
+    .btn-assign{background:linear-gradient(90deg,#7c3aed,#6366f1);color:#fff;padding:10px 14px;border-radius:10px;border:none}
+    </style>
 </head>
 <body>
     <div class="max-w-6xl mx-auto py-8 px-4 container-inner">
@@ -327,10 +431,8 @@ function statusBadge($s) {
                                 <div class="quest-desc"><?php echo htmlspecialchars(substr($q['description'] ?? '', 0, 250)); ?><?php echo (strlen($q['description'] ?? '') > 250) ? '...' : ''; ?></div>
                                 <div class="quest-meta">
                                     <?php
-                                        // Determine a display status. If a quest is active but has no assignments
-                                        // or submissions and it's older than the configured threshold, show as 'inactive'.
                                         $displayStatus = strtolower(trim((string)$q['status'] ?? ''));
-                                        $INACTIVE_DAYS = 30; // recommended threshold, can be tuned
+                                        $INACTIVE_DAYS = 30;
                                         if ($displayStatus === 'active') {
                                             $createdTs = strtotime($q['created_at'] ?? '');
                                             $hasSubmissions = ((int)($q['approved_count'] ?? 0) + (int)($q['pending_count'] ?? 0) + (int)($q['rejected_count'] ?? 0)) > 0;
@@ -339,13 +441,13 @@ function statusBadge($s) {
                                             }
                                         }
                                     ?>
+                                    <span style="background:#eee;color:#b91c1c;padding:2px 8px;border-radius:6px;font-size:0.8em;margin-bottom:2px;">DEBUG status: '<?php echo htmlspecialchars($q['status']); ?>'</span>
                                     <?php if (!empty($q['due_date'])): ?>
                                         <span class="date-status">
                                             <span class="meta-badge due" title="Due date"><?php echo htmlspecialchars(date('M j, Y', strtotime($q['due_date']))); ?></span>
                                             <?php echo statusBadge($displayStatus); ?>
                                         </span>
                                     <?php endif; ?>
-                                    <!-- Bottom badges moved inside the left column so they're immediately under the meta -->
                                     <div class="card-bottom-badges" style="margin-top:0;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
                                         <?php if ((int)$q['assigned_count'] > 0): ?>
                                             <span class="meta-badge assigned">Assigned: <?php echo (int)$q['assigned_count']; ?></span>
@@ -367,24 +469,33 @@ function statusBadge($s) {
                             </div>
                             <div style="display:flex; flex-direction:column; gap:8px; margin-left:12px;">
                                 <?php
-                                    // Lock editing if there are any submissions (pending, approved or rejected)
                                     $total_submissions = (int)($q['approved_count'] ?? 0) + (int)($q['pending_count'] ?? 0) + (int)($q['rejected_count'] ?? 0);
                                 ?>
+                                <?php $qstatus = strtolower(trim((string)$q['status'])); ?>
+                                <?php if (in_array($qstatus, ['created','assigned'])): ?>
+                                    <?php
+                                        // fetch currently assigned employee_ids for this quest so we can exclude them in the modal
+                                        $assignedIds = [];
+                                        try {
+                                            $aStmt = $pdo->prepare("SELECT employee_id FROM user_quests WHERE quest_id = ?");
+                                            $aStmt->execute([(int)$q['id']]);
+                                            $assignedIds = $aStmt->fetchAll(PDO::FETCH_COLUMN);
+                                        } catch (PDOException $e) { $assignedIds = []; }
+                                    ?>
+                                    <button class="btn btn-primary btn-small assign-btn" style="margin-bottom:8px;" data-quest-id="<?php echo (int)$q['id']; ?>" data-creator="<?php echo htmlspecialchars($q['created_by'], ENT_QUOTES); ?>" data-assigned='<?php echo json_encode($assignedIds); ?>'>Assign</button>
+                                <?php endif; ?>
                                 <?php if ($isDraft): ?>
-                                    <!-- Draft UI: only View and Publish are available -->
                                     <a href="view_quest.php?id=<?php echo (int)$q['id']; ?>&show_accepted=1" class="btn btn-ghost btn-small">View</a>
                                     <form method="post" class="publish-form" data-title="<?php echo htmlspecialchars($q['title'], ENT_QUOTES); ?>" style="margin:0;">
                                         <input type="hidden" name="publish_id" value="<?php echo (int)$q['id']; ?>">
                                         <button type="submit" class="btn btn-success btn-small">Publish</button>
                                     </form>
                                 <?php else: ?>
-                                    <!-- Active/normal quest UI: View, Edit (if allowed), Save as draft -->
                                     <a href="view_quest.php?id=<?php echo (int)$q['id']; ?>&show_accepted=1" class="btn btn-ghost btn-small">View</a>
                                     <?php if ($total_submissions > 0): ?>
-                                        <!-- Editing locked when there are any submissions to avoid workflow conflicts -->
-                                        <button class="btn btn-outline btn-small btn-disabled" disabled title="Editing locked: this quest has submissions">Edit</button>
+                                        <button class="btn btn-outline btn-small btn-disabled" disabled title="Editing locked: this quest has submissions">Update</button>
                                     <?php else: ?>
-                                        <a href="edit_quest.php?id=<?php echo (int)$q['id']; ?>" class="btn btn-outline btn-small btn-edit" data-quest-id="<?php echo (int)$q['id']; ?>" data-quest-title="<?php echo htmlspecialchars($q['title'], ENT_QUOTES); ?>">Edit</a>
+                                        <a href="edit_quest.php?id=<?php echo (int)$q['id']; ?>" class="btn btn-outline btn-small btn-edit" data-quest-id="<?php echo (int)$q['id']; ?>" data-quest-title="<?php echo htmlspecialchars($q['title'], ENT_QUOTES); ?>">Update</a>
                                     <?php endif; ?>
                                     <form method="post" class="save-draft-form" data-title="<?php echo htmlspecialchars($q['title'], ENT_QUOTES); ?>">
                                         <input type="hidden" name="save_draft_id" value="<?php echo (int)$q['id']; ?>">
@@ -399,7 +510,90 @@ function statusBadge($s) {
                         </div>
                     </div>
                 </article>
+            <!-- Assignment modal moved outside the loop -->
             <?php endforeach; ?>
+            <!-- Assignment Modal (single instance) -->
+            <div id="assignmentModal" class="assign-modal" aria-hidden="true" role="dialog" aria-modal="true">
+                <div class="assign-modal-content">
+                    <div class="assign-modal-header">
+                        <div class="assign-modal-title">Assign Quest</div>
+                        <button id="closeAssignmentModal" class="assign-modal-close" aria-label="Close">&times;</button>
+                    </div>
+                    <form id="assignmentForm" method="post">
+                        <input type="hidden" name="assign_quest_id" id="assign_quest_id" value="">
+                        <div>
+                            <label style="font-weight:600;display:block;margin-bottom:8px;color:#374151">Select employees to assign:</label>
+                            <div id="employeeListModal" class="assign-employee-list">
+                                <!-- Employee checkboxes will be injected here -->
+                            </div>
+                        </div>
+                        <div class="assign-actions">
+                            <button type="button" id="cancelAssignBtn" class="btn-cancel">Cancel</button>
+                            <button type="submit" class="btn-assign">Assign</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            <script>
+            // Employees data for assignment modal (copied from PHP)
+            var employees = <?php
+                // Fetch all assignable employees (quest_lead, skill_associate) except current user
+                $empList = [];
+                try {
+                    $stmt = $pdo->prepare("SELECT employee_id, full_name FROM users WHERE role IN ('skill_associate', 'quest_lead') AND employee_id != ? ORDER BY full_name");
+                    $stmt->execute([$employee_id]);
+                    $empList = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                } catch (PDOException $e) { $empList = []; }
+                echo json_encode($empList);
+            ?>;
+
+            function renderEmployeeListModal(selected, creatorId, assignedList) {
+                var html = '';
+                assignedList = assignedList || [];
+                var assignedLower = assignedList.map(function(a){ return String(a).toLowerCase(); });
+                employees.forEach(function(emp) {
+                    // Exclude the quest creator from the assignable list
+                    if (creatorId && String(emp.employee_id).toLowerCase() === String(creatorId).toLowerCase()) return;
+                    // Exclude already-assigned employees
+                    if (assignedLower.indexOf(String(emp.employee_id).toLowerCase()) !== -1) return;
+                    var checked = selected && selected.indexOf(emp.employee_id) !== -1 ? 'checked' : '';
+                    html += `<label style="display:flex;align-items:center;gap:8px;padding:6px 16px;cursor:pointer;">
+                        <input type="checkbox" name="assign_to[]" value="${emp.employee_id}" style="accent-color:#6366f1;" ${checked}>
+                        <span style="font-size:0.97rem;">${emp.full_name} <span style="color:#64748b;font-size:0.85em;">(${emp.employee_id})</span></span>
+                    </label>`;
+                });
+                var container = document.getElementById('employeeListModal');
+                if (container) container.innerHTML = html;
+            }
+
+            document.addEventListener('DOMContentLoaded', function() {
+                // Assign button click handler
+                document.querySelectorAll('.assign-btn').forEach(function(btn) {
+                        btn.addEventListener('click', function() {
+                            var questId = btn.getAttribute('data-quest-id');
+                            var creatorId = btn.getAttribute('data-creator');
+                            var assignedJson = btn.getAttribute('data-assigned') || '[]';
+                            var assignedList = [];
+                            try { assignedList = JSON.parse(assignedJson); } catch(e) { assignedList = []; }
+                            var assignId = document.getElementById('assign_quest_id');
+                            if (assignId) assignId.value = questId;
+                            renderEmployeeListModal([], creatorId, assignedList);
+                            var modal = document.getElementById('assignmentModal');
+                            if (modal) { modal.style.display = 'flex'; modal.setAttribute('aria-hidden','false'); }
+                            // focus first checkbox for accessibility
+                            setTimeout(function(){ var cb = document.querySelector('#employeeListModal input[type=checkbox]'); if(cb) cb.focus(); }, 50);
+                        });
+                });
+                // Close modal
+                var closeBtn = document.getElementById('closeAssignmentModal');
+                if (closeBtn) closeBtn.onclick = function() { var m = document.getElementById('assignmentModal'); if(m){ m.style.display='none'; m.setAttribute('aria-hidden','true'); } };
+                var cancelBtn = document.getElementById('cancelAssignBtn');
+                if (cancelBtn) cancelBtn.onclick = function(){ var m = document.getElementById('assignmentModal'); if(m){ m.style.display='none'; m.setAttribute('aria-hidden','true'); } };
+                // Prevent accidental modal close on click outside
+                var modalEl = document.getElementById('assignmentModal');
+                if (modalEl) modalEl.addEventListener('click', function(e) { if (e.target === this) { this.style.display='none'; this.setAttribute('aria-hidden','true'); } });
+            });
+            </script>
         </div>
         </div></div>
 

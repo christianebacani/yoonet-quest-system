@@ -398,7 +398,7 @@ global $sample_output_url;
         <div class="card p-6">
     <?php endif; ?>
             <h2 class="text-xl font-semibold text-gray-800 mb-3 pb-2 border-b border-gray-100">
-                <i class="fas fa-users text-indigo-500 mr-2"></i> Assignment (Required)
+                <i class="fas fa-users text-indigo-500 mr-2"></i> Assignment
             </h2>
 
             <div>
@@ -438,6 +438,12 @@ global $sample_output_url;
                     <div class="border border-gray-200 rounded-lg max-h-40 overflow-y-auto bg-white">
                         <div id="employeeList">
                             <?php foreach ($employees as $employee): ?>
+                                <?php
+                                    // Skip the creator from the assignment list
+                                    if (isset($_SESSION['employee_id']) && $employee['employee_id'] === $_SESSION['employee_id']) {
+                                        continue;
+                                    }
+                                ?>
                                 <?php
                                     $data_name = strtolower(trim($employee['full_name'] ?? ''));
                                     $data_id_attr = strtolower(trim($employee['employee_id'] ?? ''));

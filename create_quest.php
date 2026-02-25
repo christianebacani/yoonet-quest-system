@@ -239,9 +239,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $ts = strtotime($publish_at);
         $publish_at = ($ts !== false && $ts > 0) ? date('Y-m-d H:i:s', $ts) : null;
     }
-    $assign_to = isset($_POST['assign_to']) ? $_POST['assign_to'] : [];
+    // Assignment is now handled separately after quest creation
+    $assign_to = [];
     $assign_group = null;
-    $status = 'active';
+    $status = 'created';
     // Quest display type: 'custom' (default) or 'client_call'
     $display_type = isset($_POST['display_type']) ? $_POST['display_type'] : 'custom';
     // Server-side validation: require sample_output when creating a client_call quest
@@ -363,23 +364,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
         
-        // Validate assigned employees exist and are quest takers
-        if (empty($error) && !empty($assign_to)) {
-            try {
-                $placeholders = implode(',', array_fill(0, count($assign_to), '?'));
-                $stmt = $pdo->prepare("SELECT COUNT(*) FROM users 
-                                      WHERE employee_id IN ($placeholders) 
-                                      AND role IN ('skill_associate', 'quest_lead')");
-                $stmt->execute($assign_to);
-                $count = $stmt->fetchColumn();
-                
-                if ($count != count($assign_to)) {
-                    $error = 'One or more assigned employees are invalid or not quest participants';
-                }
-            } catch (PDOException $e) {
-                $error = 'Error validating assigned employees: ' . $e->getMessage();
-            }
-        }
+        // Assignment validation removed; handled in assignment workflow
         
 
         
@@ -390,8 +375,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // Track any attachment rows created during this transaction for debugging/flash
                 $inserted_attachments = array();
                 
-                // Determine visibility: if assigned to specific users, make private
-                $visibility_value = !empty($assign_to) ? 'private' : 'public';
+
+                // Always public on creation; will be updated on assignment
+
+                // Ensure status is always set to 'created' before insert
+                $status = 'created';
+                $visibility_value = 'public';
 
                 // Create the quest (include display_type and optional client/support fields)
                 $stmt = $pdo->prepare("INSERT INTO quests 
@@ -609,39 +598,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 }
                 
-                // Only assign to selected employees
-                $all_assignments = !empty($assign_to) ? array_unique($assign_to) : [];
-                if (empty($all_assignments)) {
-                    throw new Exception('VALIDATION_NO_ASSIGNEES');
-                }
-                // Assign quest to selected employees
-                foreach ($all_assignments as $employee_id) {
-                    // First check if the employee exists
-                    $stmt = $pdo->prepare("SELECT employee_id FROM users WHERE employee_id = ?");
-                    $stmt->execute([$employee_id]);
-                    $userExists = $stmt->fetch();
-                    
-                    if (!$userExists) {
-                        error_log("Attempted to assign quest to non-existent user: " . $employee_id);
-                        continue; // Skip this assignment
-                    }
-
-                    // Set initial status based on quest assignment type
-                    $initial_status = ($quest_assignment_type === 'mandatory') ? 'in_progress' : 'assigned';
-                    
-                    $stmt = $pdo->prepare("INSERT INTO user_quests 
-                        (employee_id, quest_id, status, assigned_at) 
-                        VALUES (?, ?, ?, NOW())");
-                    $stmt->execute([$employee_id, $quest_id, $initial_status]);
-                }
+                // Assignment is now handled separately after quest creation
                 
                 $pdo->commit();
                 
                 // No template attachments by default (feature removed)
 
-                $assignment_count = count($all_assignments);
-                $success = 'Quest created successfully' . 
-                           ($assignment_count > 0 ? " and assigned to $assignment_count employee(s)!" : '!');
+                $success = 'Quest created successfully!';
                 // If attachments were inserted, append details to the success message for debugging
                 // Do not append attachment debug info for client_call quests (we hide attachments for that type)
                 if (!empty($inserted_attachments) && (($display_type ?? '') !== 'client_call')) {
@@ -1819,107 +1782,7 @@ function getFontSize() {
                     <div id="fileList" class="mt-2 space-y-2"></div>
                 </div>
 
-                <!-- Assignment Section -->
-                <div class="max-w-2xl mx-auto">
-                    <div class="card p-6">
-                        <h2 class="text-xl font-semibold text-gray-800 mb-3 pb-2 border-b border-gray-100">
-                            <i class="fas fa-users text-indigo-500 mr-2"></i> Assignment (Required)
-                        </h2>
-                        
-                        <div>
-                            <!-- Assignment Type Selection -->
-                            <div class="flex gap-4 border-b border-gray-200 pb-2 mb-3">
-                            <label class="flex items-center cursor-pointer">
-                                <input type="radio" name="assignment_type" value="individual" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500" checked onchange="toggleAssignmentType()">
-                                <span class="ml-2 text-sm font-medium text-gray-700"><i class="fas fa-user mr-1"></i>Individuals</span>
-                            </label>
-
-                        </div>
-                        
-                        <!-- Individual Assignment -->
-                        <div id="individualAssignment">
-                            <!-- Search Box -->
-                            <div class="mb-3">
-                                <div class="relative">
-                                    <input type="text" 
-                                           id="employeeSearch" 
-                                           placeholder="Search employees by name or ID..." 
-                                           class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
-                                           oninput="filterEmployees()">
-                                    <i class="fas fa-search absolute left-3 top-3 text-gray-400"></i>
-                                    <button type="button" 
-                                            onclick="clearEmployeeSearch()" 
-                                            class="absolute right-3 top-3 text-gray-400 hover:text-gray-600"
-                                            id="clearSearchBtn" 
-                                            style="display: none;">
-                                        <i class="fas fa-times text-xs"></i>
-                                    </button>
-                                </div>
-                            </div>
-                            
-                            <!-- Selected Employees Display -->
-                            <div id="selectedEmployeesDisplay" class="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-lg min-h-[40px]">
-                                <div class="text-xs font-medium text-blue-800 mb-1">Selected Employees:</div>
-                                <div id="selectedEmployeesBadges" class="flex flex-wrap gap-2">
-                                    <div class="text-xs text-blue-600 italic">No employees selected</div>
-                                </div>
-                            </div>
-                            
-                            <!-- Employee List -->
-                            <div class="border border-gray-200 rounded-lg max-h-20 overflow-y-auto bg-white">
-                                <div id="employeeList">
-                                    <?php foreach ($employees as $employee): ?>
-                         <?php
-                          // Precompute a data-name value based on the raw full_name (lowercase) to support client-side filtering
-                          $data_name = strtolower(trim($employee['full_name'] ?? ''));
-                          $data_id_attr = strtolower(trim($employee['employee_id'] ?? ''));
-                         ?>
-                         <?php
-                          // Lookup user row to prefer split columns for consistent formatting and to get numeric user id
-                          $emp_id = $employee['employee_id'];
-                          $user_id_stmt = $pdo->prepare('SELECT id, last_name, first_name, middle_name, full_name FROM users WHERE employee_id = ? LIMIT 1');
-                          $user_id_stmt->execute([$emp_id]);
-                          $user_row = $user_id_stmt->fetch(PDO::FETCH_ASSOC);
-                          $profile_user_id = $user_row ? $user_row['id'] : '';
-                          // Compute display name using helper (keeps internal spaces and proper capitalization)
-                          $display_name = $user_row ? format_display_name($user_row) : format_display_name(['full_name' => $employee['full_name']]);
-                         ?>
-                         <label class="employee-item flex items-center p-2 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-0" 
-                             data-name="<?php echo htmlspecialchars($data_name); ?>"
-                             data-id="<?php echo htmlspecialchars($data_id_attr); ?>">
-                          <input type="checkbox" 
-                              name="assign_to[]" 
-                              value="<?php echo $employee['employee_id']; ?>"
-                              class="employee-checkbox h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
-                              data-name="<?php echo htmlspecialchars($display_name); ?>"
-                              data-employee-id="<?php echo htmlspecialchars($employee['employee_id']); ?>"
-                              data-user-id="<?php echo htmlspecialchars($profile_user_id); ?>"
-                              onchange="handleEmployeeSelection(this)"
-                              <?php echo in_array($employee['employee_id'], $assign_to) ? 'checked' : ''; ?>>
-                                            <div class="ml-2 flex-1">
-                                                <a class="text-sm font-medium text-indigo-700 hover:underline" href="profile_view.php?user_id=<?php echo urlencode($profile_user_id); ?>">
-                                                    <?php echo htmlspecialchars($display_name); ?>
-                                                </a>
-                                                <div class="text-xs text-gray-500">ID: <?php echo htmlspecialchars($employee['employee_id']); ?></div>
-                                            </div>
-                                        </label>
-                                    <?php endforeach; ?>
-                                </div>
-                                <div id="noEmployeesFound" class="hidden p-4 text-center text-gray-500 text-sm">
-                                    <i class="fas fa-search text-2xl mb-2"></i>
-                                    <p>No employees found matching your search.</p>
-                                </div>
-                            </div>
-                            <p class="mt-1 text-xs text-gray-500">
-                                <i class="fas fa-info-circle mr-1"></i>
-                                Search and select employees to assign this quest. You cannot assign quests to yourself.
-                            </p>
-                        </div>
-                        
-
-                    </div>
-                    </div>
-                </div>
+                <!-- Assignment Section removed: Assignment is now handled after quest creation in created_quests.php -->
 
                 <!-- Submit Button -->
                 <div class="mt-8 pt-6 border-t border-gray-100">

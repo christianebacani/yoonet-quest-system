@@ -67,11 +67,9 @@ try {
             FROM user_quests uq
             JOIN quests q ON uq.quest_id = q.id
             WHERE uq.employee_id = ?
-                -- Exclude quests that are in draft or deleted states so they do not
-                -- appear in a user's My Quests list after a creator marks them draft.
                 AND q.status NOT IN ('draft','deleted')
-                -- Allow NULL/empty status (pending) as well as explicit lifecycle statuses.
-                AND (uq.status IS NULL OR uq.status = '' OR uq.status IN ('in_progress','accepted','started','submitted','completed','missed','failed','cancelled','approved','graded'))
+                -- Show all assigned, in_progress, accepted, started, submitted, completed, missed, failed, cancelled, approved, graded
+                AND (uq.status IS NULL OR uq.status = '' OR uq.status IN ('assigned','in_progress','accepted','started','submitted','completed','missed','failed','cancelled','approved','graded'))
             ORDER BY q.due_date ASC, q.created_at DESC";
     $stmt = $pdo->prepare($sql);
     $stmt->execute([$employee_id]);

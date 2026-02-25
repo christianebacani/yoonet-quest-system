@@ -619,12 +619,38 @@ $profile_photo = $profile['profile_photo'] ?? '';
                         <canvas id="profileSkillBarChart" height="<?= 60 + 36 * (count($top_skills)-1) ?>"></canvas>
                     </div>
                     <div style="margin-top:18px;">
+                        <?php
+                        // Define tier-to-points mapping (from quest_skills_component.php and skill_progression.php)
+                        $tierToPoints = [
+                            'T1' => 25,
+                            'T2' => 40,
+                            'T3' => 55,
+                            'T4' => 70,
+                            'T5' => 85
+                        ];
+                        ?>
+                        <div style="background:#f8fafc;padding:10px 14px 10px 14px;border-radius:8px;margin-bottom:12px;">
+                            <div style="font-size:0.97em;color:#374151;margin-bottom:4px;display:flex;align-items:center;gap:8px;">
+                                <i class="fas fa-lightbulb" style="color:#f59e42;"></i>
+                                <span><b>How much XP can you earn per quest?</b></span>
+                            </div>
+                            <div style="font-size:0.87em;color:#6b7280;line-height:1.5;margin-bottom:2px;">
+                                Each skill can earn a different amount of XP per quest, depending on the skill's importance (tier) in that quest. The higher the tier, the more XP you get!
+                            </div>
+                            <div style="font-size:0.87em;color:#6366f1;line-height:1.5;">
+                                <b>Min XP</b> = lowest tier (T1), <b>Max XP</b> = highest tier (T5). Ask your manager or check quest details for the tier assigned.
+                            </div>
+                        </div>
                         <?php foreach ($top_skills as $skill):
                             $progressMeta = getProgressToNextLevel($skill['current_level'], $skill['total_points']);
                             $progress_percent = $progressMeta['percent'];
                             $next_level = $skill['current_level'] + 1;
                             $xp_needed = $progressMeta['xp_needed'];
                             $maxed = ($progressMeta['next_floor'] === null);
+
+                            // Min/max XP per quest for this skill
+                            $min_xp = min($tierToPoints);
+                            $max_xp = max($tierToPoints);
                         ?>
                         <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0 7px 0;border-bottom:1px solid #f3f4f6;gap:10px;">
                             <div style="font-weight:700;color:#374151;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
@@ -641,6 +667,15 @@ $profile_photo = $profile['profile_photo'] ?? '';
                                     <span style="color:#f59e42;font-weight:600;">• MAX</span>
                                 <?php endif; ?>
                             </div>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;margin-left:8px;">
+                            <span style="font-size:0.88em;color:#374151;display:flex;align-items:center;gap:4px;">
+                                <i class="fas fa-arrow-down" style="color:#10b981;"></i> <b>Min XP per quest:</b> <span style="color:#10b981;"> <?= $min_xp ?> XP</span>
+                            </span>
+                            <span style="font-size:0.88em;color:#374151;display:flex;align-items:center;gap:4px;">
+                                <i class="fas fa-arrow-up" style="color:#f59e42;"></i> <b>Max XP per quest:</b> <span style="color:#f59e42;"> <?= $max_xp ?> XP</span>
+                            </span>
+                            <span style="font-size:0.8em;color:#6366f1;cursor:pointer;" title="XP per quest depends on the assigned tier (T1–T5) for this skill in each quest. Higher tier = more XP."><i class="fas fa-info-circle"></i></span>
                         </div>
                         <?php endforeach; ?>
                     </div>

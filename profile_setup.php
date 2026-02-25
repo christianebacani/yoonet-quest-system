@@ -100,51 +100,42 @@ function handlePhotoUpload($file, $user_id) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     switch ($_POST['step']) {
         case '1': // Basic Info & Photo
-            $full_name = sanitize_user_input($_POST['full_name'] ?? '');
             $bio = sanitize_user_input($_POST['bio'] ?? '');
-            
-            if ($full_name) {
-                try {
-                    // Handle photo upload if provided
-                    $photo_path = null;
-                    if (isset($_FILES['profile_photo']) && $_FILES['profile_photo']['error'] === UPLOAD_ERR_OK) {
-                        $photo_path = handlePhotoUpload($_FILES['profile_photo'], $user_id);
-                    }
-                    
-                    $sql = "UPDATE users SET full_name = ?, bio = ?";
-                    $params = [$full_name, $bio];
-                    
-                    if ($photo_path) {
-                        $sql .= ", profile_photo = ?";
-                        $params[] = $photo_path;
-                    }
-                    
-                    $sql .= " WHERE id = ?";
-                    $params[] = $user_id;
-                    
-                    try {
-                        $stmt = $pdo->prepare($sql);
-                        $stmt->execute($params);
+            $is_new_profile = empty($user['profile_photo']);
+            // Full name is not editable; always use the value from DB
+            $full_name = $user['full_name'];
 
-                        $success = "Profile updated successfully!";
-                        header("Location: profile_setup.php?step=2");
-                        exit;
-                    } catch (PDOException $e) {
-                        // Log detailed context for debugging
-                        error_log("Error updating profile: " . $e->getMessage());
-                        error_log("SQL: " . $sql);
-                        error_log("Params: " . json_encode($params));
+            // Mandate profile photo only for new profiles (no photo yet)
+            $photo_path = null;
+            if (isset($_FILES['profile_photo']) && $_FILES['profile_photo']['error'] === UPLOAD_ERR_OK) {
+                $photo_path = handlePhotoUpload($_FILES['profile_photo'], $user_id);
+            }
 
-                        // For local/dev debugging show the real message; in production you might hide this
-                        $error = "Failed to update profile: " . $e->getMessage();
-                    }
-                } catch (Exception $e) {
-                    // Other exceptions (e.g., upload errors)
-                    error_log("Error updating profile (general): " . $e->getMessage());
-                    $error = "Failed to update profile: " . $e->getMessage();
-                }
-            } else {
-                $error = "Full name is required.";
+            if ($is_new_profile && !$photo_path) {
+                $error = "Profile photo is required. Please upload a photo to continue.";
+                break;
+            }
+
+            $sql = "UPDATE users SET full_name = ?, bio = ?";
+            $params = [$full_name, $bio];
+            if ($photo_path) {
+                $sql .= ", profile_photo = ?";
+                $params[] = $photo_path;
+            }
+            $sql .= " WHERE id = ?";
+            $params[] = $user_id;
+
+            try {
+                $stmt = $pdo->prepare($sql);
+                $stmt->execute($params);
+                $success = "Profile updated successfully!";
+                header("Location: profile_setup.php?step=2");
+                exit;
+            } catch (PDOException $e) {
+                error_log("Error updating profile: " . $e->getMessage());
+                error_log("SQL: " . $sql);
+                error_log("Params: " . json_encode($params));
+                $error = "Failed to update profile: " . $e->getMessage();
             }
             break;
             
@@ -792,8 +783,8 @@ $job_positions = [
                     
                     <div class="form-group">
                         <label for="full_name" class="form-label">Full Name</label>
-               <input type="text" id="full_name" name="full_name" class="form-input" 
-                   value="<?= htmlspecialchars(format_display_name($user) ?? ($user['full_name'] ?? '')) ?>" required>
+                        <input type="text" id="full_name" name="full_name" class="form-input" value="<?= htmlspecialchars(format_display_name($user) ?? ($user['full_name'] ?? '')) ?>" readonly disabled style="background:#f3f4f6; color:#6b7280; cursor:not-allowed;">
+                        <small style="color:#6b7280;">Full name is set by the system and cannot be changed here.</small>
                     </div>
                     
                     <div class="form-group">

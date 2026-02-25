@@ -61,13 +61,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     $new_email = sanitize_user_input($_POST['email'] ?? '');
     $new_role = sanitize_user_input($_POST['role'] ?? 'skill_associate');
-    $new_gender = sanitize_user_input($_POST['gender'] ?? '');
+    $new_sex = sanitize_user_input($_POST['sex'] ?? '');
     // Keep raw password input for validation (do not silently remove whitespace)
     $new_password = $_POST['password'] ?? '';
     $confirm_password = $_POST['confirm_password'] ?? '';
 
         // Basic required field validation
-        if (!$new_employee_id || !$new_last_name || !$new_first_name || !$new_middle_name || !$new_job_position || !$new_availability || !$new_name || !$new_email || !$new_password || !$confirm_password || !$new_gender) {
+        if (!$new_employee_id || !$new_last_name || !$new_first_name || !$new_middle_name || !$new_job_position || !$new_availability || !$new_name || !$new_email || !$new_password || !$confirm_password || !$new_sex) {
             $error = 'All fields are required.';
         }
         // Employee ID basic format validation removed to allow flexible IDs (no strict 7-digit rule)
@@ -131,9 +131,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         elseif (!in_array($new_role, ['skill_associate', 'quest_lead'])) {
             $error = 'Invalid role selected.';
         }
-        // Gender validation
-        elseif (!in_array($new_gender, ['male', 'female', 'other'])) {
-            $error = 'Invalid gender selected.';
+        // Sex validation
+        elseif (!in_array($new_sex, ['male', 'female'])) {
+            $error = 'Invalid sex selected.';
         }
         else {
             // Check table structure first (for debugging)
@@ -153,14 +153,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // Use transaction for data integrity
                 $pdo->beginTransaction();
                 
-                // Check if gender column exists, if not, don't include it
-                $has_gender_column = false;
+                // Check if sex column exists, if not, don't include it
+                $has_sex_column = false;
                 try {
-                    $stmt = $pdo->query("SHOW COLUMNS FROM users LIKE 'gender'");
-                    $has_gender_column = $stmt->rowCount() > 0;
+                    $stmt = $pdo->query("SHOW COLUMNS FROM users LIKE 'sex'");
+                    $has_sex_column = $stmt->rowCount() > 0;
                 } catch (PDOException $e) {
-                    // If this fails, assume no gender column
-                    $has_gender_column = false;
+                    // If this fails, assume no sex column
+                    $has_sex_column = false;
                 }
                 
                 // Determine which availability column exists in the users table (backwards compatibility)
@@ -185,9 +185,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $availability_col_name = 'availability_hours';
                 }
 
-                if ($has_gender_column) {
-                    $sql = 'INSERT INTO users (employee_id, full_name, email, password, role, gender, created_at, last_name, first_name, middle_name, job_position, ' . $availability_col_name . ') VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
-                    $params = [$new_employee_id, $new_name, $new_email, $hashed_password, $new_role, $new_gender, $created_at, $new_last_name, $new_first_name, $new_middle_name, $raw_job_position, $new_availability];
+                if ($has_sex_column) {
+                    $sql = 'INSERT INTO users (employee_id, full_name, email, password, role, sex, created_at, last_name, first_name, middle_name, job_position, ' . $availability_col_name . ') VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+                    $params = [$new_employee_id, $new_name, $new_email, $hashed_password, $new_role, $new_sex, $created_at, $new_last_name, $new_first_name, $new_middle_name, $raw_job_position, $new_availability];
                     $stmt = $pdo->prepare($sql);
                     $success = $stmt->execute($params);
                 } else {
@@ -1031,13 +1031,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </div>
             </div>
             <div class="form-group">
-                <label for="gender" class="form-label">Gender</label>
+                <label for="sex" class="form-label">Sex</label>
                 <div class="select-input-wrapper">
-                    <select name="gender" id="gender" class="form-select" required>
-                        <option value="">Select Gender</option>
-                        <option value="male">Male</option>
-                        <option value="female">Female</option>
-                        <option value="other">Other</option>
+                    <select name="sex" id="sex" class="form-select" required>
+                        <option value="">Select Sex</option>
+                        <option value="male" <?= (isset($_POST['sex']) && $_POST['sex'] === 'male') ? 'selected' : '' ?>>Male</option>
+                        <option value="female" <?= (isset($_POST['sex']) && $_POST['sex'] === 'female') ? 'selected' : '' ?>>Female</option>
                     </select>
                     <i class="fas fa-chevron-down select-arrow-icon" aria-hidden="true"></i>
                 </div>
@@ -1378,7 +1377,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 const password = passwordField.value;
                 const confirmPassword = confirmPasswordField.value;
                 const role = document.getElementById('role').value;
-                const gender = document.getElementById('gender').value;
+                const sex = document.getElementById('sex').value;
                 
                 let validationErrors = [];
                 
@@ -1388,7 +1387,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (!email) validationErrors.push('Email is required');
                 if (!password) validationErrors.push('Password is required');
                 if (!confirmPassword) validationErrors.push('Confirm Password is required');
-                if (!gender) validationErrors.push('Gender is required');
+                if (!sex) validationErrors.push('Sex is required');
                 
                 // Employee ID format validation
                 if (employeeId && !/^[a-zA-Z0-9]{3,20}$/.test(employeeId)) {
@@ -1433,9 +1432,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     validationErrors.push('Invalid role selected');
                 }
                 
-                // Gender validation
-                if (gender && !['male', 'female', 'other'].includes(gender)) {
-                    validationErrors.push('Invalid gender selected');
+                // Sex validation
+                if (sex && !['male', 'female'].includes(sex)) {
+                    validationErrors.push('Invalid sex selected');
                 }
                 
                 // If there are validation errors, show them and prevent submission
